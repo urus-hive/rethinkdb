@@ -13,7 +13,7 @@ class Changefeeds_Basic(rdb_unittest.RdbTestCase):
     
     shards = 1
     replicas = 3
-    recordsToGenerate = 10
+    records = 10
     
     def test_simple(self):
         '''Make simple changes and ensure a single changefeed sees them'''
