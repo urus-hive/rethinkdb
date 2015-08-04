@@ -449,9 +449,11 @@ class RdbTestCase(unittest.TestCase):
     
     # -- class variables
     
-    dbName            = None # typically 'test'
-    tableName         = None # name of the first table
-    tableNames        = None
+    dbName = None
+    tableName = None
+    
+    db = None
+    table = None
     
     __cluster         = None
     __conn            = None
