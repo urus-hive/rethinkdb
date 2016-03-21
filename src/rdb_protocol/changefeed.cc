@@ -2778,7 +2778,10 @@ public:
         : stream_t(std::forward<Args>(args)...),
           read_once(false),
           cached_ready(false),
-          src(std::move(_src)) {
+          src(std::move(_src)),
+          current_stamp(0),
+          spinning(false),
+          working_on_batch(false) {
         r_sanity_check(src.has());
         for (const auto &p : sub->get_orig_stamps()) {
             stamped_ranges.insert(std::make_pair(p.first, stamped_range_t(p.second)));
@@ -2791,7 +2794,7 @@ private:
         batcher_t batcher = bs.to_batcher();
 
         while (ret.size() == 0) {
-            r_sanity_check(!batcher.should_send_batch());
+            r_sanity_check(!batcher.should_send_batch() || spinning);
             // If there's nothing left to read, behave like a normal feed.  `ready`
             // should only be called after we've confirmed `is_exhausted` returns
             // true.
@@ -2808,6 +2811,11 @@ private:
             if (read_once) {
                 while (sub->has_change_val() && !batcher.should_send_batch()) {
                     change_val_t cv = sub->pop_change_val();
+                    fprintf(stderr, "Change: %lu \n", cv.source_stamp.second);
+                    if (cv.source_stamp.second == current_stamp) {
+                        spinning = false;
+                        fprintf(stderr, "Hit target\n");
+                    }
                     // Note that `discard` updates the `stamped_ranges`.
                     datum_t el = change_val_to_change(
                         cv,
@@ -2829,11 +2837,17 @@ private:
                     ret.push_back(state_datum(state_t::INITIALIZING));
                 }
             }
-            if (!src->is_exhausted() && !batcher.should_send_batch()) {
-                // Sorting must be UNORDERED for our last_read range calculation to work.
-                batchspec_t new_bs = bs.with_lazy_sorting_override(sorting_t::UNORDERED);
-                std::vector<datum_t> batch = src->next_batch(env, new_bs);
-                update_ranges();
+
+            // Sorting must be UNORDERED for our last_read range calculation to work.
+            if (!working_on_batch) {
+                    batchspec_t new_bs = bs.with_lazy_sorting_override(sorting_t::UNORDERED);
+                    batch = src->next_batch(env, new_bs);
+                    working_on_batch = true;
+                    update_ranges();
+            }
+
+            if (!spinning) {
+                working_on_batch = false;
                 r_sanity_check(active_state);
                 read_once = true;
 
@@ -2860,7 +2874,7 @@ private:
             }
         }
 
-        r_sanity_check(ret.size() != 0);
+        r_sanity_check(ret.size() != 0 || spinning);
         return ret;
     }
 
@@ -2918,6 +2932,10 @@ private:
         active_state = src->get_active_state();
         r_sanity_check(active_state);
         for (const auto &pair : active_state->shard_last_read_stamps) {
+            if (pair.second.second > current_stamp) {
+                current_stamp = pair.second.second;
+                fprintf(stderr, "setting wait at %lu\n", current_stamp);
+            }
             add_range(pair.first, pair.second.first, pair.second.second);
         }
     }
@@ -2981,6 +2999,9 @@ private:
     counted_t<datum_stream_t> src;
     boost::optional<active_state_t> active_state;
     std::map<uuid_u, stamped_range_t> stamped_ranges;
+    std::vector<datum_t> batch;
+    uint64_t current_stamp;
+    bool spinning, working_on_batch;
 };
 
 subscription_t::subscription_t(
