@@ -38,9 +38,10 @@ $queries = [
   $tbl.get_all(0, index: :ts),
   $tbl.between(5, 15),
   $tbl.between(1, 10, index: :ts),
-  $tbl.between(0, 2, index: :ts)]
+  $tbl.between(0, 2, index: :ts)
+]
 
-for nshards in [1, 2, 5]
+for nshards in [1]#, 2, 5]
   $tbl.reconfigure(replicas: 1, shards: nshards).run
   $tbl.wait.run
   for try in 1..$ntries

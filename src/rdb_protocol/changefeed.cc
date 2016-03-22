@@ -2788,9 +2788,13 @@ public:
         }
     }
 
+    ~splice_stream_t() {
+        fprintf(stderr, "SSADFKHASJFKASF\n");
+    }
 private:
     std::vector<datum_t> next_stream_batch(env_t *env, const batchspec_t &bs) final {
         std::vector<datum_t> ret;
+        std::vector<datum_t> delayed_changes;
         batcher_t batcher = bs.to_batcher();
 
         while (ret.size() == 0) {
@@ -2798,7 +2802,7 @@ private:
             // If there's nothing left to read, behave like a normal feed.  `ready`
             // should only be called after we've confirmed `is_exhausted` returns
             // true.
-            if (src->is_exhausted() && ready()) {
+            if (src->is_exhausted() && ready() && !working_on_batch) {
                 // This will send the `ready` state as its first doc.
                 return stream_t::next_stream_batch(env, bs);
             }
@@ -2809,25 +2813,39 @@ private:
             // once we're no longer backwards-compatible with pre-1.16 (I think?)
             // skey versions.
             if (read_once) {
-                while (sub->has_change_val() && !batcher.should_send_batch()) {
+                while (sub->has_change_val() && (!batcher.should_send_batch() || spinning)) {
                     change_val_t cv = sub->pop_change_val();
                     fprintf(stderr, "Change: %lu \n", cv.source_stamp.second);
-                    if (cv.source_stamp.second == current_stamp) {
+                    if (cv.source_stamp.second >= current_stamp - 1) {
                         spinning = false;
                         fprintf(stderr, "Hit target\n");
                     }
+                    discard_type_t old_discard = discard_type_t::YES;
+                    discard_type_t new_discard = discard_type_t::YES;
                     // Note that `discard` updates the `stamped_ranges`.
+                    if (cv.old_val) {
+                        old_discard = discard(
+                            cv.pkey,
+                            cv.old_val->tag_num, cv.source_stamp, *cv.old_val);
+                    }
+                    if (cv.new_val) {
+                        new_discard = discard(
+                            cv.pkey,
+                            cv.new_val->tag_num, cv.source_stamp, *cv.new_val);
+                    }
                     datum_t el = change_val_to_change(
                         cv,
-                        cv.old_val && discard(
-                            cv.pkey,
-                            cv.old_val->tag_num, cv.source_stamp, *cv.old_val),
-                        cv.new_val && discard(
-                            cv.pkey,
-                            cv.new_val->tag_num, cv.source_stamp, *cv.new_val));
+                        cv.old_val && old_discard == discard_type_t::YES,
+                        cv.new_val && new_discard == discard_type_t::YES);
+
                     if (el.has()) {
                         batcher.note_el(el);
-                        ret.push_back(std::move(el));
+                        if (old_discard == discard_type_t::DELAY ||
+                            new_discard == discard_type_t::DELAY) {
+                            delayed_changes.push_back(std::move(el));
+                        } else {
+                            ret.push_back(std::move(el));
+                        }
                     }
                 }
                 maybe_skip_to_feed();
@@ -2846,19 +2864,22 @@ private:
                     update_ranges();
             }
 
-            if (!spinning) {
+            if (!spinning || !read_once) {
+                read_once = true;
                 working_on_batch = false;
                 r_sanity_check(active_state);
-                read_once = true;
 
                 if (batch.size() == 0) {
                     r_sanity_check(src->is_exhausted());
                 } else {
-                    ret.reserve(ret.size() + batch.size());
+                    ret.reserve(ret.size() + delayed_changes.size() + batch.size());
                     for (auto &&datum : batch) {
                         ret.push_back(
                             vals_to_change(datum_t(), std::move(datum), true));
                     }
+                }
+                for (auto &&datum : delayed_changes) {
+                    ret.push_back(std::move(datum));
                 }
             } else {
                 if (ret.size() == 0) {
@@ -2878,10 +2899,12 @@ private:
         return ret;
     }
 
-    bool discard(const store_key_t &pkey,
-                 const boost::optional<uint64_t> &tag_num,
-                 const std::pair<uuid_u, uint64_t> &source_stamp,
-                 const indexed_datum_t &val) {
+    enum class discard_type_t {YES, NO, DELAY};
+
+    discard_type_t discard(const store_key_t &pkey,
+                           const boost::optional<uint64_t> &tag_num,
+                           const std::pair<uuid_u, uint64_t> &source_stamp,
+                           const indexed_datum_t &val) {
         store_key_t key;
         if (val.index.has()) {
             key = store_key_t(val.index.print_secondary(reql_version(), pkey, tag_num));
@@ -2892,14 +2915,12 @@ private:
         auto it = stamped_ranges.find(source_stamp.first);
         r_sanity_check(it != stamped_ranges.end());
         it->second.next_expected_stamp = source_stamp.second + 1;
-        if (key < it->second.left_fencepost) return false;
-        if (key >= it->second.get_right_fencepost()) return true;
+        if (key < it->second.left_fencepost) return discard_type_t::NO;
+        if (key >= it->second.get_right_fencepost()) return discard_type_t::YES;
         // `ranges` should be extremely small
-        for (const auto &pair : it->second.ranges) {
-            if (pair.first.contains_key(key)) {
-                return source_stamp.second < pair.second;
-            }
-        }
+        return (source_stamp.second < current_stamp) ?
+            discard_type_t::YES :
+            discard_type_t::DELAY;
         // If we get here then there's a gap in the ranges.
         r_sanity_fail();
     }
@@ -2932,11 +2953,13 @@ private:
         active_state = src->get_active_state();
         r_sanity_check(active_state);
         for (const auto &pair : active_state->shard_last_read_stamps) {
-            if (pair.second.second > current_stamp) {
-                current_stamp = pair.second.second;
-                fprintf(stderr, "setting wait at %lu\n", current_stamp);
-            }
             add_range(pair.first, pair.second.first, pair.second.second);
+            fprintf(stderr, "Stamped range expecting %lu\n", pair.second.second);
+            if (pair.second.second < current_stamp) {
+                current_stamp = pair.second.second;
+                spinning = true;
+                fprintf(stderr, "Waiting for %lu\n", current_stamp);
+            }
         }
     }
 
