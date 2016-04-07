@@ -28,7 +28,7 @@ with driver.Cluster(output_folder='./servers', command_prefix=command_prefix, ex
             break
     
     feeds = { }
-    for name in ["cluster_config", "db_config", "current_issues", "logs", "server_config", "server_status", "table_config", "table_status"]:
+    for name in ["cluster_config", "db_config", "current_issues", "logs", "permissions", "server_config", "server_status", "table_config", "table_status", "users"]:
         feeds[name] = r.db('rethinkdb').table(name).changes().run(conn)
     
     def check(expected, timer):
