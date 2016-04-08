@@ -472,7 +472,7 @@ batched_replace_response_t rdb_batched_replace(
         datum_string_t branch_id(uuid_to_str(info.version.branch));
         datum_string_t stamp(info.version.timestamp.print_sortable());
         std::vector<std::pair<datum_string_t, ql::datum_t> > stamps{
-            std::make_pair(std::move(branch_id), std::move(stamp))};
+            std::make_pair(std::move(branch_id), ql::datum_t(std::move(stamp)))};
         bool conflict = out.add("stamps", ql::datum_t(std::move(stamps)));
         r_sanity_check(!conflict);
     }
