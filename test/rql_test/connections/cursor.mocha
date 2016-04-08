@@ -151,18 +151,10 @@ for (var i = 0; i < numRows; i++) {
             });
             
             it('errors on extra argument', function(done) {
-                if (testCursor.constructor.name == 'Cursor') {
-                    assert.throws(
-                        function() { testCursor.toString(1); },
-                        r.Error.ReqlDriverCompileError,
-                        'Expected 0 arguments but found 1.'
-                    ); // Per #5568 this should ignore the errors
-                } else {
-                    try {
-                        testCursor.toString(1);
-                    } catch(err) {
-                        assert.fail(undefined, undefined, 'Error thrown then argument given to toString: ' + err);
-                    }
+                try {
+                    testCursor.toString(1);
+                } catch(err) {
+                    assert.fail(undefined, undefined, 'Error thrown then argument given to toString: ' + err);
                 }
                 done();
             });

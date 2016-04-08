@@ -390,7 +390,7 @@ class Cursor extends IterableResult
         @_type = protoResponseType.SUCCESS_PARTIAL
         super
 
-    toString: ar () -> "[object Cursor]"
+    toString: () -> "[object Cursor]"
 
 class Feed extends IterableResult
     constructor: ->
@@ -402,7 +402,7 @@ class Feed extends IterableResult
     toArray: ->
         throw new error.ReqlDriverError "`toArray` is not available for feeds."
 
-    toString: ar () -> "[object Feed]"
+    toString: () -> "[object Feed]"
 
 class UnionedFeed extends IterableResult
     constructor: ->
@@ -414,7 +414,7 @@ class UnionedFeed extends IterableResult
     toArray: ->
         throw new error.ReqlDriverError "`toArray` is not available for feeds."
 
-    toString: ar () -> "[object UnionedFeed]"
+    toString: () -> "[object UnionedFeed]"
 
 class AtomFeed extends IterableResult
     constructor: ->
@@ -426,7 +426,7 @@ class AtomFeed extends IterableResult
     toArray: ->
         throw new error.ReqlDriverError "`toArray` is not available for feeds."
 
-    toString: ar () -> "[object AtomFeed]"
+    toString:  () -> "[object AtomFeed]"
 
 class OrderByLimitFeed extends IterableResult
     constructor: ->
@@ -438,7 +438,7 @@ class OrderByLimitFeed extends IterableResult
     toArray: ->
         throw new error.ReqlDriverError "`toArray` is not available for feeds."
 
-    toString: ar () -> "[object OrderByLimitFeed]"
+    toString: () -> "[object OrderByLimitFeed]"
 
 # Used to wrap array results so they support the same iterable result
 # API as cursors.
