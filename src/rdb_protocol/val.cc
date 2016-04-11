@@ -414,7 +414,7 @@ datum_t table_t::batched_insert(
     std::set<std::string> conditions;
     datum_t merged = std::move(stats).to_datum();
 
-    if (valid_inserts.size() > 0) {
+    if (insert_stats.has()) {
         merged = merged.merge(insert_stats, stats_merge,
                           env->limits(), &conditions);
     }
