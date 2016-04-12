@@ -73,7 +73,6 @@ bool server_status_artificial_table_backend_t::format_row(
     ql::datum_object_builder_t net_builder;
     ql::datum_object_builder_t server_connect_builder;
 
-    int duplicate_counter = 0;
     for (auto pair : connect.all_servers) {
         ql::datum_t server_name_or_uuid;
         if (!convert_connected_server_id_to_datum(
@@ -102,8 +101,8 @@ bool server_status_artificial_table_backend_t::format_row(
             } else {
                 if (conflict) {
                     std::string duplicate_name = server_name_or_uuid.as_str().to_std()
-                        + "-duplicate-"
-                        + std::to_string(duplicate_counter++);
+                        + "-conflict-"
+                        + pair.first.print();
                     bool retry_conflict =
                         server_connect_builder.add(
                             datum_string_t(duplicate_name),
