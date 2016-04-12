@@ -19,9 +19,11 @@ ql::datum_t convert_host_and_port_to_datum(const host_and_port_t &x) {
 
 server_status_artificial_table_backend_t::server_status_artificial_table_backend_t(
         watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory,
-        server_config_client_t *_server_config_client) :
+        server_config_client_t *_server_config_client,
+        admin_identifier_format_t _admin_format) :
     common_server_artificial_table_backend_t(_server_config_client, _directory),
     server_config_client(_server_config_client),
+    admin_format(_admin_format),
     directory_subs(_directory,
         [&](const peer_id_t &peer, const cluster_directory_metadata_t *metadata) {
             if (metadata == nullptr) {
@@ -71,14 +73,16 @@ bool server_status_artificial_table_backend_t::format_row(
     ql::datum_object_builder_t net_builder;
     ql::datum_object_builder_t server_connect_builder;
 
+    int duplicate_counter = 0;
     for (auto pair : connect.all_servers) {
         ql::datum_t server_name_or_uuid;
         if (!convert_connected_server_id_to_datum(
                 pair.first,
-                admin_identifier_format_t::name,
+                admin_format,
                 server_config_client,
                 &server_name_or_uuid,
                 nullptr)) {
+            // If we can't resolve the name, use uuid
             server_name_or_uuid = ql::datum_t(
                 datum_string_t(pair.first.print()));
         }
@@ -89,10 +93,24 @@ bool server_status_artificial_table_backend_t::format_row(
                   server_it->second.count(pair.first) > 0) {
                 is_connected = true;
             }
-            guarantee(
-                !server_connect_builder.add(
+            bool conflict =
+                server_connect_builder.add(
                     server_name_or_uuid.as_str(),
-                    ql::datum_t::boolean(is_connected)));
+                    ql::datum_t::boolean(is_connected));
+            if (admin_format == admin_identifier_format_t::uuid) {
+                guarantee(!conflict);
+            } else {
+                if (conflict) {
+                    std::string duplicate_name = server_name_or_uuid.as_str().to_std()
+                        + "-duplicate-"
+                        + std::to_string(duplicate_counter++);
+                    bool retry_conflict =
+                        server_connect_builder.add(
+                            datum_string_t(duplicate_name),
+                            ql::datum_t::boolean(is_connected));
+                    guarantee(!retry_conflict);
+                }
+            }
         }
     }
     net_builder.overwrite("connected_to",
