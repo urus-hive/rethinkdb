@@ -97,17 +97,23 @@ bool server_status_artificial_table_backend_t::format_row(
                     server_name_or_uuid.as_str(),
                     ql::datum_t::boolean(is_connected));
             if (admin_format == admin_identifier_format_t::uuid) {
-                guarantee(!conflict);
+                rcheck_toplevel(!conflict,
+                                ql::base_exc_t::INTERNAL,
+                                "Two servers have the same UUID.");
             } else {
                 if (conflict) {
                     std::string duplicate_name = server_name_or_uuid.as_str().to_std()
-                        + "-conflict-"
+                        + "--conflict--"
                         + pair.first.print();
+                    std::replace(duplicate_name.begin(), duplicate_name.end(), '-', '_');
                     bool retry_conflict =
                         server_connect_builder.add(
                             datum_string_t(duplicate_name),
                             ql::datum_t::boolean(is_connected));
-                    guarantee(!retry_conflict);
+                    rcheck_toplevel(!retry_conflict,
+                                    ql::base_exc_t::INTERNAL,
+                                    "A server already has the duplicate name "
+                                    + duplicate_name);
                 }
             }
         }
