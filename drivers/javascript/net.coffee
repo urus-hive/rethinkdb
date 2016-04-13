@@ -1003,6 +1003,9 @@ class TcpConnection extends Connection
             @rawSocket.username = host["username"]
             @rawSocket.password = host["password"]
 
+            console.log @rawSocket.username
+            console.log @rawSocket.password
+
             # Default to admin user with no password if none is given.
             if @rawSocket.username is undefined
                 @rawSocket.username = "admin"
@@ -1636,11 +1639,15 @@ module.exports.connect = varar 0, 2, (hostOrCallback, callback) ->
     # 2. Initializes the connection, and when it's complete invokes
     #    the user's callback
     new Promise( (resolve, reject) ->
-        if host.authKey? && (host.password? || host.user?)
+        if host.authKey? && (host.password? || host.user? || host.username?)
             throw new err.ReqlDriverError "Cannot use both authKey and password"
         else if host.authKey
-            host.user = "admin"
+            host.username = "admin"
             host.password = host.authKey
+        else
+            # Fixing mismatch between drivers
+            if host.user?
+                host.username = host.user
         create_connection = (host, callback) =>
             if TcpConnection.isAvailable()
                 new TcpConnection host, callback
