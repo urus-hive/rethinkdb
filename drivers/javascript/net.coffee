@@ -1003,9 +1003,6 @@ class TcpConnection extends Connection
             @rawSocket.username = host["username"]
             @rawSocket.password = host["password"]
 
-            console.log @rawSocket.username
-            console.log @rawSocket.password
-
             # Default to admin user with no password if none is given.
             if @rawSocket.username is undefined
                 @rawSocket.username = "admin"
