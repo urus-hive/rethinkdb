@@ -1,6 +1,6 @@
 // Copyright 2010-2016 RethinkDB, all rights reserved.
-#ifndef RANDOM_HPP
-#define RANDOM_HPP
+#ifndef RANDOM_HPP_
+#define RANDOM_HPP_
 
 #include <random>
 
@@ -30,4 +30,4 @@ size_t randsize(size_t n);
 
 double randdouble();
 
-#endif // RANDOM_HPP
+#endif // RANDOM_HPP_
