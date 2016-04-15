@@ -36,7 +36,7 @@ init () {
     bin_deps="cxx $web_assets_deps $required_bin_deps $optional_bin_deps"
     all_deps="$bin_deps $all_libs boost"
 
-    default_allocator_linux=system
+    default_allocator_linux=jemalloc
     default_allocator_osx=system
 
     allowed_arg_vars="CXXFLAGS LDFLAGS"
