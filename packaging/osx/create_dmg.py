@@ -59,7 +59,7 @@ def getSigningIdentity(signingName, signingType):
 		raise ValueError('Could not find the requested signingName: "%s" for type: "%s"' % (signingName, signingType))
 
 def compileUninstallApp(signingName=None):
-	outputPath = os.path.join(scratchFolder, appName)
+	outputPath = os.path.join(scratchFolder, uninstallAppName)
 	
 	# - compile the app
 	
@@ -85,7 +85,7 @@ def compileUninstallApp(signingName=None):
 			subprocess.check_call(['/usr/bin/codesign', '-s', signingIdentity, outputPath], stdout=logFile, stderr=logFile)
 		except Exception as e:
 			logFile.seek(0)
-			sys.stderr.write('Failed while signing %s: %s\n%s' % (appName, str(e), logFile.read()))
+			sys.stderr.write('Failed while signing %s: %s\n%s' % (uninstallAppName, str(e), logFile.read()))
 			raise
 	
 	# -
