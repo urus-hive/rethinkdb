@@ -31,8 +31,6 @@ pkg_install () {
     sed -i.bak '/unittests/d;/cctest/d' "$build_dir/build/all.gyp" # don't build the tests
     mkdir -p "$install_dir/lib"
     if [[ "$OS" = Darwin ]]; then
-        export CXXFLAGS="-stdlib=libc++ ${CXXFLAGS:-}"
-        export LDFLAGS="-stdlib=libc++ -lc++ ${LDFLAGS:-}"
         export GYP_DEFINES='clang=1 mac_deployment_target=10.7'
     fi
     arch_gypflags=

@@ -240,9 +240,9 @@ load_pkg () {
         exit 1
     fi
 
-    src_dir=$(niceabspath "$external_dir/$pkg""_$version")
-    install_dir=$(niceabspath "$root_build_dir/external/$pkg""_$version")
-    build_dir=$(niceabspath "$install_dir/build")
+    src_dir=$(niceabspath "${external_dir}/${pkg}_${version}")
+    install_dir=$(niceabspath "${root_build_dir}/external/${pkg}_${version}")
+    build_dir=$(niceabspath "${install_dir}/build")
 }
 
 contains () {

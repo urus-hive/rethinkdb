@@ -20,6 +20,8 @@ init () {
     min_browserify_version=3.0.0
     max_browserify_version=12.0.1
     min_python_version=2.6.0
+    
+    osx_min_version=10.7
 
     must_fetch_list='bluebird v8'
     please_fetch_list="handlebars gtest re2 $must_fetch_list"
@@ -39,7 +41,7 @@ init () {
     default_allocator_linux=jemalloc
     default_allocator_osx=system
 
-    allowed_arg_vars="CXXFLAGS LDFLAGS"
+    allowed_arg_vars="CFLAGS CXXFLAGS LDFLAGS"
 }
 
 # The main configuration steps
@@ -95,7 +97,10 @@ configure () {
         require stdlib
         case "$OS" in
             Darwin) var_append LDFLAGS -lc++
-                    var_append CXXFLAGS -stdlib=libc++ ;;
+                    var_append LDFLAGS -mmacosx-version-min="$osx_min_version"
+                    var_append CFLAGS -mmacosx-version-min="$osx_min_version"
+                    var_append CXXFLAGS -stdlib=libc++
+                    var_append CXXFLAGS -mmacosx-version-min="$osx_min_version" ;;
             *) var_append LDFLAGS -lstdc++ ;;
         esac
 
