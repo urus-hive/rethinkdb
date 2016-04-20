@@ -1,26 +1,19 @@
 #!/usr/bin/env python
+
 from __future__ import print_function
 
-import signal
+import csv, ctypes, datetime, json, multiprocessing, numbers, optparse, 
+import os, re, signal, sys, time, traceback
+from . import utils_common
+r = utils_common.r
 
 # When running a subprocess, we may inherit the signal handler - remove it
 signal.signal(signal.SIGINT, signal.SIG_DFL)
-
-import sys, os, datetime, time, json, traceback, csv
-import multiprocessing, subprocess, re, ctypes, numbers
-from optparse import OptionParser
-from ._backup import *
-
-import rethinkdb as r
 
 try:
     unicode
 except NameError:
     unicode = str
-try:
-    long
-except NameError:
-    long = int
 try:
     from multiprocessing import SimpleQueue
 except ImportError:
@@ -76,7 +69,7 @@ def print_export_help():
     print("  Export a specific table from a local cluster in JSON format with only the fields 'id' and 'value'.")
 
 def parse_options():
-    parser = OptionParser(add_help_option=False, usage=usage)
+    parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
     parser.add_option("--format", dest="format", metavar="json | csv | ndjson", default="json", type="string")
     parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY", default=None, type="string")
@@ -103,9 +96,9 @@ def parse_options():
     res = {}
 
     # Verify valid host:port --connect option
-    (res["host"], res["port"]) = parse_connect_option(options.host)
+    (res["host"], res["port"]) = utils_common.parse_connect_option(options.host)
 
-    res["tls_cert"] = ssl_option(options.tls_cert)
+    res["tls_cert"] = utils_common.ssl_option(options.tls_cert)
 
     # Verify valid --format option
     if options.format not in ["csv", "json", "ndjson"]:
@@ -126,7 +119,7 @@ def parse_options():
         raise RuntimeError("Error: Partial output directory already exists: %s" % res["directory_partial"])
 
     # Verify valid --export options
-    res["db_tables"] = parse_db_table_options(options.tables)
+    res["db_tables"] = utils_common.parse_db_table_options(options.tables)
 
     # Parse fields
     if options.fields is None:
@@ -167,7 +160,7 @@ def parse_options():
     res["password-file"] = options.password_file
     return res
 
-# This is called through rdb_call_wrapper and may be called multiple times if
+# This is called through utils_common.rdb_call_wrapper and may be called multiple times if
 # connection errors occur.  Don't bother setting progress, because this is a
 # fairly small operation.
 def get_tables(progress, conn, tables):
@@ -193,6 +186,12 @@ def get_tables(progress, conn, tables):
     # Remove duplicates by making results a set
     return set(res)
 
+def os_call_wrapper(fn, filename, error_str):
+    try:
+        fn(filename)
+    except OSError as ex:
+        raise RuntimeError(error_str % (filename, ex.strerror))
+
 # Make sure the output directory doesn't exist and create the temporary directory structure
 def prepare_directories(base_path, base_path_partial, db_table_set):
     os_call_wrapper(lambda x: os.makedirs(x), base_path_partial, "Failed to create temporary directory (%s): %s")
@@ -207,7 +206,7 @@ def finalize_directory(base_path, base_path_partial):
     os_call_wrapper(lambda x: os.rename(base_path_partial, x), base_path,
                     "Failed to move temporary directory to output directory (%s): %s")
 
-# This is called through rdb_call_wrapper and may be called multiple times if
+# This is called through utils_common.rdb_call_wrapper and may be called multiple times if
 # connection errors occur.  Don't bother setting progress, because we either
 # succeed or fail, there is no partial success.
 def write_table_metadata(progress, conn, db, table, base_path):
@@ -221,7 +220,7 @@ def write_table_metadata(progress, conn, db, table, base_path):
     out.close()
     return table_info
 
-# This is called through rdb_call_wrapper and may be called multiple times if
+# This is called through utils_common.rdb_call_wrapper and may be called multiple times if
 # connection errors occur.  In order to facilitate this, we do an order_by by the
 # primary key so that we only ever get a given row once.
 def read_table_into_queue(progress, conn, db, table, pkey, task_queue, progress_info, exit_event):
@@ -346,7 +345,7 @@ def get_all_table_sizes(host, port, db_table_set, ssl_op, admin_password):
     ret = dict()
     for pair in db_table_set:
         db, table = pair
-        ret[pair] = int(rdb_call_wrapper(conn_fn, "count", get_table_size, db, table))
+        ret[pair] = int(utils_common.rdb_call_wrapper(conn_fn, "count", get_table_size, db, table))
 
     return ret
 
@@ -355,21 +354,21 @@ def export_table(host, port, db, table, directory, fields, delimiter, format,
     writer = None
 
     try:
-        # This will open at least one connection for each rdb_call_wrapper, which is
+        # This will open at least one connection for each utils_common.rdb_call_wrapper, which is
         # a little wasteful, but shouldn't be a big performance hit
         conn_fn = lambda: r.connect(host,
                                     port,
                                     ssl=ssl_op,
                                     user="admin",
                                     password=admin_password)
-        table_info = rdb_call_wrapper(conn_fn, "info", write_table_metadata, db, table, directory)
+        table_info = utils_common.rdb_call_wrapper(conn_fn, "info", write_table_metadata, db, table, directory)
         sindex_counter.value += len(table_info["indexes"])
 
         task_queue = SimpleQueue()
         writer = launch_writer(format, directory, db, table, fields, delimiter, task_queue, error_queue)
         writer.start()
 
-        rdb_call_wrapper(conn_fn, "table scan", read_table_into_queue, db, table,
+        utils_common.rdb_call_wrapper(conn_fn, "table scan", read_table_into_queue, db, table,
                          table_info["primary_key"], task_queue, progress_info, exit_event)
     except (r.ReqlError, r.ReqlDriverError) as ex:
         error_queue.put((RuntimeError, RuntimeError(ex.message), traceback.extract_tb(sys.exc_info()[2])))
@@ -404,7 +403,7 @@ def update_progress(progress_info, options):
             total_rows += max_val
 
     if not options["quiet"]:
-        print_progress(float(rows_done) / total_rows)
+        utils_common.print_progress(float(rows_done) / total_rows)
 
 def run_clients(options, db_table_set, admin_password):
     # Spawn one client for each db.table
@@ -461,7 +460,7 @@ def run_clients(options, db_table_set, admin_password):
         # If we were successful, make sure 100% progress is reported
         # (rows could have been deleted which would result in being done at less than 100%)
         if len(errors) == 0 and not interrupt_event.is_set() and not options["quiet"]:
-            print_progress(1.0)
+            utils_common.print_progress(1.0)
 
         # Continue past the progress output line and print total rows processed
         def plural(num, text, plural_text):
@@ -496,7 +495,7 @@ def main():
         return 1
 
     try:
-        admin_password = get_password(options["password"], options["password-file"])
+        admin_password = utils_common.get_password(options["password"], options["password-file"])
         conn_fn = lambda: r.connect(options["host"],
                                     options["port"],
                                     ssl=options["tls_cert"],
@@ -504,8 +503,8 @@ def main():
                                     password=admin_password)
         # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
         # if the user has a database named 'rethinkdb'
-        rdb_call_wrapper(conn_fn, "version check", check_minimum_version, (1, 16, 0))
-        db_table_set = rdb_call_wrapper(conn_fn, "table list", get_tables, options["db_tables"])
+        utils_common.utils_common.rdb_call_wrapper(conn_fn, "version check", check_minimum_version, (1, 16, 0))
+        db_table_set = utils_common.rdb_call_wrapper(conn_fn, "table list", get_tables, options["db_tables"])
         del options["db_tables"] # This is not needed anymore, db_table_set is more useful
 
         # Determine the actual number of client processes we'll have
