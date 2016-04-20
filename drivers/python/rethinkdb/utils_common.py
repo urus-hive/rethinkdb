@@ -1,22 +1,12 @@
+'''Common tools for interactive utilities such as repl or backup'''
+
 from __future__ import print_function
 
-from copy import deepcopy
-import socket, sys, string, re, getpass
+import copy, getpass, re, socket, string, sys
 
-try:
-    import rethinkdb as r
-except ImportError:
-    print("The RethinkDB python driver is required to use this command.")
-    print("Please install the driver via `pip install rethinkdb`.")
-    exit(1)
+from .net import _r as r
 
 # This file contains common functions used by the import/export/dump/restore scripts
-
-def os_call_wrapper(fn, filename, error_str):
-    try:
-        fn(filename)
-    except OSError as ex:
-        raise RuntimeError(error_str % (filename, ex.strerror))
 
 def parse_connect_option(connect):
     host_port = connect.split(":")
@@ -72,7 +62,7 @@ def rdb_call_wrapper(conn_fn, context, fn, *args, **kwargs):
     max_attempts = 5
     progress = [None]
     while True:
-        last_progress = deepcopy(progress[0])
+        last_progress = copy.deepcopy(progress[0])
         try:
             conn = conn_fn()
             return fn(progress, conn, *args, **kwargs)
