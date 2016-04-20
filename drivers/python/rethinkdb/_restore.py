@@ -1,9 +1,9 @@
 #!/usr/bin/env python
+
 from __future__ import print_function
 
-import sys, os, datetime, time, shutil, tarfile, tempfile, subprocess, os.path
-from optparse import OptionParser
-from ._backup import *
+import datetime, optparse, os, shutil, subprocess, sys, tarfile, tempfile, time
+from . import utils_common
 
 info = "'rethinkdb restore' loads data into a RethinkDB cluster from an archive"
 usage = "rethinkdb restore FILE [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME] [--clients NUM] [--shards NUM_SHARDS] [--replicas NUM_REPLICAS] [--force] [-i (DB | DB.TABLE)]..."
@@ -51,7 +51,7 @@ def print_restore_help():
     print("  and overwriting any existing rows with the same primary key.")
 
 def parse_options():
-    parser = OptionParser(add_help_option=False, usage=usage)
+    parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
     parser.add_option("-i", "--import", dest="tables", metavar="DB | DB.TABLE", default=[], action="append", type="string")
 
@@ -85,7 +85,7 @@ def parse_options():
     res = {}
 
     # Verify valid host:port --connect option
-    (res["host"], res["port"]) = parse_connect_option(options.host)
+    (res["host"], res["port"]) = utils_common.parse_connect_option(options.host)
 
     in_file_argument = args[0]
 
@@ -99,7 +99,7 @@ def parse_options():
             raise RuntimeError("Error: Archive file does not exist: %s" % res["in_file"])
 
     # Verify valid --import options
-    res["tables"] = parse_db_table_options(options.tables)
+    res["tables"] = utils_common.parse_db_table_options(options.tables)
 
     # Make sure the temporary directory exists and is accessible
     res["temp_dir"] = options.temp_dir

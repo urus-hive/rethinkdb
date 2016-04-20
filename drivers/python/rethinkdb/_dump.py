@@ -1,48 +1,47 @@
 #!/usr/bin/env python
+
 from __future__ import print_function
 
-import sys, os, datetime, time, shutil, tarfile, tempfile, subprocess, os.path
-from optparse import OptionParser
-from ._backup import *
+import datetime, optparse, os, shutil, subprocess, sys, tarfile, tempfile, time
+from . import utils_common
 
-info = "'rethinkdb dump' creates an archive of data from a RethinkDB cluster"
+info = ""
 usage = "rethinkdb dump [-c HOST:PORT] [-p] [--password-file FILENAME] [--tls-cert FILENAME] [-f FILE] [--clients NUM] [-e (DB | DB.TABLE)]..."
 
 def print_dump_help():
-    print(info)
-    print(usage)
-    print("")
-    print("  -h [ --help ]                    print this help")
-    print("  -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect")
-    print("                                   to (defaults to localhost:28015)")
-    print("  --tls-cert FILENAME              certificate file to use for TLS encryption.")
-    print("  -p [ --password ]                interactively prompt for a password required to connect.")
-    print("  --password-file FILENAME         read password required to connect from file.")
-    print("  -f [ --file ] FILE               file to write archive to (defaults to")
-    print("                                   rethinkdb_dump_DATE_TIME.tar.gz);")
-    print("                                   if FILE is -, use standard output (note that")
-    print("                                   intermediate files will still be written to")
-    print("                                   the --temp-dir directory)")
-    print("  -e [ --export ] (DB | DB.TABLE)  limit dump to the given database or table (may")
-    print("                                   be specified multiple times)")
-    print("  --clients NUM_CLIENTS            number of tables to export simultaneously (defaults")
-    print("                                   to 3)")
-    print("  --temp-dir DIRECTORY             the directory to use for intermediary results")
-    print("  --overwrite-file                 don't abort when file given via --file already exists")
-    print("  -q [ --quiet ]                   suppress non-error messages")
-    print("")
-    print("EXAMPLES:")
-    print("rethinkdb dump -c mnemosyne:39500")
-    print("  Archive all data from a cluster running on host 'mnemosyne' with a client port at 39500.")
-    print("")
-    print("rethinkdb dump -e test -f rdb_dump.tar.gz")
-    print("  Archive only the 'test' database from a local cluster into a named file.")
-    print("")
-    print("rethinkdb dump -c hades -e test.subscribers -p")
-    print("  Archive a specific table from a cluster running on host 'hades' which requires a password.")
+    print(''''rethinkdb dump' creates an archive of data from a RethinkDB cluster
+%(usage)s
+  -h [ --help ]                    print this help
+  -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect
+                                   to (defaults to localhost:28015)
+  --tls-cert FILENAME              certificate file to use for TLS encryption.
+  -p [ --password ]                interactively prompt for a password required to connect.
+  --password-file FILENAME         read password required to connect from file.
+  -f [ --file ] FILE               file to write archive to (defaults to
+                                   rethinkdb_dump_DATE_TIME.tar.gz);
+                                   if FILE is -, use standard output (note that
+                                   intermediate files will still be written to
+                                   the --temp-dir directory)
+  -e [ --export ] (DB | DB.TABLE)  limit dump to the given database or table (may
+                                   be specified multiple times)
+  --clients NUM_CLIENTS            number of tables to export simultaneously (default: 3)
+  --temp-dir DIRECTORY             the directory to use for intermediary results
+  --overwrite-file                 don't abort when file given via --file already exists
+  -q [ --quiet ]                   suppress non-error messages
+
+EXAMPLES:
+rethinkdb dump -c mnemosyne:39500
+  Archive all data from a cluster running on host 'mnemosyne' with a client port at 39500.
+
+rethinkdb dump -e test -f rdb_dump.tar.gz
+  Archive only the 'test' database from a local cluster into a named file.
+
+rethinkdb dump -c hades -e test.subscribers -p
+  Archive a specific table from a cluster running on host 'hades' which requires a password.
+''' % {'usage':usage})
 
 def parse_options():
-    parser = OptionParser(add_help_option=False, usage=usage)
+    parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="host:port", default="localhost:28015", type="string")
     parser.add_option("-f", "--file", dest="out_file", metavar="file", default=None, type="string")
     parser.add_option("-e", "--export", dest="tables", metavar="(db | db.table)", default=[], action="append", type="string")
@@ -70,7 +69,7 @@ def parse_options():
     res = {}
 
     # Verify valid host:port --connect option
-    (res["host"], res["port"]) = parse_connect_option(options.host)
+    (res["host"], res["port"]) = utils_common.parse_connect_option(options.host)
 
     res["tls_cert"] = options.tls_cert
 
@@ -145,24 +144,24 @@ def do_zip(temp_dir, options):
     if not options["quiet"]:
         print("Zipping export directory...")
     start_time = time.time()
-    original_dir = os.getcwd()
 
     # Below,` tarfile.open()` forces us to set either `name` or `fileobj`,
     # depending on whether the output is a real file or an open file object.
-    is_fileobj = type(options["out_file"]) is file
-    name = None if is_fileobj else options["out_file"]
-    fileobj = options["out_file"] if is_fileobj else None
-
     try:
-        os.chdir(temp_dir)
-        with tarfile.open(name=name, fileobj=fileobj, mode="w:gz") as f:
-            for curr, subdirs, files in os.walk(options["temp_filename"]):
-                for data_file in files:
-                    path = os.path.join(curr, data_file)
-                    f.add(path)
-                    os.unlink(path)
+        archive = None
+        if hasattr(options["out_file"], 'read'):
+            archive = tarfile.open(fileobj=options["out_file"], mode="w:gz")
+        else:
+            archive = tarfile.open(name=options["out_file"], mode="w:gz")
+        
+        for curr, subdirs, files in os.walk(options["temp_filename"]):
+            for data_file in files:
+                archivePath = os.path.join(curr, data_file)
+                fullPath = os.path.join(temp_dir, archivePath)
+                archive.add(fullPath, arcname=archivePath)
+                os.unlink(fullPath)
     finally:
-        os.chdir(original_dir)
+        archive.close()
 
     if not options["quiet"]:
         print("  Done (%d seconds)" % (time.time() - start_time))
