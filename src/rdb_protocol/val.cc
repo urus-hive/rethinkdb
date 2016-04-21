@@ -396,6 +396,7 @@ datum_t table_t::batched_insert(
             }
         } else {
             // Handle the trivial errors from above.
+            r_sanity_check(trivial_errors.size() > 0);
             new_changes.add(
                 trivial_error_datum(
                     trivial_errors.front()));
