@@ -40,7 +40,7 @@ rethinkdb dump -c hades -e test.subscribers -p
   Archive a specific table from a cluster running on host 'hades' which requires a password.
 ''' % {'usage':usage})
 
-def parse_options():
+def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="host:port", default="localhost:28015", type="string")
     parser.add_option("-f", "--file", dest="out_file", metavar="file", default=None, type="string")
@@ -56,7 +56,7 @@ def parse_options():
     parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
     parser.add_option("--password-file", dest="password_file", default=None, type="string")
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(argv)
 
     # Check validity of arguments
     if len(args) != 0:
@@ -186,9 +186,11 @@ def run_rethinkdb_export(options):
     finally:
         shutil.rmtree(temp_dir)
 
-def main():
+def main(argv=sys.argv):
+    if argv is None:
+        argv = sys.argv
     try:
-        options = parse_options()
+        options = parse_options(argv)
     except RuntimeError as ex:
         print("Usage: %s" % usage, file=sys.stderr)
         print(ex, file=sys.stderr)

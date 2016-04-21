@@ -39,7 +39,7 @@ rethinkdb index-rebuild -r test -r production.users -n 5
   rebuild all outdated secondary indexes from a local cluster on all tables in the
   'test' database as well as the 'production.users' table, five at a time""")
 
-def parse_options():
+def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
     parser.add_option("-r", "--rebuild", dest="tables", metavar="DB | DB.TABLE", default=[], action="append", type="string")
@@ -51,7 +51,7 @@ def parse_options():
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
     parser.add_option("--password-file", dest="password_file", default=None, type="string")
 
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(argv)
 
     if options.help:
         print_restore_help()
@@ -220,9 +220,11 @@ def rebuild_indexes(options):
     utils_common.print_progress(1.0)
     print("")
 
-def main():
+def main(argv=sys.argv):
+    if argv is None:
+        argv = sys.argv
     try:
-        options = parse_options()
+        options = parse_options(argv)
     except RuntimeError as ex:
         print("Usage: %s" % usage, file=sys.stderr)
         print(ex, file=sys.stderr)
