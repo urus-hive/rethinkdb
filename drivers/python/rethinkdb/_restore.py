@@ -50,7 +50,7 @@ def print_restore_help():
     print("  Import data to a local cluster from the named archive file using only 4 client connections")
     print("  and overwriting any existing rows with the same primary key.")
 
-def parse_options():
+def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
     parser.add_option("-i", "--import", dest="tables", metavar="DB | DB.TABLE", default=[], action="append", type="string")
@@ -70,7 +70,7 @@ def parse_options():
     parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
     parser.add_option("--password-file", dest="password_file", default=None, type="string")
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(argv)
 
     if options.help:
         print_restore_help()
@@ -251,9 +251,11 @@ def run_rethinkdb_import(options):
     finally:
         shutil.rmtree(temp_dir)
 
-def main():
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv
     try:
-        options = parse_options()
+        options = parse_options(argv)
     except RuntimeError as ex:
         print("Usage: %s" % usage, file=sys.stderr)
         print(ex, file=sys.stderr)

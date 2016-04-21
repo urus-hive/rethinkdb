@@ -108,7 +108,7 @@ def print_import_help():
     print("  use the fields 'id', 'name', and 'number', the delimiter is a semicolon (rather than")
     print("  a comma).")
 
-def parse_options():
+def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
     parser.add_option("--fields", dest="fields", metavar="FIELD,FIELD...", default=None, type="string")
@@ -142,7 +142,7 @@ def parse_options():
     parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
     parser.add_option("--password-file", dest="password_file", default=None, type="string")
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(argv)
 
     # Check validity of arguments
     if len(args) != 0:
@@ -904,9 +904,11 @@ def import_file(options):
 
     spawn_import_clients(options, [file_info])
 
-def main():
+def main(argv):
+    if argv is None:
+        argv = sys.argv
     try:
-        options = parse_options()
+        options = parse_options(argv)
     except RuntimeError as ex:
         print("Usage:\n%s" % usage, file=sys.stderr)
         print(ex, file=sys.stderr)
