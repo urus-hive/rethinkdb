@@ -68,7 +68,7 @@ def print_export_help():
     print("rethinkdb export --fields id,value -e test.data")
     print("  Export a specific table from a local cluster in JSON format with only the fields 'id' and 'value'.")
 
-def parse_options():
+def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
     parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
     parser.add_option("--format", dest="format", metavar="json | csv | ndjson", default="json", type="string")
@@ -83,7 +83,7 @@ def parse_options():
     parser.add_option("--debug", dest="debug", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
     parser.add_option("--password-file", dest="password_file", default=None, type="string")
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(argv)
 
     # Check validity of arguments
     if len(args) != 0:
@@ -486,9 +486,11 @@ def run_clients(options, db_table_set, admin_password):
                 print("%s traceback: %s" % (error[0].__name__, error[2]), file=sys.stderr)
         raise RuntimeError("Errors occurred during export")
 
-def main():
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv
     try:
-        options = parse_options()
+        options = parse_options(args)
     except RuntimeError as ex:
         print("Usage:\n%s" % usage, file=sys.stderr)
         print(ex, file=sys.stderr)
