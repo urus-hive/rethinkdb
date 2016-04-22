@@ -4,7 +4,8 @@ from __future__ import print_function
 
 import codecs, csv, ctypes, datetime, json, multiprocessing, optparse
 import os, re, signal, sys, time, traceback
-from . import utils_common
+
+from . import utils_common, net
 r = utils_common.r
 
 # Used because of API differences in the csv module, taken from
@@ -48,7 +49,7 @@ def print_import_help():
     print("")
     print("  -h [ --help ]                    print this help")
     print("  -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect")
-    print("                                   to (defaults to localhost:28015)")
+    print("                                   to (defaults to localhost:%d)" % net.default_port)
     print("  --tls-cert FILENAME              certificate file to use for TLS encryption.")
     print("  -p [ --password ]                interactively prompt for a password required to connect.")
     print("  --password-file FILENAME         read password required to connect from file.")
@@ -110,8 +111,8 @@ def print_import_help():
 
 def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
-    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
-    parser.add_option("--fields", dest="fields", metavar="FIELD,FIELD...", default=None, type="string")
+    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT")
+    parser.add_option("--fields", dest="fields", metavar="FIELD,FIELD...", default=None)
     parser.add_option("--clients", dest="clients", metavar="NUM_CLIENTS", default=8, type="int")
     parser.add_option("--hard-durability", dest="hard", action="store_true", default=False)
     parser.add_option("--force", dest="force", action="store_true", default=False)
@@ -124,24 +125,24 @@ def parse_options(argv):
     parser.add_option("--shards", dest="shards", metavar="NUM_SHARDS", default=0, type="int")
     parser.add_option("--replicas", dest="replicas", metavar="NUM_REPLICAS", default=0, type="int")
 
-    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="", type="string")
+    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="")
 
     # Directory import options
-    parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY", default=None, type="string")
-    parser.add_option("-i", "--import", dest="tables", metavar="DB | DB.TABLE", default=[], action="append", type="string")
+    parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY", default=None)
+    parser.add_option("-i", "--import", dest="tables", metavar="DB | DB.TABLE", default=[], action="append")
     parser.add_option("--no-secondary-indexes", dest="create_sindexes", action="store_false", default=True)
 
     # File import options
-    parser.add_option("-f", "--file", dest="import_file", metavar="FILE", default=None, type="string")
-    parser.add_option("--format", dest="import_format", metavar="json | csv", default=None, type="string")
-    parser.add_option("--table", dest="import_table", metavar="DB.TABLE", default=None, type="string")
-    parser.add_option("--pkey", dest="primary_key", metavar="KEY", default=None, type="string")
-    parser.add_option("--delimiter", dest="delimiter", metavar="CHARACTER", default=None, type="string")
+    parser.add_option("-f", "--file", dest="import_file", metavar="FILE", default=None)
+    parser.add_option("--format", dest="import_format", metavar="json | csv", default=None)
+    parser.add_option("--table", dest="import_table", metavar="DB.TABLE", default=None)
+    parser.add_option("--pkey", dest="primary_key", metavar="KEY", default=None)
+    parser.add_option("--delimiter", dest="delimiter", metavar="CHARACTER", default=None)
     parser.add_option("--no-header", dest="no_header", action="store_true", default=False)
-    parser.add_option("--custom-header", dest="custom_header", metavar="FIELD,FIELD...", default=None, type="string")
+    parser.add_option("--custom-header", dest="custom_header", metavar="FIELD,FIELD...", default=None)
     parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
-    parser.add_option("--password-file", dest="password_file", default=None, type="string")
+    parser.add_option("--password-file", dest="password_file", default=None)
     (options, args) = parser.parse_args(argv)
 
     # Check validity of arguments
@@ -904,9 +905,9 @@ def import_file(options):
 
     spawn_import_clients(options, [file_info])
 
-def main(argv):
+def main(argv=None):
     if argv is None:
-        argv = sys.argv
+        argv = sys.argv[1:]
     try:
         options = parse_options(argv)
     except RuntimeError as ex:

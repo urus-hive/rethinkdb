@@ -12,7 +12,9 @@ import time
 
 from . import ql2_pb2 as p
 
-__all__ = ['connect', 'set_loop_type', 'Connection', 'Cursor']
+__all__ = ['connect', 'set_loop_type', 'Connection', 'Cursor', 'default_port']
+
+default_port = 28015
 
 pErrorType = p.Response.ErrorType
 pResponse = p.Response.ResponseType
@@ -645,7 +647,7 @@ connection_type = DefaultConnection
 
 def connect(
         host='localhost',
-        port=28015,
+        port=default_port,
         db=None,
         auth_key=None,
         user='admin',

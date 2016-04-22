@@ -2,19 +2,33 @@
 
 from __future__ import print_function
 
-import copy, getpass, re, socket, string, sys
+import copy, getpass, os, re, socket, string, sys
 
-from .net import _r as r
+from . import net
+r = net.Connection._r
 
 # This file contains common functions used by the import/export/dump/restore scripts
 
+portRegex = re.compile(r'^\s*(?P<hostname>[\w\.-]+)(:(?P<port>\d+))?\s*$')
 def parse_connect_option(connect):
-    host_port = connect.split(":")
-    if len(host_port) == 1:
-        host_port = (host_port[0], "28015") # If just a host, use the default port
-    if len(host_port) != 2:
-        raise RuntimeError("Error: Invalid 'host:port' format: %s" % connect)
-    return host_port
+    hostname = os.environ.get('RETHINKDB_HOSTNAME', 'localhost')
+    port = os.environ.get('RETHINKDB_DRIVER_PORT')
+    try:
+        port = int(port)
+    except (TypeError, ValueError): # nonsense or None
+        port = net.default_port
+    
+    if connect:
+        res = portRegex.match(connect)
+        if not res:
+            raise ValueError("Error: Invalid 'host:port' format: %s" % connect)
+        
+        if res.group('hostname'):
+            hostname = res.group('hostname')
+        if res.group('port'):
+            port = int(res.group('port'))
+    
+    return (hostname, port)
 
 def parse_db_table(item):
     if not all(c in string.ascii_letters + string.digits + "._" for c in item):

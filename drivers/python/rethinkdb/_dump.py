@@ -2,8 +2,10 @@
 
 from __future__ import print_function
 
-import datetime, optparse, os, shutil, subprocess, sys, tarfile, tempfile, time
-from . import utils_common
+import datetime, optparse, os, shutil, sys, tarfile, tempfile, time
+
+from . import utils_common, net
+r = utils_common.r
 
 info = ""
 usage = "rethinkdb dump [-c HOST:PORT] [-p] [--password-file FILENAME] [--tls-cert FILENAME] [-f FILE] [--clients NUM] [-e (DB | DB.TABLE)]..."
@@ -13,7 +15,7 @@ def print_dump_help():
 %(usage)s
   -h [ --help ]                    print this help
   -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect
-                                   to (defaults to localhost:28015)
+                                   to (defaults to localhost:%(default_port)d)
   --tls-cert FILENAME              certificate file to use for TLS encryption.
   -p [ --password ]                interactively prompt for a password required to connect.
   --password-file FILENAME         read password required to connect from file.
@@ -38,29 +40,30 @@ rethinkdb dump -e test -f rdb_dump.tar.gz
 
 rethinkdb dump -c hades -e test.subscribers -p
   Archive a specific table from a cluster running on host 'hades' which requires a password.
-''' % {'usage':usage})
+''' % {'usage':usage, 'default_port':net.default_port})
 
 def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
-    parser.add_option("-c", "--connect", dest="host", metavar="host:port", default="localhost:28015", type="string")
-    parser.add_option("-f", "--file", dest="out_file", metavar="file", default=None, type="string")
-    parser.add_option("-e", "--export", dest="tables", metavar="(db | db.table)", default=[], action="append", type="string")
+    parser.add_option("-c", "--connect", dest="host", metavar="host:port")
+    parser.add_option("-f", "--file", dest="out_file", metavar="file", default=None)
+    parser.add_option("-e", "--export", dest="tables", metavar="(db | db.table)", default=[], action="append")
 
-    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="", type="string")
+    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="")
 
-    parser.add_option("--temp-dir", dest="temp_dir", metavar="directory", default=None, type="string")
+    parser.add_option("--temp-dir", dest="temp_dir", metavar="directory", default=None)
     parser.add_option("--overwrite-file", dest="overwrite_file", default=False, action="store_true")
     parser.add_option("--clients", dest="clients", metavar="NUM", default=3, type="int")
     parser.add_option("-q", "--quiet", dest="quiet", default=False, action="store_true")
     parser.add_option("--debug", dest="debug", default=False, action="store_true")
     parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
-    parser.add_option("--password-file", dest="password_file", default=None, type="string")
-    (options, args) = parser.parse_args(argv)
+    parser.add_option("--password-file", dest="password_file", default=None)
+    
+    options, args = parser.parse_args(argv)
 
     # Check validity of arguments
     if len(args) != 0:
-        raise RuntimeError("Error: No positional arguments supported. Unrecognized option '%s'" % args[0])
+        raise RuntimeError("Error: No positional arguments supported. Unrecognized option(s): %s" % args)
 
     if options.help:
         print_dump_help()
@@ -113,31 +116,29 @@ def parse_options(argv):
     return res
 
 def do_export(temp_dir, options):
+    from . import _export
+    
     if not options["quiet"]:
         print("Exporting to directory...")
-    export_args = ["rethinkdb-export"]
-    export_args.extend(["--connect", "%s:%s" % (options["host"], options["port"])])
-    export_args.extend(["--directory", os.path.join(temp_dir, options["temp_filename"])])
+    export_args = [
+        "--connect", "%s:%s" % (options["host"], options["port"]),
+        "--directory", os.path.join(temp_dir, options["temp_filename"]),
+        "--clients", str(options["clients"]),
+        "--tls-cert", options["tls_cert"]
+    ]
     if options["password"]:
         export_args.append("--password")
     if options["password-file"]:
         export_args.extend(["--password-file", options["password-file"]])
-    export_args.extend(["--clients", str(options["clients"])])
-    export_args.extend(["--tls-cert", options["tls_cert"]])
     for table in options["tables"]:
         export_args.extend(["--export", table])
-
     if options["debug"]:
         export_args.extend(["--debug"])
-
     if options["quiet"]:
         export_args.extend(["--quiet"])
-
-    res = subprocess.call(export_args)
-
-    if res != 0:
-        raise RuntimeError("Error: rethinkdb-export failed")
-
+    
+    if _export.main(export_args) != 0:
+        raise RuntimeError("Error: export failed")
     # 'Done' message will be printed by the export script (unless options["quiet"])
 
 def do_zip(temp_dir, options):
@@ -154,10 +155,11 @@ def do_zip(temp_dir, options):
         else:
             archive = tarfile.open(name=options["out_file"], mode="w:gz")
         
-        for curr, subdirs, files in os.walk(options["temp_filename"]):
+        data_dir = os.path.join(temp_dir, options["temp_filename"])
+        for curr, subdirs, files in os.walk(data_dir):
             for data_file in files:
-                archivePath = os.path.join(curr, data_file)
-                fullPath = os.path.join(temp_dir, archivePath)
+                fullPath = os.path.join(data_dir, curr, data_file)
+                archivePath = os.path.relpath(fullPath, temp_dir)
                 archive.add(fullPath, arcname=archivePath)
                 os.unlink(fullPath)
     finally:
@@ -186,9 +188,9 @@ def run_rethinkdb_export(options):
     finally:
         shutil.rmtree(temp_dir)
 
-def main(argv=sys.argv):
+def main(argv=None):
     if argv is None:
-        argv = sys.argv
+        argv = sys.argv[1:]
     try:
         options = parse_options(argv)
     except RuntimeError as ex:
