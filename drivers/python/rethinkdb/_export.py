@@ -2,9 +2,10 @@
 
 from __future__ import print_function
 
-import csv, ctypes, datetime, json, multiprocessing, numbers, optparse, 
+import csv, ctypes, datetime, json, multiprocessing, numbers, optparse
 import os, re, signal, sys, time, traceback
-from . import utils_common
+
+from . import utils_common, net
 r = utils_common.r
 
 # When running a subprocess, we may inherit the signal handler - remove it
@@ -32,7 +33,7 @@ def print_export_help():
     print("")
     print("  -h [ --help ]                    print this help")
     print("  -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect")
-    print("                                   to (defaults to localhost:28015)")
+    print("                                   to (defaults to localhost:%d)" % net.default_port)
     print("  --tls-cert FILENAME              certificate file to use for TLS encryption.")
     print("  -p [ --password ]                interactively prompt for a password required to connect.")
     print("  --password-file FILENAME         read password required to connect from file.")
@@ -70,20 +71,20 @@ def print_export_help():
 
 def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
-    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
-    parser.add_option("--format", dest="format", metavar="json | csv | ndjson", default="json", type="string")
-    parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY", default=None, type="string")
-    parser.add_option("-e", "--export", dest="tables", metavar="DB | DB.TABLE", default=[], action="append", type="string")
-    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="", type="string")
-    parser.add_option("--fields", dest="fields", metavar="<FIELD>,<FIELD>...", default=None, type="string")
-    parser.add_option("--delimiter", dest="delimiter", metavar="CHARACTER", default=None, type="string")
+    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT")
+    parser.add_option("--format", dest="format", metavar="json | csv | ndjson", default="json")
+    parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY", default=None)
+    parser.add_option("-e", "--export", dest="tables", metavar="DB | DB.TABLE", default=[], action="append")
+    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="")
+    parser.add_option("--fields", dest="fields", metavar="<FIELD>,<FIELD>...", default=None)
+    parser.add_option("--delimiter", dest="delimiter", metavar="CHARACTER", default=None)
     parser.add_option("--clients", dest="clients", metavar="NUM", default=3, type="int")
     parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
     parser.add_option("-q", "--quiet", dest="quiet", default=False, action="store_true")
     parser.add_option("--debug", dest="debug", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
-    parser.add_option("--password-file", dest="password_file", default=None, type="string")
-    (options, args) = parser.parse_args(argv)
+    parser.add_option("--password-file", dest="password_file", default=None)
+    options, args = parser.parse_args(argv)
 
     # Check validity of arguments
     if len(args) != 0:
@@ -316,22 +317,6 @@ def csv_writer(filename, fields, delimiter, task_queue, error_queue):
         while not isinstance(task_queue.get(), StopIteration):
             pass
 
-def launch_writer(format, directory, db, table, fields, delimiter, task_queue, error_queue):
-    if format == "json":
-        filename = directory + "/%s/%s.json" % (db, table)
-        return multiprocessing.Process(target=json_writer,
-                                       args=(filename, fields, task_queue, error_queue, format))
-    elif format == "csv":
-        filename = directory + "/%s/%s.csv" % (db, table)
-        return multiprocessing.Process(target=csv_writer,
-                                       args=(filename, fields, delimiter, task_queue, error_queue))
-    elif format == "ndjson":
-        filename = directory + "/%s/%s.ndjson" % (db, table)
-        return multiprocessing.Process(target=json_writer,
-                                       args=(filename, fields, task_queue, error_queue, format))
-    else:
-        raise RuntimeError("unknown format type: %s" % format)
-
 def get_all_table_sizes(host, port, db_table_set, ssl_op, admin_password):
     def get_table_size(progress, conn, db, table):
         return r.db(db).table(table).info()['doc_count_estimates'].sum().run(conn)
@@ -363,11 +348,29 @@ def export_table(host, port, db, table, directory, fields, delimiter, format,
                                     password=admin_password)
         table_info = utils_common.rdb_call_wrapper(conn_fn, "info", write_table_metadata, db, table, directory)
         sindex_counter.value += len(table_info["indexes"])
-
+        
+        # -- start the writer
+        
         task_queue = SimpleQueue()
-        writer = launch_writer(format, directory, db, table, fields, delimiter, task_queue, error_queue)
+        writer = None
+        if format == "json":
+            filename = directory + "/%s/%s.json" % (db, table)
+            writer = multiprocessing.Process(target=json_writer,
+                                           args=(filename, fields, task_queue, error_queue, format))
+        elif format == "csv":
+            filename = directory + "/%s/%s.csv" % (db, table)
+            writer = multiprocessing.Process(target=csv_writer,
+                                           args=(filename, fields, delimiter, task_queue, error_queue))
+        elif format == "ndjson":
+            filename = directory + "/%s/%s.ndjson" % (db, table)
+            writer = multiprocessing.Process(target=json_writer,
+                                           args=(filename, fields, task_queue, error_queue, format))
+        else:
+            raise RuntimeError("unknown format type: %s" % format)
         writer.start()
-
+        
+        # -- read in the data source
+        
         utils_common.rdb_call_wrapper(conn_fn, "table scan", read_table_into_queue, db, table,
                          table_info["primary_key"], task_queue, progress_info, exit_event)
     except (r.ReqlError, r.ReqlDriverError) as ex:
@@ -445,7 +448,7 @@ def run_clients(options, db_table_set, admin_password):
             time.sleep(0.1)
 
             while not error_queue.empty():
-                exit_event.set() # Stop rather immediately if an error occurs
+                exit_event.set() # Stop immediately if an error occurs
                 errors.append(error_queue.get())
 
             processes = [process for process in processes if process.is_alive()]
@@ -488,9 +491,9 @@ def run_clients(options, db_table_set, admin_password):
 
 def main(argv=None):
     if argv is None:
-        argv = sys.argv
+        argv = sys.argv[1:]
     try:
-        options = parse_options(args)
+        options = parse_options(argv)
     except RuntimeError as ex:
         print("Usage:\n%s" % usage, file=sys.stderr)
         print(ex, file=sys.stderr)
@@ -505,7 +508,7 @@ def main(argv=None):
                                     password=admin_password)
         # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
         # if the user has a database named 'rethinkdb'
-        utils_common.utils_common.rdb_call_wrapper(conn_fn, "version check", check_minimum_version, (1, 16, 0))
+        utils_common.rdb_call_wrapper(conn_fn, "version check", utils_common.check_minimum_version, (1, 16, 0))
         db_table_set = utils_common.rdb_call_wrapper(conn_fn, "table list", get_tables, options["db_tables"])
         del options["db_tables"] # This is not needed anymore, db_table_set is more useful
 

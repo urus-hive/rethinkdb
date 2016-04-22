@@ -3,7 +3,7 @@
 from __future__ import print_function
 
 import optparse, os, random, sys, time
-from . import utils_common
+from . import utils_common, net
 r = utils_common.r
 
 info = """'rethinkdb index-rebuild' recreates outdated secondary indexes in a cluster.
@@ -21,7 +21,7 @@ def print_restore_help():
   FILE                             the archive file to restore data from
   -h [ --help ]                    print this help
   -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect
-                                   to (defaults to localhost:28015)
+                                   to (defaults to localhost:%d)
   --tls-cert FILENAME              certificate file to use for TLS encryption.
   -p [ --password ]                interactively prompt for a password required to connect.
   --password-file FILENAME         read password required to connect from file.
@@ -37,19 +37,19 @@ rethinkdb index-rebuild -c mnemosyne:39500
 
 rethinkdb index-rebuild -r test -r production.users -n 5
   rebuild all outdated secondary indexes from a local cluster on all tables in the
-  'test' database as well as the 'production.users' table, five at a time""")
+  'test' database as well as the 'production.users' table, five at a time""" % net.default_port)
 
 def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)
-    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT", default="localhost:28015", type="string")
-    parser.add_option("-r", "--rebuild", dest="tables", metavar="DB | DB.TABLE", default=[], action="append", type="string")
-    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="", type="string")
+    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT")
+    parser.add_option("-r", "--rebuild", dest="tables", metavar="DB | DB.TABLE", default=[], action="append")
+    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="")
 
     parser.add_option("-n", dest="concurrent", metavar="NUM", default=1, type="int")
     parser.add_option("--debug", dest="debug", default=False, action="store_true")
     parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
     parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
-    parser.add_option("--password-file", dest="password_file", default=None, type="string")
+    parser.add_option("--password-file", dest="password_file", default=None)
 
     (options, args) = parser.parse_args(argv)
 
@@ -220,9 +220,9 @@ def rebuild_indexes(options):
     utils_common.print_progress(1.0)
     print("")
 
-def main(argv=sys.argv):
+def main(argv=None):
     if argv is None:
-        argv = sys.argv
+        argv = sys.argv[1:]
     try:
         options = parse_options(argv)
     except RuntimeError as ex:
