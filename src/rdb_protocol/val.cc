@@ -398,6 +398,12 @@ datum_t table_t::batched_insert(
                         new_changes.add(std::move(updated->second));
                         pkey_to_change.erase(updated);
                     }
+                } else {
+                    r_sanity_check(trivial_errors.size() > 0);
+                    new_changes.add(
+                        trivial_error_datum(
+                            trivial_errors.front()));
+                    trivial_errors.pop_front();
                 }
             }
         }
