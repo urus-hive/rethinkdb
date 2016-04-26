@@ -224,7 +224,7 @@ void coro_t::switch_to_coro_with_protection(coro_context_ref_t *current_context)
     the list. */
     size_t max_protected_coros_per_thread =
         MAX_PROTECTED_COROS / static_cast<size_t>(get_num_threads());
-    if (cglobals->protected_coros_lru.size() > max_protected_coros_per_thread) {
+    while (cglobals->protected_coros_lru.size() > max_protected_coros_per_thread) {
         cglobals->protected_coros_lru.head()->coro->stack.disable_overflow_protection();
         cglobals->protected_coros_lru.pop_front();
     }
