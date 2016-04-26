@@ -23,7 +23,32 @@
 #include "thread_local.hpp"
 #include "utils.hpp"
 
-size_t coro_stack_size = COROUTINE_STACK_SIZE; //Default, setable by command-line parameter
+//Default, can be set through `set_coro_stack_size()`
+size_t coro_stack_size = COROUTINE_STACK_SIZE;
+
+// How many unused coroutine stacks to keep around (at most), before they are
+// freed. This value is per thread.
+const size_t COROUTINE_FREE_LIST_SIZE = 64;
+
+// In debug mode, we print a warning if more than this many coroutines have been
+// allocated on one thread.
+#ifndef NDEBUG
+const int COROS_PER_THREAD_WARN_LEVEL = 10000;
+#endif
+
+// The maximum (global) number of stack-protected coroutine stacks.
+// On Linux, this number is limited by the setting in `/proc/sys/vm/max_map_count`,
+// which is 65536 by default. We use half of that, to leave enough room for the
+// memory allocator and other things that might fragment the memory space.
+// Exception: debug-mode, where we use a smaller value to exercise the code path more
+// often.
+#ifdef NDEBUG
+const size_t MAX_PROTECTED_COROS = 32768;
+#else
+const size_t MAX_PROTECTED_COROS = 128;
+#endif
+
+
 
 /* `coro_globals_t` holds all of the thread-local variables that coroutines need
 to operate. There is one per thread; it is constructed by the constructor for
@@ -197,13 +222,16 @@ void coro_t::switch_to_coro_with_protection(coro_context_ref_t *current_context)
 
     /* If there are too many protected coroutines, unprotect the oldest one and pop it of
     the list. */
-    size_t max_protected_coros_per_thread = 1024; // TODO!
+    size_t max_protected_coros_per_thread =
+        MAX_PROTECTED_COROS / static_cast<size_t>(get_num_threads());
     if (cglobals->protected_coros_lru.size() > max_protected_coros_per_thread) {
         cglobals->protected_coros_lru.head()->coro->stack.disable_overflow_protection();
         cglobals->protected_coros_lru.pop_front();
     }
 
-    /* Enable protection for us. */
+    /* Enable protection for us. (if `max_protected_coros_per_thread` was rounded to 0,
+    we exceed the limit here but that's fine. It's important that the currently active
+    coroutine is protected.) */
     stack.enable_overflow_protection();
 
     /* Now actually perform the context switch. */
@@ -259,7 +287,8 @@ void coro_t::run() {
         has been executing, so it must be removed there.
         We don't call `disable_stack_protection()` here to increase the efficiency
         of the free list. This means that we can slightly exceed the maximum number of
-        protected coroutines, by at most `COROUTINE_FREE_LIST_SIZE` per thread. */
+        protected coroutines (`MAX_PROTECTED_COROS`), by at most
+        `COROUTINE_FREE_LIST_SIZE` per thread. */
         if (coro->protected_stack_lru_entry_.in_a_list()) {
             cglobals_on_final_thread->protected_coros_lru.remove(
                 &coro->protected_stack_lru_entry_);

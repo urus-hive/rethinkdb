@@ -7,6 +7,7 @@
 
 #else
 
+#include <errno.h>
 #include <pthread.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -166,8 +167,17 @@ void artificial_stack_t::enable_overflow_protection() {
     /* OS X Instruments hangs when running with mprotect and having object identification
     enabled. We don't need it for THREADED_COROUTINES anyway, so don't use it then. */
 #ifndef THREADED_COROUTINES
-    // TODO! Check result
-    mprotect(stack.get(), getpagesize(), PROT_NONE);
+    int res = mprotect(stack.get(), getpagesize(), PROT_NONE);
+    if (res != 0) {
+#ifdef __linux__
+        if (get_errno() == ENOMEM) {
+            crash("Failed to protect a coroutine stack (`mprotect` failed with "
+                  "`ENOMEM`). Try increasing the value of `/proc/sys/vm/max_map_count`.");
+        }
+#endif
+        crash("Failed to protect a coroutine stack. `mprotect` failed with error code "
+              "%d.", get_errno());
+    }
     overflow_protection_enabled = true;
 #endif
 }
@@ -177,7 +187,6 @@ void artificial_stack_t::disable_overflow_protection() {
         return;
     }
 #ifndef THREADED_COROUTINES
-    // TODO! Check result
     mprotect(stack.get(), getpagesize(), PROT_READ | PROT_WRITE);
     overflow_protection_enabled = false;
 #endif
