@@ -38,12 +38,13 @@ const int COROS_PER_THREAD_WARN_LEVEL = 10000;
 
 // The maximum (global) number of stack-protected coroutine stacks.
 // On Linux, this number is limited by the setting in `/proc/sys/vm/max_map_count`,
-// which is 65536 by default. We use half of that, to leave enough room for the
-// memory allocator and other things that might fragment the memory space.
+// which is 65536 by default. We use a quarter of that, to leave enough room for the
+// memory allocator and other things that might fragment the memory space (note that
+// a single protected coroutine consumes two mapped memory regions).
 // Exception: debug-mode, where we use a smaller value to exercise the code path more
 // often.
 #ifdef NDEBUG
-const size_t MAX_PROTECTED_COROS = 32768;
+const size_t MAX_PROTECTED_COROS = 16384;
 #else
 const size_t MAX_PROTECTED_COROS = 128;
 #endif
@@ -228,6 +229,12 @@ void coro_t::switch_to_coro_with_protection(coro_context_ref_t *current_context)
         cglobals->protected_coros_lru.head()->coro->stack.disable_overflow_protection();
         cglobals->protected_coros_lru.pop_front();
     }
+
+    /* To make sure we don't exceed the number of protected coros by too much, we must
+    evict the free list before we can proceed to enabling protection for another
+    coroutine (this is because coroutines on the free list generally have protection
+    enabled for efficiency reasons). */
+    maybe_evict_from_free_list();
 
     /* Enable protection for us. (if `max_protected_coros_per_thread` was rounded to 0,
     we exceed the limit here but that's fine. It's important that the currently active
@@ -436,7 +443,10 @@ void coro_t::move_to_thread(threadnum_t thread) {
     /* Remove ourselves from the `protected_coros_lru` list on the old thread, since
     those lists are not thread-safe.
     We will be added to the one on the new thread once we are woken up there, so there's
-    no need to add ourselves now even if we're currently protected. */
+    no need to add ourselves now even if we're currently protected.
+    Note that this can lead to us temporarily exceeding the protected coro limit if a lot
+    of coroutines are in flight between threads at the same time. Hopefully this isn't
+    going to be too common. */
     if (self()->protected_stack_lru_entry_.in_a_list()) {
         TLS_get_cglobals()->protected_coros_lru.remove(
             &self()->protected_stack_lru_entry_);
