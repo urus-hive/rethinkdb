@@ -213,6 +213,10 @@ public:
     /* Returns how many more bytes below the given address can be used */
     size_t free_space_below(const void *addr) const;
 
+    /* These two are currently not implemented for threaded stacks. */
+    void enable_overflow_protection() {}
+    void disable_overflow_protection() {}
+
 private:
     static void *internal_run(void *p);
     void get_stack_addr_size(void **stackaddr_out, size_t *stacksize_out) const;
