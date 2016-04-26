@@ -92,9 +92,15 @@ public:
     /* Returns how many more bytes below the given address can be used */
     size_t free_space_below(const void *addr) const;
 
+    /* Enables stack-smashing protection for this stack, if not already enabled */
+    void enable_overflow_protection();
+    /* Disables stack-smashing protection for this stack, if currently enabled */
+    void disable_overflow_protection();
+
 private:
     scoped_page_aligned_ptr_t<char> stack;
     size_t stack_size;
+    bool overflow_protection_enabled;
 #ifdef VALGRIND
     int valgrind_stack_id;
 #endif
