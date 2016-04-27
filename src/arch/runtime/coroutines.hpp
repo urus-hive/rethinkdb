@@ -14,8 +14,6 @@
 #include "threading.hpp"
 #include "time.hpp"
 
-const size_t MAX_COROUTINE_STACK_SIZE = 8*1024*1024;
-
 // Enable cross-coroutine backtraces in debug mode, or when coro profiling is enabled.
 // We don't enable it on ARM, because taking backtraces currently isn't working
 // reliably and sometimes causes crashes.

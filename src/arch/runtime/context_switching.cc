@@ -158,6 +158,21 @@ artificial_stack_t::~artificial_stack_t() {
 #endif
 }
 
+/* Wrapper around `mprotect` that checks the return code. */
+void checked_mprotect_page(void *page_addr, int prot) {
+    int res = mprotect(page_addr, getpagesize(), prot);
+    if (res != 0) {
+#ifdef __linux__
+        if (get_errno() == ENOMEM) {
+            crash("Failed to (un-)protect a coroutine stack (`mprotect` failed with "
+                  "`ENOMEM`). Try increasing the value of `/proc/sys/vm/max_map_count`.");
+        }
+#endif
+        crash("Failed to (un-)protect a coroutine stack. `mprotect` failed with error "
+              "code %d.", get_errno());
+    }
+}
+
 void artificial_stack_t::enable_overflow_protection() {
     /* Protect the end of the stack so that we crash when we get a stack
     overflow instead of corrupting memory. */
@@ -167,17 +182,7 @@ void artificial_stack_t::enable_overflow_protection() {
     /* OS X Instruments hangs when running with mprotect and having object identification
     enabled. We don't need it for THREADED_COROUTINES anyway, so don't use it then. */
 #ifndef THREADED_COROUTINES
-    int res = mprotect(stack.get(), getpagesize(), PROT_NONE);
-    if (res != 0) {
-#ifdef __linux__
-        if (get_errno() == ENOMEM) {
-            crash("Failed to protect a coroutine stack (`mprotect` failed with "
-                  "`ENOMEM`). Try increasing the value of `/proc/sys/vm/max_map_count`.");
-        }
-#endif
-        crash("Failed to protect a coroutine stack. `mprotect` failed with error code "
-              "%d.", get_errno());
-    }
+    checked_mprotect_page(stack.get(), PROT_NONE);
     overflow_protection_enabled = true;
 #endif
 }
@@ -187,7 +192,7 @@ void artificial_stack_t::disable_overflow_protection() {
         return;
     }
 #ifndef THREADED_COROUTINES
-    mprotect(stack.get(), getpagesize(), PROT_READ | PROT_WRITE);
+    checked_mprotect_page(stack.get(), PROT_READ | PROT_WRITE);
     overflow_protection_enabled = false;
 #endif
 }
