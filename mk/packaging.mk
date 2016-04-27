@@ -46,7 +46,7 @@ DEB_BUILD_DEPENDS := g++, libboost-dev, libssl-dev, curl, m4, debhelper
 DEB_BUILD_DEPENDS += , fakeroot, python, libncurses5-dev, libcurl4-openssl-dev, libssl-dev
 
 ifneq (1,$(BUILD_PORTABLE))
-  DEB_BUILD_DEPENDS += , protobuf-compiler, libprotobuf-dev, libjemalloc-dev
+  DEB_BUILD_DEPENDS += , protobuf-compiler, libprotobuf-dev
 endif
 
 ifeq ($(BUILD_PORTABLE),1)
