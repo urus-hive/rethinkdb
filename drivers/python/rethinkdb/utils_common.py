@@ -16,7 +16,7 @@ def parse_connect_option(connect):
     try:
         port = int(port)
     except (TypeError, ValueError): # nonsense or None
-        port = net.default_port
+        port = net.DEFAULT_PORT
     
     if connect:
         res = portRegex.match(connect)

@@ -40,7 +40,7 @@ rethinkdb dump -e test -f rdb_dump.tar.gz
 
 rethinkdb dump -c hades -e test.subscribers -p
   Archive a specific table from a cluster running on host 'hades' which requires a password.
-''' % {'usage':usage, 'default_port':net.default_port})
+''' % {'usage':usage, 'default_port':net.DEFAULT_PORT})
 
 def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)

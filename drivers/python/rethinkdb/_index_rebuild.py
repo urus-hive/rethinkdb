@@ -37,7 +37,7 @@ rethinkdb index-rebuild -c mnemosyne:39500
 
 rethinkdb index-rebuild -r test -r production.users -n 5
   rebuild all outdated secondary indexes from a local cluster on all tables in the
-  'test' database as well as the 'production.users' table, five at a time""" % net.default_port)
+  'test' database as well as the 'production.users' table, five at a time""" % net.DEFAULT_PORT)
 
 def parse_options(argv):
     parser = optparse.OptionParser(add_help_option=False, usage=usage)

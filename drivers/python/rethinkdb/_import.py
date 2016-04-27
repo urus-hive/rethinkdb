@@ -49,7 +49,7 @@ def print_import_help():
     print("")
     print("  -h [ --help ]                    print this help")
     print("  -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect")
-    print("                                   to (defaults to localhost:%d)" % net.default_port)
+    print("                                   to (defaults to localhost:%d)" % net.DEFAULT_PORT)
     print("  --tls-cert FILENAME              certificate file to use for TLS encryption.")
     print("  -p [ --password ]                interactively prompt for a password required to connect.")
     print("  --password-file FILENAME         read password required to connect from file.")
