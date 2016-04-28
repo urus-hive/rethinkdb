@@ -20,91 +20,50 @@ try:
 except ImportError:
     from multiprocessing.queues import SimpleQueue
 
+usage = """rethinkdb export [-c HOST:PORT] [-p] [--password-file FILENAME] [--tls-cert filename] [-d DIR] [-e (DB | DB.TABLE)]...
+      [--format (csv | json | ndjson)] [--fields FIELD,FIELD...] [--delimiter CHARACTER]
+      [--clients NUM]"""
+help_description = '`rethinkdb export` exports data from a RethinkDB cluster into a directory'
+help_epilog = '''
+EXAMPLES:
+rethinkdb export -c mnemosyne:39500
+  Export all data from a cluster running on host 'mnemosyne' with a client port at 39500.
 
-info = "'rethinkdb export` exports data from a RethinkDB cluster into a directory"
-usage = "\
-  rethinkdb export [-c HOST:PORT] [-p] [--password-file FILENAME] [--tls-cert filename] [-d DIR] [-e (DB | DB.TABLE)]...\n\
-      [--format (csv | json | ndjson)] [--fields FIELD,FIELD...] [--delimiter CHARACTER]\n\
-      [--clients NUM]"
+rethinkdb export -e test -d rdb_export
+  Export only the 'test' database on a local cluster into a named directory.
 
-def print_export_help():
-    print(info)
-    print(usage)
-    print("")
-    print("  -h [ --help ]                    print this help")
-    print("  -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect")
-    print("                                   to (defaults to localhost:%d)" % net.DEFAULT_PORT)
-    print("  --tls-cert FILENAME              certificate file to use for TLS encryption.")
-    print("  -p [ --password ]                interactively prompt for a password required to connect.")
-    print("  --password-file FILENAME         read password required to connect from file.")
-    print("  -d [ --directory ] DIR           directory to output to (defaults to")
-    print("                                   rethinkdb_export_DATE_TIME)")
-    print("  --format (csv | json | ndjson)   format to write (defaults to json.")
-    print("                                   ndjson is newline delimited json.)")
-    print("  --fields FIELD,FIELD...          limit the exported fields to those specified")
-    print("                                   (required for CSV format)")
-    print("  -e [ --export ] (DB | DB.TABLE)  limit dump to the given database or table (may")
-    print("                                   be specified multiple times)")
-    print("  --clients NUM                    number of tables to export simultaneously (defaults")
-    print("                                   to 3)")
-    print("  -q [ --quiet ]                   suppress non-error messages")
-    print("")
-    print("Export in CSV format:")
-    print("  --delimiter CHARACTER            character to be used as field delimiter, or '\\t' for tab")
-    print("")
-    print("EXAMPLES:")
-    print("rethinkdb export -c mnemosyne:39500")
-    print("  Export all data from a cluster running on host 'mnemosyne' with a client port at 39500.")
-    print("")
-    print("rethinkdb export -e test -d rdb_export")
-    print("  Export only the 'test' database on a local cluster into a named directory.")
-    print("")
-    print("rethinkdb export -c hades -e test.subscribers -p")
-    print("  Export a specific table from a cluster running on host 'hades' which requires a password.")
-    print("")
-    print("rethinkdb export --format csv -e test.history --fields time,message --delimiter ';'")
-    print("  Export a specific table from a local cluster in CSV format with the fields 'time' and 'message',")
-    print("  using a semicolon as field delimiter (rather than a comma).")
-    print("")
-    print("rethinkdb export --fields id,value -e test.data")
-    print("  Export a specific table from a local cluster in JSON format with only the fields 'id' and 'value'.")
+rethinkdb export -c hades -e test.subscribers -p
+  Export a specific table from a cluster running on host 'hades' which requires a password.
+
+rethinkdb export --format csv -e test.history --fields time,message --delimiter ';'
+  Export a specific table from a local cluster in CSV format with the fields 'time' and 'message',
+  using a semicolon as field delimiter (rather than a comma).
+
+rethinkdb export --fields id,value -e test.data
+  Export a specific table from a local cluster in JSON format with only the fields 'id' and 'value'.
+'''
 
 def parse_options(argv):
-    parser = optparse.OptionParser(add_help_option=False, usage=usage)
-    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT")
-    parser.add_option("--format", dest="format", metavar="json | csv | ndjson", default="json")
-    parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY", default=None)
-    parser.add_option("-e", "--export", dest="tables", metavar="DB | DB.TABLE", default=[], action="append")
-    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="")
-    parser.add_option("--fields", dest="fields", metavar="<FIELD>,<FIELD>...", default=None)
-    parser.add_option("--delimiter", dest="delimiter", metavar="CHARACTER", default=None)
-    parser.add_option("--clients", dest="clients", metavar="NUM", default=3, type="int")
-    parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
-    parser.add_option("-q", "--quiet", dest="quiet", default=False, action="store_true")
-    parser.add_option("--debug", dest="debug", default=False, action="store_true")
-    parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
-    parser.add_option("--password-file", dest="password_file", default=None)
+    parser = utils_common.CommonOptionsParser(usage=usage, description=help_description, epilog=help_epilog)
+
+    parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY",       default=None,   help='directory to output to (defaults to rethinkdb_export_DATE_TIME)')
+    parser.add_option("-e", "--export",    dest="tables",    metavar="DB | DB.TABLE",   default=[],     help='limit dump to the given database or table (may be specified multiple times)', action="append")
+    parser.add_option("--fields",          dest="fields",    metavar="<FIELD>,...",     default=None,   help='limit the exported fields to those specified (required for CSV format)')
+    parser.add_option("--format",          dest="format",    metavar="json|csv|ndjson", default="json", help='format to write (defaults to json. ndjson is newline delimited json.)', type="choice", choices=['json', 'csv', 'ndjson'])
+
+    parser.add_option("--clients",         dest="clients",   metavar="NUM",             default=3,      help='number of tables to export simultaneously (defaults to 3)', type="int")
+    
+    csvGroup = optparse.OptionGroup(parser, 'CSV options')
+    csvGroup.add_option("--delimiter", dest="delimiter",     metavar="CHARACTER",       default=None,   help="character to be used as field delimiter, or '\\t' for tab (default: ',')")
+    parser.add_option_group(csvGroup)
+    
     options, args = parser.parse_args(argv)
 
     # Check validity of arguments
     if len(args) != 0:
-        raise RuntimeError("Error: No positional arguments supported. Unrecognized option '%s'" % args[0])
-
-    if options.help:
-        print_export_help()
-        exit(0)
+        parser.error("Error: No positional arguments supported. Unrecognized option '%s'" % args[0])
 
     res = {}
-
-    # Verify valid host:port --connect option
-    (res["host"], res["port"]) = utils_common.parse_connect_option(options.host)
-
-    res["tls_cert"] = utils_common.ssl_option(options.tls_cert)
-
-    # Verify valid --format option
-    if options.format not in ["csv", "json", "ndjson"]:
-        raise RuntimeError("Error: Unknown format '%s', valid options are 'csv', 'json', and 'ndjson'" % options.format)
-    res["format"] = options.format
 
     # Verify valid directory option
     if options.directory is None:
@@ -154,11 +113,6 @@ def parse_options(argv):
         raise RuntimeError("Error: invalid number of clients (%d), must be greater than zero" % options.clients)
     res["clients"] = options.clients
 
-    res["quiet"] = options.quiet
-    res["debug"] = options.debug
-
-    res["password"] = options.password
-    res["password-file"] = options.password_file
     return res
 
 # This is called through utils_common.rdb_call_wrapper and may be called multiple times if
@@ -321,16 +275,10 @@ def get_all_table_sizes(host, port, db_table_set, ssl_op, admin_password):
     def get_table_size(progress, conn, db, table):
         return r.db(db).table(table).info()['doc_count_estimates'].sum().run(conn)
 
-    conn_fn = lambda: r.connect(host,
-                                port,
-                                ssl=ssl_op,
-                                user="admin",
-                                password=admin_password)
-
     ret = dict()
     for pair in db_table_set:
         db, table = pair
-        ret[pair] = int(utils_common.rdb_call_wrapper(conn_fn, "count", get_table_size, db, table))
+        ret[pair] = int(utils_common.rdb_call_wrapper("count", get_table_size, db, table))
 
     return ret
 
@@ -341,12 +289,7 @@ def export_table(host, port, db, table, directory, fields, delimiter, format,
     try:
         # This will open at least one connection for each utils_common.rdb_call_wrapper, which is
         # a little wasteful, but shouldn't be a big performance hit
-        conn_fn = lambda: r.connect(host,
-                                    port,
-                                    ssl=ssl_op,
-                                    user="admin",
-                                    password=admin_password)
-        table_info = utils_common.rdb_call_wrapper(conn_fn, "info", write_table_metadata, db, table, directory)
+        table_info = utils_common.rdb_call_wrapper("info", write_table_metadata, db, table, directory)
         sindex_counter.value += len(table_info["indexes"])
         
         # -- start the writer
@@ -371,7 +314,7 @@ def export_table(host, port, db, table, directory, fields, delimiter, format,
         
         # -- read in the data source
         
-        utils_common.rdb_call_wrapper(conn_fn, "table scan", read_table_into_queue, db, table,
+        utils_common.rdb_call_wrapper("table scan", read_table_into_queue, db, table,
                          table_info["primary_key"], task_queue, progress_info, exit_event)
     except (r.ReqlError, r.ReqlDriverError) as ex:
         error_queue.put((RuntimeError, RuntimeError(ex.message), traceback.extract_tb(sys.exc_info()[2])))
@@ -498,18 +441,13 @@ def main(argv=None):
         print("Usage:\n%s" % usage, file=sys.stderr)
         print(ex, file=sys.stderr)
         return 1
-
+    
     try:
-        admin_password = utils_common.get_password(options["password"], options["password-file"])
-        conn_fn = lambda: r.connect(options["host"],
-                                    options["port"],
-                                    ssl=options["tls_cert"],
-                                    user="admin",
-                                    password=admin_password)
+
         # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
         # if the user has a database named 'rethinkdb'
-        utils_common.rdb_call_wrapper(conn_fn, "version check", utils_common.check_minimum_version, (1, 16, 0))
-        db_table_set = utils_common.rdb_call_wrapper(conn_fn, "table list", get_tables, options["db_tables"])
+        utils_common.rdb_call_wrapper("version check", utils_common.check_minimum_version, (1, 16, 0))
+        db_table_set = utils_common.rdb_call_wrapper("table list", get_tables, options["db_tables"])
         del options["db_tables"] # This is not needed anymore, db_table_set is more useful
 
         # Determine the actual number of client processes we'll have

@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
+'''`rethinkdb import` loads data into a RethinkDB cluster'''
+
 from __future__ import print_function
 
-import codecs, csv, ctypes, datetime, json, multiprocessing, optparse
-import os, re, signal, sys, time, traceback
+import codecs, csv, ctypes, datetime, json, multiprocessing, optparse, os, re, signal, sys, time, traceback
 
 from . import utils_common, net
 r = utils_common.r
@@ -33,145 +34,94 @@ try:
 except ImportError:
     from multiprocessing.queues import SimpleQueue
 
-info = "'rethinkdb import` loads data into a RethinkDB cluster"
-usage = "\
-  rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]\n\
-      [--force] [-i (DB | DB.TABLE)] [--clients NUM]\n\
-      [--shards NUM_SHARDS] [--replicas NUM_REPLICAS]\n\
-  rethinkdb import -f FILE --table DB.TABLE [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]\n\
-      [--force] [--clients NUM] [--format (csv | json)] [--pkey PRIMARY_KEY]\n\
-      [--shards NUM_SHARDS] [--replicas NUM_REPLICAS]\n\
-      [--delimiter CHARACTER] [--custom-header FIELD,FIELD... [--no-header]]"
+usage = """rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
+      [--force] [-i (DB | DB.TABLE)] [--clients NUM]
+      [--shards NUM_SHARDS] [--replicas NUM_REPLICAS]
+  rethinkdb import -f FILE --table DB.TABLE [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
+      [--force] [--clients NUM] [--format (csv | json)] [--pkey PRIMARY_KEY]
+      [--shards NUM_SHARDS] [--replicas NUM_REPLICAS]
+      [--delimiter CHARACTER] [--custom-header FIELD,FIELD... [--no-header]]"""
+help_epilog = '''
+EXAMPLES:
 
-def print_import_help():
-    print(info)
-    print(usage)
-    print("")
-    print("  -h [ --help ]                    print this help")
-    print("  -c [ --connect ] HOST:PORT       host and client port of a rethinkdb node to connect")
-    print("                                   to (defaults to localhost:%d)" % net.DEFAULT_PORT)
-    print("  --tls-cert FILENAME              certificate file to use for TLS encryption.")
-    print("  -p [ --password ]                interactively prompt for a password required to connect.")
-    print("  --password-file FILENAME         read password required to connect from file.")
-    print("  --clients NUM_CLIENTS            the number of client connections to use (defaults")
-    print("                                   to 8)")
-    print("  --hard-durability                use hard durability writes (slower, but less memory")
-    print("                                   consumption on the server)")
-    print("  --force                          import data even if a table already exists, and")
-    print("                                   overwrite duplicate primary keys")
-    print("  --fields                         limit which fields to use when importing one table")
-    print("  -q [ --quiet ]                   suppress non-error messages")
-    print("")
-    print("Import directory:")
-    print("  -d [ --directory ] DIR           the directory to import data from")
-    print("  -i [ --import ] (DB | DB.TABLE)  limit restore to the given database or table (may")
-    print("                                   be specified multiple times)")
-    print("  --no-secondary-indexes           do not create secondary indexes for the imported tables")
-    print("")
-    print("Import file:")
-    print("  -f [ --file ] FILE               the file to import data from")
-    print("  --table DB.TABLE                 the table to import the data into")
-    print("  --format (csv | json)            the format of the file (defaults to json and accepts")
-    print("                                   newline delimited json)")
-    print("  --pkey PRIMARY_KEY               the field to use as the primary key in the table")
-    print("")
-    print("Import CSV format:")
-    print("  --delimiter CHARACTER            character separating fields, or '\\t' for tab")
-    print("  --no-header                      do not read in a header of field names")
-    print("  --custom-header FIELD,FIELD...   header to use (overriding file header), must be")
-    print("                                   specified if --no-header")
-    print("")
-    print("Import JSON format:")
-    print("  --max-document-size              the maximum size in bytes that a single JSON document")
-    print("                                   can have (defaults to 134217728).")
-    print("  --max-nesting-depth              the maximum nesting depth of the JSON documents")
-    print("")
-    print("EXAMPLES:")
-    print("")
-    print("rethinkdb import -d rdb_export -c mnemosyne:39500 --clients 128")
-    print("  Import data into a cluster running on host 'mnemosyne' with a client port at 39500,")
-    print("  using 128 client connections and the named export directory.")
-    print("")
-    print("rethinkdb import -f site_history.csv --format csv --table test.history --pkey count")
-    print("  Import data into a local cluster and the table 'history' in the 'test' database,")
-    print("  using the named CSV file, and using the 'count' field as the primary key.")
-    print("")
-    print("rethinkdb import -d rdb_export -c hades -p -i test")
-    print("  Import data into a cluster running on host 'hades' which requires a password,")
-    print("  using only the database 'test' from the named export directory.")
-    print("")
-    print("rethinkdb import -f subscriber_info.json --fields id,name,hashtag --force")
-    print("  Import data into a local cluster using the named JSON file, and only the fields")
-    print("  'id', 'name', and 'hashtag', overwriting any existing rows with the same primary key.")
-    print("")
-    print("rethinkdb import -f user_data.csv --delimiter ';' --no-header --custom-header id,name,number")
-    print("  Import data into a local cluster using the named CSV file with no header and instead")
-    print("  use the fields 'id', 'name', and 'number', the delimiter is a semicolon (rather than")
-    print("  a comma).")
+rethinkdb import -d rdb_export -c mnemosyne:39500 --clients 128
+  Import data into a cluster running on host 'mnemosyne' with a client port at 39500,
+  using 128 client connections and the named export directory.
+
+rethinkdb import -f site_history.csv --format csv --table test.history --pkey count
+  Import data into a local cluster and the table 'history' in the 'test' database,
+  using the named CSV file, and using the 'count' field as the primary key.
+
+rethinkdb import -d rdb_export -c hades -p -i test
+  Import data into a cluster running on host 'hades' which requires a password,
+  using only the database 'test' from the named export directory.
+
+rethinkdb import -f subscriber_info.json --fields id,name,hashtag --force
+  Import data into a local cluster using the named JSON file, and only the fields
+  'id', 'name', and 'hashtag', overwriting any existing rows with the same primary key.
+
+rethinkdb import -f user_data.csv --delimiter ';' --no-header --custom-header id,name,number
+  Import data into a local cluster using the named CSV file with no header and instead
+  use the fields 'id', 'name', and 'number', the delimiter is a semicolon (rather than
+  a comma).
+'''
 
 def parse_options(argv):
-    parser = optparse.OptionParser(add_help_option=False, usage=usage)
-    parser.add_option("-c", "--connect", dest="host", metavar="HOST:PORT")
-    parser.add_option("--fields", dest="fields", metavar="FIELD,FIELD...", default=None)
-    parser.add_option("--clients", dest="clients", metavar="NUM_CLIENTS", default=8, type="int")
-    parser.add_option("--hard-durability", dest="hard", action="store_true", default=False)
-    parser.add_option("--force", dest="force", action="store_true", default=False)
-    parser.add_option("-q", "--quiet", dest="quiet", default=False, action="store_true")
-    parser.add_option("--debug", dest="debug", action="store_true", default=False)
-    parser.add_option("--max-document-size", dest="max_document_size",  default=0,type="int")
-    parser.add_option("--max-nesting-depth", dest="max_nesting_depth", default=0, type="int")
-
+    parser = utils_common.CommonOptionsParser(usage=usage, epilog=help_epilog)
+    
+    parser.add_option("--fields",          dest="fields",     metavar="FIELD,...",  default=None,   help="limit which fields to use when importing one table")
+    parser.add_option("--clients",         dest="clients",    metavar="CLIENTS",    default=8,      help="client connections to use (default: 8)", type="int")
+    parser.add_option("--hard-durability", dest="durability", action="store_const", default="soft", help="use hard durability writes (slower, uses less memory)", const="hard")
+    parser.add_option("--force",           dest="force",      action="store_true",  default=False,  help="import even if a table already exists, overwriting duplicate primary keys")
+    
     # Replication settings
-    parser.add_option("--shards", dest="shards", metavar="NUM_SHARDS", default=0, type="int")
-    parser.add_option("--replicas", dest="replicas", metavar="NUM_REPLICAS", default=0, type="int")
-
-    parser.add_option("--tls-cert", dest="tls_cert", metavar="TLS_CERT", default="")
+    replicationOptionsGroup = optparse.OptionGroup(parser, 'Replication Options')
+    replicationOptionsGroup.add_option("--shards",   dest="shards",   metavar="SHARDS",   default=1, help="shards to setup on created tables (default: 1)", type="int")
+    replicationOptionsGroup.add_option("--replicas", dest="replicas", metavar="REPLICAS", default=1, help="replicas to setup on created tables (default: 1)", type="int")
+    parser.add_option_group(replicationOptionsGroup)
 
     # Directory import options
-    parser.add_option("-d", "--directory", dest="directory", metavar="DIRECTORY", default=None)
-    parser.add_option("-i", "--import", dest="tables", metavar="DB | DB.TABLE", default=[], action="append")
-    parser.add_option("--no-secondary-indexes", dest="create_sindexes", action="store_false", default=True)
+    dirImportGroup = optparse.OptionGroup(parser, 'Directory Import Options')
+    dirImportGroup.add_option("-d", "--directory",      dest="directory", metavar="DIRECTORY",   default=None, help="directory to import data from")
+    dirImportGroup.add_option("-i", "--import",         dest="tables",    metavar="DB|DB.TABLE", default=[],   help="restore only the given database or table (may be specified multiple times)", action="append", type="db_table")
+    dirImportGroup.add_option("--no-secondary-indexes", dest="create_sindexes", action="store_false",  default=True, help="do not create secondary indexes")
+    parser.add_option_group(dirImportGroup)
 
     # File import options
-    parser.add_option("-f", "--file", dest="import_file", metavar="FILE", default=None)
-    parser.add_option("--format", dest="import_format", metavar="json | csv", default=None)
-    parser.add_option("--table", dest="import_table", metavar="DB.TABLE", default=None)
-    parser.add_option("--pkey", dest="primary_key", metavar="KEY", default=None)
-    parser.add_option("--delimiter", dest="delimiter", metavar="CHARACTER", default=None)
-    parser.add_option("--no-header", dest="no_header", action="store_true", default=False)
-    parser.add_option("--custom-header", dest="custom_header", metavar="FIELD,FIELD...", default=None)
-    parser.add_option("-h", "--help", dest="help", default=False, action="store_true")
-    parser.add_option("-p", "--password", dest="password", default=False, action="store_true")
-    parser.add_option("--password-file", dest="password_file", default=None)
-    (options, args) = parser.parse_args(argv)
+    fileImportGroup = optparse.OptionGroup(parser, 'File Import Options')
+    fileImportGroup.add_option("-f", "--file",    dest="import_file",   metavar="FILE",      default=None, help="file to import data from")
+    fileImportGroup.add_option("--table",         dest="import_table",  metavar="DB.TABLE",  default=None, help="table to import the data into")
+    fileImportGroup.add_option("--format",        dest="import_format", metavar="json|csv",  default=None, help="format of the file (default: json, accepts newline delimited json)")
+    fileImportGroup.add_option("--pkey",          dest="primary_key",   metavar="KEY",       default=None, help="field to use as the primary key in the table")
+    parser.add_option_group(fileImportGroup)
+    
+    # CSV import options
+    csvImportGroup = optparse.OptionGroup(parser, 'CSV Options')
+    csvImportGroup.add_option("--delimiter",     dest="delimiter",     metavar="CHARACTER", default=None,  help="character separating fields, or '\\t' for tab")
+    csvImportGroup.add_option("--no-header",     dest="no_header",     action="store_true", default=False, help="do not read in a header of field names")
+    csvImportGroup.add_option("--custom-header", dest="custom_header", metavar="FIELD,...", default=None,  help="header to use (overriding file header), must be specified if --no-header")
+    parser.add_option_group(csvImportGroup)
+    
+    # JSON import options
+    jsonOptionsGroup = optparse.OptionGroup(parser, 'JSON Options')
+    jsonOptionsGroup.add_option("--max-document-size", dest="max_document_size", metavar="MAX_SIZE",  default=0, help="maximum allowed size (bytes) for a single JSON document (default: 128MiB)", type="int")
+    jsonOptionsGroup.add_option("--max-nesting-depth", dest="max_nesting_depth", metavar="MAX_DEPTH", default=0, help="maximum depth of the JSON documents (default: 100)", type="int")
+    parser.add_option_group(jsonOptionsGroup)
+    
+    options, args = parser.parse_args(argv)
 
     # Check validity of arguments
     if len(args) != 0:
-        raise RuntimeError("Error: No positional arguments supported. Unrecognized option '%s'" % args[0])
-
-    if options.help:
-        print_import_help()
-        exit(0)
+        parser.error("Error: No positional arguments supported. Unrecognized option '%s'" % args[0])
 
     res = {}
-
-    # Verify valid host:port --connect option
-    (res["host"], res["port"]) = utils_common.parse_connect_option(options.host)
 
     if options.clients < 1:
         raise RuntimeError("Error: --client option too low, must have at least one client connection")
 
-    res["tls_cert"] = utils_common.ssl_option(options.tls_cert)
-    res["clients"] = options.clients
-    res["durability"] = "hard" if options.hard else "soft"
-    res["force"] = options.force
-    res["quiet"] = options.quiet
-    res["debug"] = options.debug
-    res["create_sindexes"] = options.create_sindexes
-
     res["create_args"] = { }
     for k in ['shards', 'replicas']:
-        if getattr(options, k) != 0:
+        if getattr(options, k) > 1:
             res["create_args"][k] = getattr(options, k)
 
     # Default behavior for csv files - may be changed by options
@@ -189,50 +139,47 @@ def parse_options(argv):
     if options.directory is not None:
         # Directory mode, verify directory import options
         if options.import_file is not None:
-            raise RuntimeError("Error: --file option is not valid when importing a directory")
+            parser.error("--file option is not valid when importing a directory")
         if options.import_format is not None:
-            raise RuntimeError("Error: --format option is not valid when importing a directory")
+            parser.error("--format option is not valid when importing a directory")
         if options.import_table is not None:
-            raise RuntimeError("Error: --table option is not valid when importing a directory")
+            parser.error("--table option is not valid when importing a directory")
         if options.primary_key is not None:
-            raise RuntimeError("Error: --pkey option is not valid when importing a directory")
+            parser.error("--pkey option is not valid when importing a directory")
         if options.delimiter is not None:
-            raise RuntimeError("Error: --delimiter option is not valid when importing a directory")
+            parser.error("--delimiter option is not valid when importing a directory")
         if options.no_header is not False:
-            raise RuntimeError("Error: --no-header option is not valid when importing a directory")
+            parser.error("--no-header option is not valid when importing a directory")
         if options.custom_header is not None:
-            raise RuntimeError("Error: --custom-header option is not valid when importing a directory")
+            parser.error("--custom-header option is not valid when importing a directory")
 
         # Verify valid directory option
         dirname = options.directory
         res["directory"] = os.path.abspath(dirname)
 
         if not os.path.exists(res["directory"]):
-            raise RuntimeError("Error: Directory to import does not exist: %s" % res["directory"])
-
-        # Verify valid --import options
-        res["db_tables"] = utils_common.parse_db_table_options(options.tables)
+            parser.error("Directory to import does not exist: %s" % res["directory"])
 
         # Parse fields
         if options.fields is None:
             res["fields"] = None
         elif len(res["db_tables"]) != 1 or res["db_tables"][0][1] is None:
-            raise RuntimeError("Error: Can only use the --fields option when importing a single table")
+            parser.error("Can only use the --fields option when importing a single table")
         else:
             res["fields"] = options.fields.split(",")
 
     elif options.import_file is not None:
         # Single file mode, verify file import options
         if len(options.tables) != 0:
-            raise RuntimeError("Error: --import option is not valid when importing a single file")
+            parser.error("--import option is not valid when importing a single file")
         if options.directory is not None:
-            raise RuntimeError("Error: --directory option is not valid when importing a single file")
+            parser.error("--directory option is not valid when importing a single file")
 
         import_file = options.import_file
         res["import_file"] = os.path.abspath(import_file)
 
         if not os.path.exists(res["import_file"]):
-            raise RuntimeError("Error: File to import does not exist: %s" % res["import_file"])
+            parser.error("File to import does not exist: %s" % res["import_file"])
 
         # Verify valid --format option
         if options.import_format is None:
@@ -242,16 +189,16 @@ def parse_options(argv):
 
             res["import_format"] = options.import_format
         elif options.import_format not in ["csv", "json"]:
-            raise RuntimeError("Error: Unknown format '%s', valid options are 'csv' and 'json'" % options.import_format)
+            parser.error("Unknown format '%s', valid options are 'csv' and 'json'" % options.import_format)
         else:
             res["import_format"] = options.import_format
 
         # Verify valid --table option
         if options.import_table is None:
-            raise RuntimeError("Error: Must specify a destination table to import into using the --table option")
+            parser.error("Must specify a destination table to import into using the --table option")
         res["import_db_table"] = utils_common.parse_db_table(options.import_table)
         if res["import_db_table"][1] is None:
-            raise RuntimeError("Error: Invalid 'db.table' format: %s" % options.import_table)
+            parser.error("Invalid 'db.table' format: %s" % options.import_table)
 
         # Parse fields
         if options.fields is None:
@@ -268,7 +215,7 @@ def parse_options(argv):
                 elif options.delimiter == "\\t":
                     res["delimiter"] = "\t"
                 else:
-                    raise RuntimeError("Error: Must specify only one character for the --delimiter option")
+                    parser.error("Must specify only one character for the --delimiter option")
 
             if options.custom_header is None:
                 res["custom_header"] = None
@@ -276,20 +223,20 @@ def parse_options(argv):
                 res["custom_header"] = options.custom_header.split(",")
 
             if options.no_header == True and options.custom_header is None:
-                raise RuntimeError("Error: Cannot import a CSV file with --no-header and no --custom-header option")
+                parser.error("Cannot import a CSV file with --no-header and no --custom-header option")
             res["no_header"] = options.no_header
         else:
             if options.delimiter is not None:
-                raise RuntimeError("Error: --delimiter option is only valid for CSV file formats")
+                parser.error("--delimiter option is only valid for CSV file formats")
             if options.no_header == True:
-                raise RuntimeError("Error: --no-header option is only valid for CSV file formats")
+                parser.error("--no-header option is only valid for CSV file formats")
             if options.custom_header is not None:
-                raise RuntimeError("Error: --custom-header option is only valid for CSV file formats")
+                parser.error("--custom-header option is only valid for CSV file formats")
 
         if options.primary_key is not None:
           res["create_args"]["primary_key"] = options.primary_key
     else:
-        raise RuntimeError("Error: Must specify one of --directory or --file to import")
+        parser.error("Must specify one of --directory or --file to import")
 
     res["password"] = utils_common.get_password(options.password, options.password_file)
     return res
@@ -336,13 +283,8 @@ def import_from_queue(progress, conn, task_queue, error_queue, replace_conflicts
 # This is run for each client requested, and accepts tasks from the reader processes
 def client_process(host, port, task_queue, error_queue, rows_written, replace_conflicts, durability, ssl_op, admin_password):
     try:
-        conn_fn = lambda: r.connect(host,
-                                    port,
-                                    ssl=ssl_op,
-                                    user="admin",
-                                    password=admin_password)
         write_count = [0]
-        utils_common.rdb_call_wrapper(conn_fn, "import", import_from_queue, task_queue, error_queue, replace_conflicts, durability, write_count)
+        utils_common.rdb_call_wrapper("import", import_from_queue, task_queue, error_queue, replace_conflicts, durability, write_count)
     except:
         ex_type, ex_class, tb = sys.exc_info()
         error_queue.put((ex_type, ex_class, traceback.extract_tb(tb)))
@@ -389,8 +331,7 @@ def object_callback(obj, db, table, task_queue, object_buffers, buffer_sizes, fi
     return obj
 
 
-def read_json_array(json_data, file_in, callback, progress_info,
-                    json_array=True):
+def read_json_array(json_data, file_in, callback, progress_info, json_array=True):
     decoder = json.JSONDecoder()
     file_offset = 0
     offset = 0
@@ -577,13 +518,8 @@ def table_reader(options, file_info, task_queue, error_queue, warning_queue, pro
         create_args = dict(options["create_args"])
         create_args["primary_key"] = file_info["info"]["primary_key"]
 
-        conn_fn = lambda: r.connect(options["host"],
-                                    options["port"],
-                                    ssl=options["tls_cert"],
-                                    user="admin",
-                                    password=options["password"])
         try:
-            utils_common.rdb_call_wrapper(conn_fn, "create table", create_table, db, table, create_args,
+            utils_common.rdb_call_wrapper("create table", create_table, db, table, create_args,
                          file_info["info"]["indexes"] if options["create_sindexes"] else [])
         except RuntimeError as e:
             if str(e) == "Sindex warning":
@@ -826,15 +762,10 @@ def import_directory(options):
 
         db_tables.add((file_info["db"], file_info["table"]))
 
-    conn_fn = lambda: r.connect(options["host"],
-                                options["port"],
-                                ssl=options["tls_cert"],
-                                user="admin",
-                                password=options["password"])
     # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
     # if the user has a database named 'rethinkdb'
-    utils_common.rdb_call_wrapper(conn_fn, "version check", utils_common.check_minimum_version, (1, 16, 0))
-    already_exist = utils_common.rdb_call_wrapper(conn_fn, "tables check", tables_check, files_info, options["force"])
+    utils_common.rdb_call_wrapper("version check", utils_common.check_minimum_version, (1, 16, 0))
+    already_exist = utils_common.rdb_call_wrapper("tables check", tables_check, files_info, options["force"])
 
     if len(already_exist) == 1:
         raise RuntimeError("Error: Table '%s' already exists, run with --force to import into the existing table" % already_exist[0])
@@ -885,15 +816,10 @@ def import_file(options):
     table = options["import_db_table"][1]
 
     # Ensure that the database and table exist with the right primary key
-    conn_fn = lambda: r.connect(options["host"],
-                                options["port"],
-                                ssl=options["tls_cert"],
-                                user="admin",
-                                password=options["password"])
     # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
     # if the user has a database named 'rethinkdb'
-    utils_common.rdb_call_wrapper(conn_fn, "version check", utils_common.check_minimum_version, (1, 16, 0))
-    pkey = utils_common.rdb_call_wrapper(conn_fn, "table check", table_check, db, table, options["create_args"], options["force"], options["quiet"])
+    utils_common.rdb_call_wrapper("version check", utils_common.check_minimum_version, (1, 16, 0))
+    pkey = utils_common.rdb_call_wrapper("table check", table_check, db, table, options["create_args"], options["force"], options["quiet"])
 
     # Make this up so we can use the same interface as with an import directory
     file_info = {}
