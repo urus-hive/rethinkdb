@@ -691,16 +691,22 @@ void linux_tcp_conn_t::on_event(int /* events */) {
     event_watcher->stop_watching_for_errors();
 }
 
+// Helper function for throwing an OpenSSL error as a
+// `linux_tcp_conn_t::connect_failed_exc_t`.
+NORETURN void throw_openssl_connect_error() {
+    unsigned long err_code = ERR_get_error(); // NOLINT(runtime/int)
+    const char *err_str = ERR_error_string(err_code, nullptr);
+    throw linux_tcp_conn_t::connect_failed_exc_t(
+            err_code, err_str == nullptr ? "unknown OpenSSL error" : err_str);
+}
+
 tls_conn_wrapper_t::tls_conn_wrapper_t(SSL_CTX *tls_ctx)
     THROWS_ONLY(linux_tcp_conn_t::connect_failed_exc_t) {
     ERR_clear_error();
 
     conn = SSL_new(tls_ctx);
     if (nullptr == conn) {
-        unsigned long err_code = ERR_get_error(); // NOLINT(runtime/int)
-
-        throw linux_tcp_conn_t::connect_failed_exc_t(
-            err_code, ERR_error_string(err_code, nullptr));
+        throw_openssl_connect_error();
     }
 
     // Add support for partial writes.
@@ -715,9 +721,7 @@ tls_conn_wrapper_t::~tls_conn_wrapper_t() {
 void tls_conn_wrapper_t::set_fd(fd_t sock)
     THROWS_ONLY(linux_tcp_conn_t::connect_failed_exc_t) {
     if (0 == SSL_set_fd(conn, sock)) {
-        unsigned long err_code = ERR_get_error(); // NOLINT(runtime/int)
-        throw linux_tcp_conn_t::connect_failed_exc_t(
-            err_code, ERR_error_string(err_code, nullptr));
+        throw_openssl_connect_error();
     }
 }
 
@@ -772,8 +776,7 @@ void linux_secure_tcp_conn_t::perform_handshake(signal_t *interruptor)
 
         if (ret == 0) {
             // The handshake failed but the connection shut down cleanly.
-            throw linux_tcp_conn_t::connect_failed_exc_t(
-                0, "TLS handshake failed, shutdown cleanly");
+            throw_openssl_connect_error();
         }
 
         switch (SSL_get_error(conn.get(), ret)) {
@@ -795,9 +798,7 @@ void linux_secure_tcp_conn_t::perform_handshake(signal_t *interruptor)
             break;
         default:
             // Some other error with the underlying I/O.
-            unsigned long err_code = ERR_get_error(); // NOLINT(runtime/int)
-            throw linux_tcp_conn_t::connect_failed_exc_t(
-                err_code, ERR_error_string(err_code, nullptr));
+            throw_openssl_connect_error();
         }
 
         if (interruptor->is_pulsed()) {

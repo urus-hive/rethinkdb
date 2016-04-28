@@ -938,7 +938,7 @@ bool initialize_tls_ctx(
         fp_wrapper_t dhparams_fp(dhparams_filename->c_str(), "r");
         if (nullptr == dhparams_fp.get()) {
             logERR(
-                "unable to open %s for reading: %s",
+                "Unable to open %s for reading: %s",
                 dhparams_filename->c_str(),
                 errno_string(get_errno()).c_str());
             return false;
@@ -947,17 +947,19 @@ bool initialize_tls_ctx(
         DH *dhparams = PEM_read_DHparams(
             dhparams_fp.get(), nullptr, nullptr, nullptr);
         if (nullptr == dhparams) {
+            const char *err_str = ERR_error_string(ERR_get_error(), nullptr);
             logERR(
-                "unable to read DH parameters from %s: %s",
+                "Unable to read DH parameters from %s: %s",
                 dhparams_filename->c_str(),
-                ERR_error_string(ERR_get_error(), nullptr));
+                err_str == nullptr ? "unknown error" : err_str);
             return false;
         }
 
         if (1 != SSL_CTX_set_tmp_dh(tls_ctx_out->get(), dhparams)) {
+            const char *err_str = ERR_error_string(ERR_get_error(), nullptr);
             logERR(
-                "unable to set DH parameters: %s",
-                ERR_error_string(ERR_get_error(), nullptr));
+                "Unable to set DH parameters: %s",
+                err_str == nullptr ? "unknown error" : err_str);
             return false;
         }
     }
