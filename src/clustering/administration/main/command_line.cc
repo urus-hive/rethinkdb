@@ -854,7 +854,7 @@ bool initialize_tls_ctx(
 
     boost::optional<std::string> min_protocol_opt = get_optional_option(
         opts, "--tls-min-protocol");
-    long protocol_flags =
+    long protocol_flags = // NOLINT(runtime/int)
         SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1;
     if (min_protocol_opt) {
         if (*min_protocol_opt == "TLSv1") {
