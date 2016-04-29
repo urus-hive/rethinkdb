@@ -289,7 +289,7 @@ class SocketWrapper(object):
                             ca_certs=self.ssl["ca_certs"])
                 except IOError as exc:
                     self._socket.close()
-                    raise ReqlDriverError("SSL handshake failed: %s" % str(exc))
+                    raise ReqlDriverError("SSL handshake failed (see server log for more information): %s" % str(exc))
                 try:
                     match_hostname(self._socket.getpeercert(), hostname=self.host)
                 except CertificateError:
@@ -308,7 +308,7 @@ class SocketWrapper(object):
                     self.sendall(request)
                 
                 # The response from the server is a null-terminated string
-                response = b""
+                response = b''
                 while True:
                     char = self.recvall(1, deadline)
                     if char == b'\0':
