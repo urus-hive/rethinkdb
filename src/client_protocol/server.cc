@@ -77,7 +77,7 @@ time_t http_conn_cache_t::http_conn_t::last_accessed_time() const {
 
 http_conn_cache_t::http_conn_cache_t(uint32_t _http_timeout_sec) :
     http_timeout_timer(TIMER_RESOLUTION_MS, this),
-    http_timeout_sec(10) { //_http_timeout_sec) {
+    http_timeout_sec(_http_timeout_sec) {
 
     // Seed the random number generator from a true random source.
     // Note1: On some platforms std::random_device might not actually be
