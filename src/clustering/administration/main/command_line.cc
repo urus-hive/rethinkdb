@@ -864,7 +864,7 @@ bool initialize_tls_ctx(
         } else if (*min_protocol_opt == "TLSv1.2") {
             // Already the default
         } else {
-            logERR("Unrecognized TLS protocol version: %s", min_protocol_opt->c_str());
+            logERR("Unrecognized TLS protocol version '%s'.", min_protocol_opt->c_str());
             return false;
         }
     }
@@ -890,7 +890,7 @@ bool initialize_tls_ctx(
     and newer (1.0.2) versions seem to be okay with 'EECDH' though. */
     std::string ciphers = ciphers_opt ? *ciphers_opt : "EECDH+AESGCM";
     if (0 == SSL_CTX_set_cipher_list(tls_ctx_out->get(), ciphers.c_str())) {
-        logERR("No secure cipher suites available\n");
+        logERR("No secure cipher suites available.\n");
         return false;
     }
 
@@ -915,13 +915,13 @@ bool initialize_tls_ctx(
 
     int curve_nid = OBJ_txt2nid(curve_name.c_str());
     if (NID_undef == curve_nid) {
-        logERR("No elliptic curve found corresponding to name: %s", curve_name.c_str());
+        logERR("No elliptic curve found corresponding to name '%s'.", curve_name.c_str());
         return false;
     }
 
     EC_KEY *ec_key = EC_KEY_new_by_curve_name(curve_nid);
     if (nullptr == ec_key) {
-        logERR("Unable to get Elliptic Curve by name: %s", curve_name.c_str());
+        logERR("Unable to get elliptic curve by name '%s'.", curve_name.c_str());
         return false;
     }
 
@@ -954,7 +954,7 @@ bool initialize_tls_ctx(
         fp_wrapper_t dhparams_fp(dhparams_filename->c_str(), "r");
         if (nullptr == dhparams_fp.get()) {
             logERR(
-                "Unable to open %s for reading: %s",
+                "Unable to open '%s' for reading: %s",
                 dhparams_filename->c_str(),
                 errno_string(get_errno()).c_str());
             return false;
@@ -966,7 +966,7 @@ bool initialize_tls_ctx(
             unsigned long err_code = ERR_get_error(); // NOLINT(runtime/int)
             const char *err_str = ERR_reason_error_string(err_code);
             logERR(
-                "Unable to read DH parameters from %s: %s (OpenSSL error %lu)",
+                "Unable to read DH parameters from '%s': %s (OpenSSL error %lu)",
                 dhparams_filename->c_str(),
                 err_str == nullptr ? "unknown error" : err_str,
                 err_code);
