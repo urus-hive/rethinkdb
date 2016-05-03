@@ -194,7 +194,15 @@ void coro_t::return_coro_to_free_list(coro_t *coro) {
 void coro_t::maybe_evict_from_free_list() {
     coro_globals_t *cglobals = TLS_get_cglobals();
     while (cglobals->free_coros.size() > COROUTINE_FREE_LIST_SIZE) {
-        coro_t *coro_to_delete = cglobals->free_coros.tail();
+        // Note that we use `push_back` in `return_coro_to_free_list` and `head()` here.
+        // This is important because we must never free a coroutine that we have just
+        // returned to the free list. The reason is that when we call,
+        // `return_coro_to_free_list` in `coro_t::run`, that coroutine is still active
+        // and must not be deleted yet.
+        // We can guarantee this as long as the free list size is larger than zero.
+        static_assert(COROUTINE_FREE_LIST_SIZE > 0,
+                      "coro free list size must be at least 1");
+        coro_t *coro_to_delete = cglobals->free_coros.head();
         cglobals->free_coros.remove(coro_to_delete);
         delete coro_to_delete;
     }
@@ -301,7 +309,18 @@ void coro_t::run() {
                 &coro->protected_stack_lru_entry_);
         }
 
-        /* Return the context to the free-contexts list we took it from. */
+        /* Return the context to the free-contexts list we took it from.
+        Important: This is ok only because `do_on_thread` and the `linux_message_hub_t`
+        are *push* based when delivering messages to another thread. That property
+        guarantees that the message is not executed on another thread before we yield to
+        the message hub on this one.
+        If it was executed immediately on another thread, `coro` could get deleted from
+        the free list before we have performed the next context switch, meaning that we
+        would free a coroutine that's still running.
+        `do_on_thread` does execute `return_coro_to_free_list` immediately if the
+        `coro`'s home thread is the current thread. That too is ok though, because the
+        implementation of `return_coro_to_free_list` and `maybe_evict_from_free_list`
+        guarantees that `coro` is not going to be freed immediately. */
         do_on_thread(coro->home_thread(), std::bind(&coro_t::return_coro_to_free_list, coro));
         --pm_active_coroutines;
 
