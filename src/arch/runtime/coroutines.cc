@@ -188,24 +188,19 @@ coro_t::coro_t() :
 }
 
 void coro_t::return_coro_to_free_list(coro_t *coro) {
-    TLS_get_cglobals()->free_coros.push_back(coro);
-}
-
-void coro_t::maybe_evict_from_free_list() {
     coro_globals_t *cglobals = TLS_get_cglobals();
-    while (cglobals->free_coros.size() > COROUTINE_FREE_LIST_SIZE) {
-        // Note that we use `push_back` in `return_coro_to_free_list` and `head()` here.
-        // This is important because we must never free a coroutine that we have just
-        // returned to the free list. The reason is that when we call,
-        // `return_coro_to_free_list` in `coro_t::run`, that coroutine is still active
-        // and must not be deleted yet.
-        // We can guarantee this as long as the free list size is larger than zero.
-        static_assert(COROUTINE_FREE_LIST_SIZE > 0,
-                      "coro free list size must be at least 1");
-        coro_t *coro_to_delete = cglobals->free_coros.head();
+    // Note that we must guarantee that `coro` is never evicted immediately. We do so
+    // by checking the free list size *before* we push `coro` onto it.
+    // This is important because when we call `return_coro_to_free_list` in
+    // `coro_t::run`, that coroutine is still active and must not be deleted yet.
+    static_assert(COROUTINE_FREE_LIST_SIZE > 0, "COROUTINE_FREE_LIST_SIZE cannot be 0");
+    if (cglobals->free_coros.size() >= COROUTINE_FREE_LIST_SIZE) {
+        coro_t *coro_to_delete = cglobals->free_coros.tail();
         cglobals->free_coros.remove(coro_to_delete);
         delete coro_to_delete;
     }
+    rassert(cglobals->free_coros.size() < COROUTINE_FREE_LIST_SIZE);
+    TLS_get_cglobals()->free_coros.push_back(coro);
 }
 
 coro_t::~coro_t() {
@@ -237,12 +232,6 @@ void coro_t::switch_to_coro_with_protection(coro_context_ref_t *current_context)
         cglobals->protected_coros_lru.head()->coro->stack.disable_overflow_protection();
         cglobals->protected_coros_lru.pop_front();
     }
-
-    /* To make sure we don't exceed the number of protected coros by too much, we must
-    evict the free list before we can proceed to enabling protection for another
-    coroutine (this is because coroutines on the free list generally have protection
-    enabled for efficiency reasons). */
-    maybe_evict_from_free_list();
 
     /* Enable protection for us. (if `max_protected_coros_per_thread` was rounded to 0,
     we exceed the limit here but that's fine. It's important that the currently active
@@ -310,6 +299,7 @@ void coro_t::run() {
         }
 
         /* Return the context to the free-contexts list we took it from.
+
         Important: This is ok only because `do_on_thread` and the `linux_message_hub_t`
         are *push* based when delivering messages to another thread. That property
         guarantees that the message is not executed on another thread before we yield to
@@ -319,8 +309,8 @@ void coro_t::run() {
         would free a coroutine that's still running.
         `do_on_thread` does execute `return_coro_to_free_list` immediately if the
         `coro`'s home thread is the current thread. That too is ok though, because the
-        implementation of `return_coro_to_free_list` and `maybe_evict_from_free_list`
-        guarantees that `coro` is not going to be freed immediately. */
+        implementation of `return_coro_to_free_list` guarantees that `coro` is not going
+        to be freed immediately. */
         do_on_thread(coro->home_thread(), std::bind(&coro_t::return_coro_to_free_list, coro));
         --pm_active_coroutines;
 
@@ -523,18 +513,6 @@ coro_t * coro_t::get_coro() {
     } else {
         coro = TLS_get_cglobals()->free_coros.tail();
         TLS_get_cglobals()->free_coros.remove(coro);
-
-        /* We cannot easily delete coroutines at the time where we return
-        them to the free list, because coro_t::run() requires the coro_t pointer to remain
-        valid until it switches out of the coroutine context.
-        We could use call_later_on_this_thread() to place a message on the message
-        hub that would delete the coroutine later, but that would make the shut down
-        process more complicated because we would have to wait for those messages
-        to get processed.
-        Instead, we delete unused coroutines from the free list here. It's not perfect,
-        but the important thing is that unused coroutines get evicted eventually
-        so we can reclaim the memory. */
-        maybe_evict_from_free_list();
     }
 
     rassert(!coro->intrusive_list_node_t<coro_t>::in_a_list());
