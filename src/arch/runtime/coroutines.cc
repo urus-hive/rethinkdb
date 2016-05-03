@@ -200,7 +200,7 @@ void coro_t::return_coro_to_free_list(coro_t *coro) {
         delete coro_to_delete;
     }
     rassert(cglobals->free_coros.size() < COROUTINE_FREE_LIST_SIZE);
-    TLS_get_cglobals()->free_coros.push_back(coro);
+    cglobals->free_coros.push_back(coro);
 }
 
 coro_t::~coro_t() {
