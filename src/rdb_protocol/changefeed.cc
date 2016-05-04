@@ -1822,7 +1822,7 @@ void real_feed_t::constructor_cb() {
     // longer than necessary.
     disconnect_watchers.clear();
     if (!detached) {
-        scoped_ptr_t<feed_t> self = client->detach_feed(client_lock, table_id, this);
+        scoped_ptr_t<feed_t> self = client->detach_feed(client_lock, this);
         guarantee(detached);
         if (self.has()) {
             guarantee(lock.has());
@@ -3908,7 +3908,7 @@ void client_t::maybe_remove_feed(
 }
 
 scoped_ptr_t<real_feed_t> client_t::detach_feed(
-    const auto_drainer_t::lock_t &lock, const uuid_u &uuid, real_feed_t *expected_feed) {
+        const auto_drainer_t::lock_t &lock, real_feed_t *expected_feed) {
     assert_thread();
     lock.assert_is_holding(&drainer);
     scoped_ptr_t<real_feed_t> ret;
@@ -3918,7 +3918,7 @@ scoped_ptr_t<real_feed_t> client_t::detach_feed(
     // there's nothing to detach.
     // It's also possible that the feed had been removed and a new feed has since been
     // added for this table uuid, so we need to compare the pointer to `expected_feed`.
-    auto feed_it = feeds.find(uuid);
+    auto feed_it = feeds.find(expected_feed->get_table_id());
     if (feed_it != feeds.end() && feed_it->second.get_or_null() == expected_feed) {
         ret.swap(feed_it->second);
         ret->mark_detached();

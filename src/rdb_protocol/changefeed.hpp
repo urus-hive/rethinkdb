@@ -228,7 +228,6 @@ public:
         const auto_drainer_t::lock_t &lock, const namespace_id_t &uuid);
     scoped_ptr_t<real_feed_t> detach_feed(
         const auto_drainer_t::lock_t &lock,
-        const namespace_id_t &uuid,
         real_feed_t *expected_feed);
 private:
     friend class subscription_t;
