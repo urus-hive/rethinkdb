@@ -352,7 +352,7 @@ def run_changefeed(query, host, port):
     feed_thread.daemon = True
     feed_thread.start()
 
-class changefeed1(IndexQuery):
+class between_changefeed(IndexQuery):
     def sub_query(self, q):
         run_changefeed(r.db(self.index.table.db.name) \
                         .table(self.index.table.name) \
@@ -360,7 +360,7 @@ class changefeed1(IndexQuery):
                        self.conn.host, self.conn.port)
         return r.expr(0) # dummy query for silly reasons
 
-class changefeed2(IndexQuery):
+class limit_changefeed(IndexQuery):
     def sub_query(self, q):
         run_changefeed(r.db(self.index.table.db.name) \
                         .table(self.index.table.name) \
@@ -368,7 +368,7 @@ class changefeed2(IndexQuery):
                        self.conn.host, self.conn.port)
         return r.expr(0) # dummy query for silly reasons
 
-class changefeed3(IndexQuery):
+class point_changefeed(IndexQuery):
     def sub_query(self, q):
         run_changefeed(r.db(self.index.table.db.name) \
                         .table(self.index.table.name) \
@@ -376,7 +376,7 @@ class changefeed3(IndexQuery):
                        self.conn.host, self.conn.port)
         return r.expr(0) # dummy query for silly reasons
 
-class changefeed4(IndexQuery):
+class empty_primary_changefeed(IndexQuery):
     def sub_query(self, q):
         run_changefeed(r.db(self.index.table.db.name) \
                         .table(self.index.table.name) \
@@ -384,7 +384,7 @@ class changefeed4(IndexQuery):
                        self.conn.host, self.conn.port)
         return r.expr(0) # dummy query for silly reasons
 
-class changefeed5(IndexQuery):
+class empty_secondary_changefeed(IndexQuery):
     def sub_query(self, q):
         run_changefeed(r.db(self.index.table.db.name) \
                         .table(self.index.table.name) \
@@ -392,7 +392,7 @@ class changefeed5(IndexQuery):
                        self.conn.host, self.conn.port)
         return r.expr(0) # dummy query for silly reasons
 
-class changefeed6(IndexQuery):
+class get_all_changefeed(IndexQuery):
     def sub_query(self, q):
         run_changefeed(r.db(self.index.table.db.name) \
                         .table(self.index.table.name) \
@@ -425,12 +425,12 @@ def do_fuzz(cluster, cluster_lock, stop_event, random_seed):
                     (system_table_read, 10)]
 
     if parsed_opts['changefeeds']:
-        weighted_ops.append((changefeed1, 20))
-        weighted_ops.append((changefeed2, 20))
-        weighted_ops.append((changefeed3, 20))
-        weighted_ops.append((changefeed4, 20))
-        weighted_ops.append((changefeed5, 20))
-        weighted_ops.append((changefeed6, 20))
+        weighted_ops.append((between_changefeed, 20))
+        weighted_ops.append((limit_changefeed, 20))
+        weighted_ops.append((point_changefeed, 20))
+        weighted_ops.append((empty_primary_changefeed, 20))
+        weighted_ops.append((empty_secondary_changefeed, 20))
+        weighted_ops.append((get_all_changefeed, 20))
         weighted_ops.append((system_changefeed, 20))
 
     while not stop_event.is_set():
