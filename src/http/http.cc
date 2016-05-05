@@ -419,7 +419,6 @@ void http_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn
 
     // Parse the request
     try {
-        fprintf(stderr, "Beginning try block\n");
         http_res_t res;
         UNUSED bool peer_res = conn->getpeername(&req.peer);
 
@@ -437,7 +436,6 @@ void http_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn
             auto safari_useragent = user_agent_str->second.find("AppleWebKit");
             if (safari_useragent != std::string::npos) {
                 res.add_header_line("Connection", "close");
-                fprintf(stderr, "Safari");
             }
         }
         write_http_msg(conn.get(), res, keepalive.get_drain_signal());
