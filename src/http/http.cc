@@ -434,6 +434,7 @@ void http_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn
         auto user_agent = req.header_lines.find("user-agent");
         if (user_agent != req.header_lines.end()) {
             if (user_agent->second.find("Safari") != std::string::npos) {
+                // Chrome also has "Safari" in the user-agent string.
                 if (user_agent->second.find("Chrome") == std::string::npos) {
                     res.add_header_line("Connection", "close");
                 }
