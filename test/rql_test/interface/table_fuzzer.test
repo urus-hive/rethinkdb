@@ -336,6 +336,7 @@ def run_changefeed(query, host, port):
     def thread_fn(self, host, port):
         duration = 10
         end_time = time.time() + duration
+        conn = None
         try:
             conn = r.connect(host, port)
             feed = query.changes().run(conn)
@@ -349,7 +350,8 @@ def run_changefeed(query, host, port):
         except r.ReqlError as ex:
             check_error("Feed", ex)
         finally:
-            conn.close(noreply_wait=False)
+            if conn is not None:
+                conn.close(noreply_wait=False)
     feed_thread = threading.Thread(target=thread_fn, args=(query, host, port))
     feed_thread.daemon = True
     feed_thread.start()
@@ -444,6 +446,7 @@ def do_fuzz(cluster, cluster_lock, stop_event, random_seed):
                 pass
 
         if server is not None:
+            conn = None
             try:
                 conn = r.connect(server.host, server.driver_port)
                 while conn.is_open() and not stop_event.is_set():
@@ -451,7 +454,8 @@ def do_fuzz(cluster, cluster_lock, stop_event, random_seed):
             except r.ReqlError as ex:
                 check_error("Connection creation", ex)
             finally:
-                conn.close(noreply_wait=False)
+                if conn is not None:
+                    conn.close(noreply_wait=False)
         else:
             time.sleep(1) # No ready servers - try again later
 
