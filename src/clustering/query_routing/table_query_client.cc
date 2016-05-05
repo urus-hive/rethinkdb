@@ -207,7 +207,12 @@ void table_query_client_t::dispatch_immediate_op(
         if (op.shard(reg, &new_op_info->sharded_op)) {
             relationship_t *chosen_relationship = nullptr;
             for (auto jt = rels.begin(); jt != rels.end(); ++jt) {
-                if ((*jt)->primary_client) {
+                // If the entries in `relationships` are currently intersecting (this
+                // should only happen temporarily while resharding). `reg` might be a
+                // subset of the region of the relationships in `rels`. We need to test
+                // for that, so we don't send operations to a shard with the wrong
+                // boundaries.
+                if ((*jt)->primary_client && (*jt)->region == reg) {
                     if (chosen_relationship) {
                         throw cannot_perform_query_exc_t(
                             "too many primary replicas available",
@@ -343,7 +348,9 @@ void table_query_client_t::dispatch_outdated_read(
             std::vector<relationship_t *> potential_relationships;
             relationship_t *chosen_relationship = nullptr;
             for (auto jt = rels.begin(); jt != rels.end(); ++jt) {
-                if ((*jt)->direct_bcard != nullptr) {
+                // See the comment in `dispatch_immediate_op` about why we need to
+                // check that `region` and the relationship's region are the same.
+                if ((*jt)->direct_bcard != nullptr && (*jt)->region == region) {
                     if ((*jt)->is_local) {
                         chosen_relationship = *jt;
                         break;
