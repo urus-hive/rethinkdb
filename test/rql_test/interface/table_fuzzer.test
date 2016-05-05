@@ -348,6 +348,8 @@ def run_changefeed(query, host, port):
             pass # These are perfectly normal during fuzzing due to concurrent queries
         except r.ReqlError as ex:
             check_error("Feed", ex)
+        finally:
+            conn.close(noreply_wait=False)
     feed_thread = threading.Thread(target=thread_fn, args=(query, host, port))
     feed_thread.daemon = True
     feed_thread.start()
@@ -448,6 +450,8 @@ def do_fuzz(cluster, cluster_lock, stop_event, random_seed):
                     run_random_query(conn, weighted_ops)
             except r.ReqlError as ex:
                 check_error("Connection creation", ex)
+            finally:
+                conn.close(noreply_wait=False)
         else:
             time.sleep(1) # No ready servers - try again later
 
