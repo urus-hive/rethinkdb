@@ -15,6 +15,7 @@ import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Closeable;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
@@ -125,6 +126,14 @@ public class Connection implements Closeable {
                 }
             }
         });
+    }
+
+    public Integer clientPort() {
+      return socket.map(SocketWrapper::clientPort).orElse(-1);
+    }
+
+    public Object clientAddress() {
+        return socket.map(SocketWrapper::clientAddress).orElse(null);
     }
 
     public boolean isOpen() {
