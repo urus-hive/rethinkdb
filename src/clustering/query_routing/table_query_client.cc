@@ -207,11 +207,11 @@ void table_query_client_t::dispatch_immediate_op(
         if (op.shard(reg, &new_op_info->sharded_op)) {
             relationship_t *chosen_relationship = nullptr;
             for (auto jt = rels.begin(); jt != rels.end(); ++jt) {
-                // If the entries in `relationships` are currently intersecting (this
-                // should only happen temporarily while resharding). `reg` might be a
-                // subset of the region of the relationships in `rels`. We need to test
-                // for that, so we don't send operations to a shard with the wrong
-                // boundaries.
+                // If some shards are currently intersecting (this should only happen
+                // temporarily while resharding). `reg` might be a subset of the region
+                // of the relationships in `rels`.
+                // We need to test for that, so we don't send operations to a shard with
+                // the wrong boundaries.
                 if ((*jt)->primary_client && (*jt)->region == reg) {
                     if (chosen_relationship) {
                         throw cannot_perform_query_exc_t(
@@ -505,6 +505,10 @@ class region_map_set_membership_t {
 public:
     region_map_set_membership_t(region_map_t<std::set<value_t> > *m, const region_t &r, const value_t &v) :
         map(m), region(r), value(v) {
+        // Note that `visit_mutable` might split the region up if there are existing
+        // partially overlapping entries (e.g. during a rebalance).
+        // Once those entries go away, `region_map_t` should automatically merge the
+        // regions again.
         map->visit_mutable(region, [&](const region_t &, std::set<value_t> *set) {
             rassert(set->count(value) == 0);
             set->insert(value);
