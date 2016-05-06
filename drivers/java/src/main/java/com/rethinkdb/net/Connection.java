@@ -132,7 +132,7 @@ public class Connection implements Closeable {
       return socket.map(SocketWrapper::clientPort).orElse(-1);
     }
 
-    public Object clientAddress() {
+    public SocketAddress clientAddress() {
         return socket.map(SocketWrapper::clientAddress).orElse(null);
     }
 
