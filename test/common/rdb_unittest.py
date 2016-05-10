@@ -22,6 +22,7 @@ class RdbTestCase(unittest.TestCase):
     
     fieldName = 'id'
     recordsToGenerate = 0
+    generateRecords = None # a method on some subclasses
     
     samplesPerShard = 5 # when making changes the number of changes to make per shard
     
@@ -56,6 +57,8 @@ class RdbTestCase(unittest.TestCase):
                 self.__class__.dbName = defaultDb
             if self.tableName is None:
                 self.__class__.tableName = defaultTable
+            elif self.tableName is False:
+                self.__class__.tableName = None
         
         self.__class__.db = self.r.db(self.dbName)
         self.__class__.table = self.db.table(self.tableName)
@@ -196,7 +199,9 @@ class RdbTestCase(unittest.TestCase):
             
             # - add initial records
             
-            if self.recordsToGenerate:
+            if hasattr(self.generateRecords, '__call__'):
+                self.generateRecords()
+            elif self.recordsToGenerate:
                 utils.populateTable(conn=self.conn, table=self.table, records=self.recordsToGenerate, fieldName=self.fieldName)
             
             # - shard and replicate the table
