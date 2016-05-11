@@ -8,7 +8,7 @@ import atexit, collections, copy, datetime, distutils.version, distutils.spawn, 
 import re, resource, shutil, signal, stat, string, subprocess, sys, tempfile, threading, time, traceback, warnings
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "common"))
-import driver, parsePolyglot, test_exceptions, utils
+import driver, parsePolyglot, test_exceptions, utils, http_support
 
 try:
     unicode
@@ -55,7 +55,7 @@ except Exception as e:
 
 # -- settings
 
-testExtensions = ['test', 'yaml', 'mocha']
+testExtensions = ['httpbin', 'mocha', 'test', 'yaml']
 
 r = None
 
@@ -1336,6 +1336,46 @@ class MochaTest(Test):
             mochaOptions += ['--no-colors'] # handle visionmedia/mocha#1304
         return [self.interpreter_path, self.mochaPath] + mochaOptions + [str(self.path)]
 
+class HttpbinTest(Test):
+    '''Test that uses a httpbin target'''
+    
+    targetServer = None # shared
+    mochaPath = distutils.spawn.find_executable('mocha')
+    
+    def __init__(self, name, path, driverLang=None, timeout=None, shards=1):
+        self.shards = shards
+        super(HttpbinTest, self).__init__(name, path, driverLang=driverLang, timeout=timeout)
+        if print_debug:
+            self.envVariablesToSet.update({'VERBOSE':'true'})
+    
+    @property
+    def interpreter_path(self):
+        return self.driverLang.interpreter_path
+    
+    @property
+    def command(self):
+        if self.path is None:
+            raise RuntimeError('%s %s has no path defined when `command` was called' % (self.__class__.__name__, self.name))
+        
+        if self.driverLang and self.driverLang.language_name == 'JavaScript':
+            mochaOptions = ['--reporter', 'spec']
+            if not utils.supportsTerminalColors():
+                mochaOptions += ['--no-colors'] # handle visionmedia/mocha#1304
+            return [self.interpreter_path, self.mochaPath] + mochaOptions + [str(self.path)]
+        else:
+            return super(HttpbinTest, self).command
+    
+    def subclassSetup(self):
+        '''Start the httpbin server'''
+        if self.targetServer is None:
+            self.__class__.targetServer = http_support.HttpTargetServer()
+        self.envVariablesToSet.update({
+            'HTTPBIN_HOST':             'localhost',
+            'HTTPBIN_HTTPBIN_PORT':     str(self.targetServer.httpbinPort),
+            'HTTPBIN_HTTPCONTENT_PORT': str(self.targetServer.httpPort),
+            'HTTPBIN_HTTPS_PORT':       str(self.targetServer.sslPort)
+        })
+
 def getTestList(rootPath, allowedLanguages, testFilters=None, shards=0):
     '''Get a list of Test objects for tests found in the given folder'''
     
@@ -1459,6 +1499,8 @@ def getTestList(rootPath, allowedLanguages, testFilters=None, shards=0):
                     foundTests.append(YamlTest(name=subTestName, path=filePath, driverLang=language, shards=shards))
                 elif extension == 'mocha':
                     foundTests.append(MochaTest(name=subTestName, path=filePath, driverLang=language, shards=shards))
+                elif extension == 'httpbin':
+                    foundTests.append(HttpbinTest(name=subTestName, path=filePath, driverLang=language, shards=shards))
                 else:
                     foundTests.append(Test(name=subTestName, path=filePath, driverLang=language))
     
