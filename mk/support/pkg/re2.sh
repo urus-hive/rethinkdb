@@ -1,7 +1,7 @@
 
-version=20140111
+version=2016-05-01
 
-src_url=http://re2.googlecode.com/files/re2-$version.tgz
+src_url=https://github.com/google/re2/archive/$version.tar.gz
 
 pkg_install-include () {
     mkdir -p "$install_dir/include/re2"
