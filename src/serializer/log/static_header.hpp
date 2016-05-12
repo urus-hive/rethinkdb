@@ -32,7 +32,7 @@ struct static_header_read_callback_t {
 };
 
 void static_header_read(
-    file_t *file,
+    rdb_file_t *file,
     void *data_out,
     size_t data_size,
     bool *needs_migration_out,

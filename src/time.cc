@@ -73,8 +73,7 @@ timespec clock_monotonic() {
     ret.tv_sec = counter.QuadPart / frequency_hz.QuadPart;
     ret.tv_nsec = (counter.QuadPart - ret.tv_sec * frequency_hz.QuadPart) * BILLION / frequency_hz.QuadPart;
     return ret;
-#else
-#ifdef __sun
+#elif defined(__sun)
     /*
      * Ideally we'd use CLOCK_MONOTONIC here, but its use is restricted by
      * default, notably inside zones.
@@ -83,10 +82,11 @@ timespec clock_monotonic() {
     hrtime_t hrt = gethrtime();
     ret.tv_sec = hrt / BILLION;
     ret.tv_nsec = hrt % BILLION;
+    return ret;
 #else
+    timespec ret;
     int res = clock_gettime(CLOCK_MONOTONIC, &ret);
     guarantee_err(res == 0, "clock_gettime(CLOCK_MONOTIC, ...) failed");
-#endif
     return ret;
 #endif
 }
