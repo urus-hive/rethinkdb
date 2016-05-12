@@ -7,7 +7,7 @@
 namespace geo {
 
 S2LatLng S2LatLng::Normalized() const {
-  // drem(x, 2 * M_PI) reduces its argument to the range [-M_PI, M_PI]
+  // remainder(x, 2 * M_PI) reduces its argument to the range [-M_PI, M_PI]
   // inclusive, which is what we want here.
   return S2LatLng(max(-M_PI_2, min(M_PI_2, lat().radians())),
                   remainder(lng().radians(), 2 * M_PI));

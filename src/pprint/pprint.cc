@@ -8,6 +8,7 @@
 #include <string>
 
 #include "errors.hpp"
+#include "stl_utils.hpp"
 #include <boost/optional.hpp>
 
 #include "rdb_protocol/error.hpp"

@@ -112,7 +112,7 @@ bool S1Interval::InteriorIntersects(S1Interval const& y) const {
 
 inline static double PositiveDistance(double a, double b) {
   // Compute the distance from "a" to "b" in the range [0, 2*Pi).
-  // This is equivalent to (drem(b - a - M_PI, 2 * M_PI) + M_PI),
+  // This is equivalent to (remainder(b - a - M_PI, 2 * M_PI) + M_PI),
   // except that it is more numerically stable (it does not lose
   // precision for very small positive distances).
   double d = b - a;

@@ -2,6 +2,7 @@
 #include "serializer/log/static_header.hpp"
 
 #include <functional>
+#include <strings.h>
 #include <vector>
 
 #include "arch/arch.hpp"
@@ -22,7 +23,7 @@
 
 // See also CLUSTER_VERSION_STRING and cluster_version_t.
 
-bool static_header_check(file_t *file) {
+bool static_header_check(rdb_file_t *file) {
     if (file->get_file_size() < DEVICE_BLOCK_SIZE) {
         return false;
     } else {
@@ -33,7 +34,7 @@ bool static_header_check(file_t *file) {
     }
 }
 
-void co_static_header_write(file_t *file, void *data, size_t data_size) {
+void co_static_header_write(rdb_file_t *file, void *data, size_t data_size) {
     scoped_device_block_aligned_ptr_t<static_header_t> buffer(DEVICE_BLOCK_SIZE);
     rassert(sizeof(static_header_t) + data_size < DEVICE_BLOCK_SIZE);
 
@@ -52,21 +53,21 @@ void co_static_header_write(file_t *file, void *data, size_t data_size) {
 
     // We want to follow up the static header write with a datasync, because... it's the
     // most important block in the file!
-    co_write(file, 0, DEVICE_BLOCK_SIZE, buffer.get(), DEFAULT_DISK_ACCOUNT, file_t::WRAP_IN_DATASYNCS);
+    co_write(file, 0, DEVICE_BLOCK_SIZE, buffer.get(), DEFAULT_DISK_ACCOUNT, rdb_file_t::WRAP_IN_DATASYNCS);
 }
 
-void co_static_header_write_helper(file_t *file, static_header_write_callback_t *cb, void *data, size_t data_size) {
+void co_static_header_write_helper(rdb_file_t *file, static_header_write_callback_t *cb, void *data, size_t data_size) {
     co_static_header_write(file, data, data_size);
     cb->on_static_header_write();
 }
 
-bool static_header_write(file_t *file, void *data, size_t data_size, static_header_write_callback_t *cb) {
+bool static_header_write(rdb_file_t *file, void *data, size_t data_size, static_header_write_callback_t *cb) {
     coro_t::spawn_later_ordered(std::bind(co_static_header_write_helper, file, cb, data, data_size));
     return false;
 }
 
 void co_static_header_read(
-        file_t *file,
+        rdb_file_t *file,
         static_header_read_callback_t *callback,
         void *data_out,
         size_t data_size,
@@ -97,7 +98,7 @@ void co_static_header_read(
 }
 
 void static_header_read(
-        file_t *file,
+        rdb_file_t *file,
         void *data_out,
         size_t data_size,
         bool *needs_migration_out,
@@ -110,7 +111,7 @@ void static_header_read(
         needs_migration_out));
 }
 
-void migrate_static_header(file_t *file, size_t data_size) {
+void migrate_static_header(rdb_file_t *file, size_t data_size) {
     // Migrate the static header by rewriting it
     logNTC("Migrating file to serializer version %s.",
            CURRENT_SERIALIZER_VERSION_STRING);

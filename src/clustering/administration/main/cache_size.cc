@@ -23,7 +23,7 @@
 #include "logger.hpp"
 #include "utils.hpp"
 
-#ifndef __MACH__
+#if defined(__linux__)
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -232,7 +232,7 @@ bool get_proc_meminfo_available_memory_size(uint64_t *mem_avail_out) {
     return parse_meminfo_file(contents, mem_avail_out);
 }
 
-#endif  // __MACH_
+#endif  // __linux__
 
 #if defined(__MACH__)
 
@@ -353,9 +353,9 @@ uint64_t get_avail_mem_size() {
 #error "We don't support Mach kernels other than OS X, sorry."
 #endif // __MAC_OS_X_VERSION_MIN_REQUIRED
     return ret;
-#else
-	uint64_t page_size = sysconf(_SC_PAGESIZE);
-	{
+#elif defined(__linux__)
+    uint64_t page_size = sysconf(_SC_PAGESIZE);
+    {
         uint64_t memory;
         if (get_proc_meminfo_available_memory_size(&memory)) {
             return memory;
@@ -368,6 +368,9 @@ uint64_t get_avail_mem_size() {
             return avail_mem_pages * page_size;
         }
     }
+#else
+    uint64_t avail_mem_pages = sysconf(_SC_AVPHYS_PAGES);
+    return avail_mem_pages * page_size;
 #endif
 }
 

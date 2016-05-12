@@ -15,7 +15,7 @@
 
 #include "logger.hpp"
 
-#ifndef _WIN32
+#if defined(__linux__) || defined(__MACH__)
 int _gettid() {
     return syscall(SYS_gettid);
 }

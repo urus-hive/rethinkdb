@@ -30,7 +30,7 @@ int user_to_poll(int mode) {
 #endif
     int allowed_mode_mask = poll_event_in | poll_event_out;
 
-#ifdef __linux
+#if defined(__linux) || defined(__sun)
     allowed_mode_mask |= poll_event_rdhup;
 #endif
 
@@ -39,7 +39,7 @@ int user_to_poll(int mode) {
     int out_mode = 0;
     if (mode & poll_event_in) out_mode |= POLLIN;
     if (mode & poll_event_out) out_mode |= POLLOUT;
-#ifdef __linux
+#if defined(__linux) || defined(__sun)
     if (mode & poll_event_rdhup) out_mode |= POLLRDHUP;
 #endif
 
@@ -53,7 +53,7 @@ DEBUG_VAR
 #endif
     int allowed_mode_mask = POLLIN | POLLOUT | POLLERR | POLLHUP;
 
-#ifdef __linux
+#if defined(__linux) || defined(__sun)
     allowed_mode_mask |= POLLRDHUP;
 #endif
 
@@ -64,7 +64,7 @@ DEBUG_VAR
     if (mode & POLLOUT) out_mode |= poll_event_out;
     if (mode & POLLERR) out_mode |= poll_event_err;
     if (mode & POLLHUP) out_mode |= poll_event_hup;
-#ifdef __linux
+#if defined(__linux) || defined(__sun)
     if (mode & POLLRDHUP) out_mode |= poll_event_rdhup;
 #endif
 

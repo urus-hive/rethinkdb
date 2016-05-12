@@ -11,17 +11,17 @@ struct static_header_t {
     char data[0];
 };
 
-bool static_header_check(file_t *file);
+bool static_header_check(rdb_file_t *file);
 
 struct static_header_write_callback_t {
     virtual void on_static_header_write() = 0;
     virtual ~static_header_write_callback_t() {}
 };
 
-void co_static_header_write(file_t *file, void *data, size_t data_size);
+void co_static_header_write(rdb_file_t *file, void *data, size_t data_size);
 
 bool static_header_write(
-    file_t *file,
+    rdb_file_t *file,
     void *data,
     size_t data_size,
     static_header_write_callback_t *cb);
@@ -39,6 +39,6 @@ void static_header_read(
     static_header_read_callback_t *cb);
 
 // Blocks, must be run in a coroutine
-void migrate_static_header(file_t *file, size_t data_size);
+void migrate_static_header(rdb_file_t *file, size_t data_size);
 
 #endif /* SERIALIZER_LOG_STATIC_HEADER_HPP_ */

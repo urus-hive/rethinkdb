@@ -32,7 +32,7 @@ struct extent_block_t :
         is_last_block = true;
 
         parent->file->write_async(parent->extent_ref.offset() + offset, DEVICE_BLOCK_SIZE,
-                                  data.get(), io_account, this, file_t::NO_DATASYNCS);
+                                  data.get(), io_account, this, rdb_file_t::NO_DATASYNCS);
     }
 
     void on_extent_sync() {
@@ -59,14 +59,14 @@ struct extent_block_t :
     }
 };
 
-extent_t::extent_t(extent_manager_t *_em, file_t *_file)
+extent_t::extent_t(extent_manager_t *_em, rdb_file_t *_file)
     : amount_filled(0), em(_em),
       file(_file), last_block(nullptr), current_block(nullptr) {
     extent_ref = em->gen_extent();
     ++em->stats->pm_serializer_lba_extents;
 }
 
-extent_t::extent_t(extent_manager_t *_em, file_t *_file, int64_t loc, size_t size)
+extent_t::extent_t(extent_manager_t *_em, rdb_file_t *_file, int64_t loc, size_t size)
     : amount_filled(size), em(_em), file(_file), last_block(nullptr), current_block(nullptr)
 {
     extent_ref = em->reserve_extent(loc);

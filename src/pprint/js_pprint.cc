@@ -7,12 +7,12 @@
 #include <memory>
 
 #include "errors.hpp"
-
 #include "pprint/generic_term_walker.hpp"
 #include "rdb_protocol/base64.hpp"
 #include "rdb_protocol/datum.hpp"
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/term_storage.hpp"
+#include "stl_utils.hpp"
 
 namespace pprint {
 

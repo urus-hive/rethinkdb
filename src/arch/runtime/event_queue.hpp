@@ -35,6 +35,11 @@ struct pm_eventloop_singleton_t {
 #include "arch/runtime/event_queue/iocp.hpp"
 typedef iocp_event_queue_t linux_event_queue_t;
 
+#elif defined(__sun)
+
+#include "arch/runtime/event_queue/evport.hpp"
+typedef evport_event_queue_t linux_event_queue_t;
+
 #elif defined(__MACH__)
 
 // Use kqueue, which is much faster than poll on OS X

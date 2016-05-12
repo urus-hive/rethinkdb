@@ -14,11 +14,14 @@
 #define RDB_TIMER_PROVIDER_KQUEUE 2
 #define RDB_TIMER_PROVIDER_SIGNAL 3
 #define RDB_TIMER_PROVIDER_WINDOWS 4
+#define RDB_TIMER_PROVIDER_EVPORT 5
 
 #if defined(_WIN32)
 #define RDB_TIMER_PROVIDER RDB_TIMER_PROVIDER_WINDOWS
 #elif defined(LEGACY_LINUX)
 #define RDB_TIMER_PROVIDER RDB_TIMER_PROVIDER_SIGNAL
+#elif defined(__sun)
+#define RDB_TIMER_PROVIDER RDB_TIMER_PROVIDER_EVPORT
 #elif defined(__MACH__)
 #define RDB_TIMER_PROVIDER RDB_TIMER_PROVIDER_KQUEUE
 #else
@@ -28,6 +31,9 @@
 #if RDB_TIMER_PROVIDER == RDB_TIMER_PROVIDER_SIGNAL
 #include "arch/io/timer/timer_signal_provider.hpp"
 typedef timer_signal_provider_t timer_provider_t;
+#elif RDB_TIMER_PROVIDER == RDB_TIMER_PROVIDER_EVPORT
+#include "arch/io/timer/timer_evport_provider.hpp"
+typedef timer_evport_provider_t timer_provider_t;
 #elif RDB_TIMER_PROVIDER == RDB_TIMER_PROVIDER_KQUEUE
 #include "arch/io/timer/timer_kqueue_provider.hpp"
 typedef timer_kqueue_provider_t timer_provider_t;

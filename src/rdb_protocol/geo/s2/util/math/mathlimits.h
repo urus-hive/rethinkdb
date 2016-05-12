@@ -16,6 +16,7 @@
 #include <string.h>
 #include <cmath>
 #include <cfloat>
+#include <cmath>
 
 #include "rdb_protocol/geo/s2/base/basictypes.h"
 #include "utils.hpp"
