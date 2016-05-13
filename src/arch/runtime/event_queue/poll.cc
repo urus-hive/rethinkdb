@@ -10,6 +10,10 @@
 #include <errno.h>
 #include <poll.h>
 #include <string.h>
+#ifdef __sun
+// For `bzero`
+#include <strings.h>
+#endif
 
 #include <new>
 #include <algorithm>
