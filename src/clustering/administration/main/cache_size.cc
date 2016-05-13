@@ -23,8 +23,6 @@
 #include "logger.hpp"
 #include "utils.hpp"
 
-#if defined(__linux__)
-
 #if defined(_WIN32)
 #include <windows.h>
 #include <psapi.h>
@@ -203,6 +201,8 @@ bool parse_meminfo_file(const std::string &contents, uint64_t *mem_avail_out) {
 bool get_proc_status_current_swap_usage(uint64_t *swap_usage_out) {
 #if defined(_WIN32)
     return false;
+#elif defined(__sun)
+    return false;
 #else
     std::string contents;
     bool ok;
@@ -231,8 +231,6 @@ bool get_proc_meminfo_available_memory_size(uint64_t *mem_avail_out) {
     }
     return parse_meminfo_file(contents, mem_avail_out);
 }
-
-#endif  // __linux__
 
 #if defined(__MACH__)
 
@@ -369,6 +367,7 @@ uint64_t get_avail_mem_size() {
         }
     }
 #else
+    uint64_t page_size = sysconf(_SC_PAGESIZE);
     uint64_t avail_mem_pages = sysconf(_SC_AVPHYS_PAGES);
     return avail_mem_pages * page_size;
 #endif
