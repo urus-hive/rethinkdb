@@ -7,6 +7,7 @@
 
 #include "arch/runtime/event_queue_types.hpp"
 #include "arch/runtime/runtime_utils.hpp"
+#include "arch/runtime/system_event.hpp"
 #include "config/args.hpp"
 
 // Event queue structure
