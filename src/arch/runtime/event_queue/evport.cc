@@ -134,4 +134,12 @@ fd_t evport_event_queue_t::get_evport_fd() {
     return evport_fd;
 }
 
+void evport_event_queue_t::watch_event(system_event_t *ev, linux_event_callback_t *cb) {
+    watch_resource(ev->get_notify_fd(), poll_event_in, cb);
+}
+
+void evport_event_queue_t::forget_event(system_event_t *ev, linux_event_callback_t *cb) {
+    forget_resource(ev->get_notify_fd(), cb);
+}
+
 #endif  // __sun
