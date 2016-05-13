@@ -610,7 +610,7 @@ int perform_datasync(fd_t fd) {
     (void) fd;
     return 0;
 
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__sun)
 
     int res = fdatasync(fd);
     return res == -1 ? get_errno() : 0;
