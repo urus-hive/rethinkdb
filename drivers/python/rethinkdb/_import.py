@@ -4,7 +4,8 @@
 
 from __future__ import print_function
 
-import codecs, csv, ctypes, datetime, json, multiprocessing, optparse, os, re, signal, sys, time, traceback
+import codecs, collections, csv, ctypes, datetime, json, multiprocessing
+import optparse, os, re, signal, sys, time, traceback
 
 from . import utils_common, net
 r = utils_common.r
@@ -33,6 +34,8 @@ try:
     from multiprocessing import SimpleQueue
 except ImportError:
     from multiprocessing.queues import SimpleQueue
+
+Error = collections.namedtuple("Error", ["message", "traceback", "file"])
 
 usage = """rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
       [--force] [-i (DB | DB.TABLE)] [--clients NUM]
@@ -249,61 +252,75 @@ def parse_options(argv, prog=None):
     
     return options
 
-# This is called through rdb_call_wrapper so reattempts can be tried as long as progress
-# is being made, but connection errors occur.  We save a failed task in the progress object
-# so it can be resumed later on a new connection.
-def import_from_queue(progress, task_queue, error_queue, replace_conflicts, durability, write_count):
-    conn = utils_common.getConnection()
-    if progress[0] is not None and not replace_conflicts:
-        # We were interrupted and it's not ok to overwrite rows, check that the batch either:
-        # a) does not exist on the server
-        # b) is exactly the same on the server
-        task = progress[0]
-        pkey = r.db(task[0]).table(task[1]).info().run(conn)["primary_key"]
-        for i in reversed(range(len(task[2]))):
-            obj = pickle.loads(task[2][i])
-            if pkey not in obj:
-                raise RuntimeError("Connection error while importing.  Current row has no specified primary key, so cannot guarantee absence of duplicates")
-            row = r.db(task[0]).table(task[1]).get(obj[pkey]).run(conn)
-            if row == obj:
-                write_count[0] += 1
-                del task[2][i]
-            else:
-                raise RuntimeError("Duplicate primary key `%s`:\n%s\n%s" % (pkey, str(obj), str(row)))
-
-    task = task_queue.get() if progress[0] is None else progress[0]
-    while not isinstance(task, StopIteration):
-        try:
-            # Unpickle objects (TODO: super inefficient, would be nice if we could pass down json)
-            objs = [pickle.loads(obj) for obj in task[2]]
-            conflict_action = "replace" if replace_conflicts else "error"
-            res = r.db(task[0]).table(task[1]).insert(r.expr(objs, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action).run(conn)
-        except:
-            progress[0] = task
-            raise
-
-        if res["errors"] > 0:
-            raise RuntimeError("Error when importing into table '%s.%s': %s" %
-                               (task[0], task[1], res["first_error"]))
-
-        write_count[0] += len(objs)
-        task = task_queue.get()
-
 # This is run for each client requested, and accepts tasks from the reader processes
 def client_process(task_queue, error_queue, rows_written, replace_conflicts, durability):
-    try:
-        write_count = [0]
-        utils_common.rdb_call_wrapper("import", import_from_queue, task_queue, error_queue, replace_conflicts, durability, write_count)
-    except:
-        ex_type, ex_class, tb = sys.exc_info()
-        error_queue.put((ex_type, ex_class, traceback.extract_tb(tb)))
-
-        # Read until the exit event so the readers do not hang on pushing onto the queue
-        while not isinstance(task_queue.get(), StopIteration):
-            pass
-
-    with rows_written.get_lock():
-        rows_written.value += write_count[0]
+    
+    conflict_action = "replace" if replace_conflicts else "error"
+    
+    primaryKeys = dict([((x["db"], x["name"]), x["primary_key"]) for x in 
+        utils_common.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
+    ]) # (db, table) => key
+    
+    while True:
+        write_count = 0
+        
+        # get a batch
+        task = task_queue.get()
+        if isinstance(task, StopIteration):
+            break
+        db, table, batch = task
+        
+        # Unpickle objects (TODO: super inefficient, would be nice if we could pass down json)
+        batch = [pickle.loads(x) for x in batch]
+        
+        # write the batch to the database
+        try:
+            res = utils_common.retryQuery(
+                "write batch to %s.%s" % (db, table),
+                r.db(db).table(table).insert(r.expr(batch, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
+            )
+            
+            if res["errors"] > 0:
+                raise RuntimeError("Error when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
+            modified = res["inserted"] + res["replaced"] + res["unchanged"]
+            if modified != len(batch):
+                raise RuntimeError("The inserted/replaced/unchanged number did not match when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
+            
+            write_count += res["inserted"] + res["replaced"] + res["unchanged"]
+            
+        except r.ReqlError:
+            # the error might have been caused by a comm error or temporary error causing a partial batch write
+            
+            for row in batch:
+                if not primaryKeys[(db, table)] in row:
+                    raise RuntimeError("Connection error while importing.  Current row does not have the specified primary key (%s), so cannot guarantee absence of duplicates" % primaryKeys[(db, table)])
+                res = None
+                if conflict_action == "replace":
+                    res = utils_common.retryQuery(
+                        "write row to %s.%s" % (db, table),
+                        r.db(db).table(table).insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
+                    )
+                else:
+                    existingRow = utils_common.retryQuery(
+                        "read row from %s.%s" % (db, table),
+                        r.db(db).table(table).get(row[primaryKeys[(db, table)]])
+                    )
+                    if not existingRow:
+                        res = utils_common.retryQuery(
+                            "write row to %s.%s" % (db, table),
+                            r.db(db).table(table).insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
+                        )
+                    elif existingRow != row:
+                        raise RuntimeError("Duplicate primary key `%s`:\n%s\n%s" % (primaryKeys[(db, table)], str(row), str(existingRow)))
+                
+                if res["errors"] > 0:
+                    raise RuntimeError("Error when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
+                if res["inserted"] + res["replaced"] + res["unchanged"] != 1:
+                    raise RuntimeError("The inserted/replaced/unchanged number was not 1 when inserting on '%s.%s': %s" % (db, table, res))
+                write_count += 1
+        
+        with rows_written.get_lock():
+            rows_written.value += write_count
 
 batch_length_limit = 200
 batch_size_limit = 500000
@@ -539,9 +556,8 @@ def table_reader(options, file_info, task_queue, error_queue, warning_queue, pro
             raise RuntimeError("Error: Unknown file format specified")
     except InterruptedError:
         pass # Don't save interrupted errors, they are side-effects
-    except:
-        ex_type, ex_class, tb = sys.exc_info()
-        error_queue.put((ex_type, ex_class, traceback.extract_tb(tb), file_info["file"]))
+    except Exception as e:
+        error_queue.put(Error(str(e), traceback.format_exc(), file_info["file"]))
 
 __signalSeen = False
 def abort_import(signum, frame, parent_pid, exit_event, task_queue, clients, interrupt_event):
@@ -656,13 +672,13 @@ def spawn_import_clients(options, files_info):
         raise RuntimeError("Interrupted")
 
     if len(errors) != 0:
-        # multiprocessing queues don't handling tracebacks, so they've already been stringified in the queue
+        # multiprocessing queues don't handle tracebacks, so they've already been stringified in the queue
         for error in errors:
-            print("%s" % error[1], file=sys.stderr)
+            print("%s" % error.message, file=sys.stderr)
             if options.debug:
-                print("%s traceback: %s" % (error[0].__name__, error[2]), file=sys.stderr)
-            if len(error) == 4:
-                print("In file: %s" % error[3], file=sys.stderr)
+                print("  Traceback:\n%s" % error.traceback, file=sys.stderr)
+            if len(error.file) == 4:
+                print("  In file: %s" % error.file, file=sys.stderr)
         raise RuntimeError("Errors occurred during import")
 
     if not warning_queue.empty():

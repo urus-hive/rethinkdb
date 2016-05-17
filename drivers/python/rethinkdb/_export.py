@@ -90,36 +90,6 @@ def parse_options(argv, prog=None):
     
     return options
 
-# This is called through rdb_call_wrapper and may be called multiple times if
-# connection errors occur.  In order to facilitate this, we do an order_by by the
-# primary key so that we only ever get a given row once.
-def read_table_into_queue(progress, db, table, pkey, task_queue, progress_info, exit_event):
-    conn = utils_common.getConnection()
-    read_rows = 0
-    if progress[0] is None:
-        cursor = r.db(db).table(table).order_by(index=pkey).run(conn, time_format="raw", binary_format='raw')
-    else:
-        cursor = r.db(db).table(table).between(progress[0], None, left_bound="open").order_by(index=pkey).run(conn, time_format="raw", binary_format='raw')
-
-    try:
-        for row in cursor:
-            if exit_event.is_set():
-                break
-            task_queue.put([row])
-
-            # Set progress so we can continue from this point if a connection error occurs
-            progress[0] = row[pkey]
-
-            # Update the progress every 20 rows - to reduce locking overhead
-            read_rows += 1
-            if read_rows % 20 == 0:
-                progress_info[0].value += 20
-    finally:
-        progress_info[0].value += read_rows % 20
-
-    # Export is done - since we used estimates earlier, update the actual table size
-    progress_info[1].value = progress_info[0].value
-
 def json_writer(filename, fields, task_queue, error_queue, format):
     try:
         with open(filename, "w") as out:
@@ -229,15 +199,55 @@ def export_table(db, table, directory, fields, delimiter, format, error_queue, p
         
         # -- read in the data source
         
-        utils_common.rdb_call_wrapper("table scan", read_table_into_queue, db, table,
-                         table_info["primary_key"], task_queue, progress_info, exit_event)
+        # - 
+        
+        lastPrimaryKey = None
+        read_rows = 0
+        cursor = utils_common.retryQuery(
+            'inital cursor for %s.%s' % (db, table),
+            r.db(db).table(table).order_by(index=table_info["primary_key"]),
+            runOptions={"time_format":"raw", "binary_format":"raw"}
+        )
+        while not exit_event.is_set():
+            try:
+                for row in cursor:
+                    # bail on exit
+                    if exit_event.is_set():
+                        break
+                    
+                    # add to the output queue
+                    task_queue.put([row])
+                    lastPrimaryKey = row[table_info["primary_key"]]
+                    read_rows += 1
+                    
+                    # Update the progress every 20 rows
+                    if read_rows % 20 == 0:
+                        progress_info[0].value = read_rows
+                
+                else:
+                    # Export is done - since we used estimates earlier, update the actual table size
+                    progress_info[0].value = read_rows
+                    progress_info[1].value = read_rows
+                    break
+            
+            except (r.ReqlTimeoutError, r.ReqlDriverError) as e:
+                # connection problem, re-setup the cursor
+                try:
+                    cursor.close()
+                except Exception: pass
+                cursor = utils_common.retryQuery(
+                    'backup cursor for %s.%s' % (db, table),
+                    r.db(db).table(table).between(lastPrimaryKey, None, left_bound="open").order_by(index=table_info["primary_key"]),
+                    runOptions={"time_format":"raw", "binary_format":"raw"}
+                )
+    
     except (r.ReqlError, r.ReqlDriverError) as ex:
         error_queue.put((RuntimeError, RuntimeError(ex.message), traceback.extract_tb(sys.exc_info()[2])))
     except:
         ex_type, ex_class, tb = sys.exc_info()
         error_queue.put((ex_type, ex_class, traceback.extract_tb(tb)))
     finally:
-        if writer is not None and writer.is_alive():
+        if writer and writer.is_alive():
             task_queue.put(StopIteration())
             writer.join()
 

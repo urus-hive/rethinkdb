@@ -35,12 +35,13 @@ def retryQuery(name, query, times=5, runOptions=None):
     assert isinstance(runOptions, dict), 'runOptions must be a dict, got: %s' % runOptions
     
     lastError = None
+    testConnection = False
     for _ in range(times):
         try:
-            conn = getConnection()
+            conn = getConnection(testConnection=testConnection) # we are already guarding for this
         except r.ReqlError as e:
             lastError = RuntimeError("Error connecting for during '%s': %s" % (name, str(e)))
-        
+            testConnection = True
         try:
             return query.run(conn, **runOptions)
         except (r.ReqlTimeoutError, r.ReqlDriverError) as e:
@@ -48,21 +49,6 @@ def retryQuery(name, query, times=5, runOptions=None):
         # other errors immedately bubble up
     else:
         raise lastError
-
-def rdb_call_wrapper(context, fn, *args, **kwargs):
-    i = 0
-    max_attempts = 5
-    progress = [None]
-    while True:
-        last_progress = copy.deepcopy(progress[0])
-        try:
-            return fn(progress, *args, **kwargs)
-        except socket.error as ex:
-            i = i + 1 if progress[0] == last_progress else 0
-            if i == max_attempts:
-                raise RuntimeError("Connection error during '%s': %s" % (context, ex.message))
-        except (r.ReqlError, r.ReqlDriverError) as ex:
-            raise RuntimeError("ReQL error during '%s': %s" % (context, str(ex.message)))
 
 def print_progress(ratio, padding=0):
     total_width = 40
@@ -248,7 +234,7 @@ class CommonOptionsParser(optparse.OptionParser, object):
         return options, args
 
 __local = threading.local()
-def getConnection():
+def getConnection(testConnection=True):
     assert _connection_info is not None, 'If you are using this non-interactively you need to set _connection_info yourself'
     
     if not hasattr(__local, 'conn'):
@@ -260,7 +246,7 @@ def getConnection():
         __local.pid = os.getpid()
     
     # check if shard connection is still good
-    if __local.conn:
+    if __local.conn and testConnection:
         try:
             r.expr(0).run(__local.conn)
         except r.ReqlError:
