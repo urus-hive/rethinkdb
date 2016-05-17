@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 
-import collections, copy, getpass, inspect, optparse, os, re, socket, string, sys, threading
+import collections, copy, distutils.version, getpass, inspect, optparse, os, re, socket, string, sys, threading
 import traceback
 from . import net
 r = net.Connection._r
@@ -19,6 +19,36 @@ _connection_info = None # set by CommonOptionsParser
 # Using this wrapper, the given function will be called until 5 connection errors
 # occur in a row with no progress being made.  Care should be taken that the given
 # function will terminate as long as the progress parameter is changed.
+
+def retryQuery(name, query, times=5, runOptions=None):
+    '''Try a query multiple times to guard against bad connections'''
+    
+    assert name is not None
+    name = str(name)
+    assert isinstance(query, r.RqlQuery), 'query must be a ReQL query, got: %s' % query
+    try:
+        assert int(times) >= 1
+    except (ValueError, AssertionError):
+        raise ValueError('times must be a positive integer, got: %s' % times)
+    if runOptions is None:
+        runOptions = {}
+    assert isinstance(runOptions, dict), 'runOptions must be a dict, got: %s' % runOptions
+    
+    lastError = None
+    for _ in range(times):
+        try:
+            conn = getConnection()
+        except r.ReqlError as e:
+            lastError = RuntimeError("Error connecting for during '%s': %s" % (name, str(e)))
+        
+        try:
+            return query.run(conn, **runOptions)
+        except (r.ReqlTimeoutError, r.ReqlDriverError) as e:
+            lastError = RuntimeError("Connnection error during '%s': %s" % (name, str(e)))
+        # other errors immedately bubble up
+    else:
+        raise lastError
+
 def rdb_call_wrapper(context, fn, *args, **kwargs):
     i = 0
     max_attempts = 5
@@ -32,7 +62,6 @@ def rdb_call_wrapper(context, fn, *args, **kwargs):
             if i == max_attempts:
                 raise RuntimeError("Connection error during '%s': %s" % (context, ex.message))
         except (r.ReqlError, r.ReqlDriverError) as ex:
-            traceback.print_exc()
             raise RuntimeError("ReQL error during '%s': %s" % (context, str(ex.message)))
 
 def print_progress(ratio, padding=0):
@@ -42,26 +71,16 @@ def print_progress(ratio, padding=0):
     print("\r%s[%s%s] %3d%%" % (" " * padding, "=" * done_width, " " * undone_width, int(100 * ratio)), end=' ')
     sys.stdout.flush()
 
-def check_minimum_version(progress, minimum_version):
-    conn = getConnection()
-    stringify_version = lambda v: '.'.join(map(str, v))
-    parsed_version = None
-    try:
-        version = r.db('rethinkdb').table('server_status')[0]['process']['version'].run(conn)
-        matches = re.match(r'rethinkdb (\d+)\.(\d+)\.(\d+).*', version)
-        if matches == None:
-            raise RuntimeError("invalid version string format")
-        parsed_version = tuple(int(num) for num in matches.groups())
-        if parsed_version < minimum_version:
-            raise RuntimeError("incompatible version")
-    except (RuntimeError, TypeError, r.ReqlRuntimeError):
-        if parsed_version is None:
-            message = "Error: Incompatible server version found, expected >= %s" % \
-                stringify_version(minimum_version)
-        else:
-            message = "Error: Incompatible server version found (%s), expected >= %s" % \
-                (stringify_version(parsed_version), stringify_version(minimum_version))
-        raise RuntimeError(message)
+def check_minimum_version(minimum_version='1.6'):
+    minimum_version = distutils.version.LooseVersion(minimum_version)
+    versionString = retryQuery('get server version', r.db('rethinkdb').table('server_status')[0]['process']['version'])
+    
+    matches = re.match(r'rethinkdb (?P<version>(\d+)\.(\d+)\.(\d+)).*', versionString)
+    if not matches:
+        raise RuntimeError("invalid version string format: %s" % versionString)
+    
+    if distutils.version.LooseVersion(matches.group('version')) < minimum_version:
+        raise RuntimeError("Incompatible version, expected >= %s got: %s" % (minimum_version, versionString))
 
 DbTable = collections.namedtuple('DbTable', ['db', 'table'])
 _tableNameRegex = re.compile(r'^(?P<db>\w+)(\.(?P<table>\w+))?$')
@@ -87,6 +106,8 @@ class CommonOptionsParser(optparse.OptionParser, object):
             res = self._tableNameRegex.match(value)
             if not res:
                 raise optparse.OptionValueError('Invalid db or db.table name: %s' % value)
+            if res.group('db') == 'rethinkdb':
+                raise optparse.OptionValueError('The `rethinkdb` database is special and cannot be used here')
             return DbTable(res.group('db'), res.group('table'))
         
         def checkPoitiveInt(option, opt_str, value):
@@ -191,6 +212,11 @@ class CommonOptionsParser(optparse.OptionParser, object):
     def parse_args(self, *args, **kwargs):
         global _connection_info
         
+        connect = True
+        if 'connect' in kwargs:
+            connect = kwargs['connect'] != False
+            del kwargs['connect']
+        
         if 'RETHINKDB_DRIVER_PORT' in os.environ:
             try:
                 value = int(os.environ['RETHINKDB_DRIVER_PORT'])
@@ -211,10 +237,11 @@ class CommonOptionsParser(optparse.OptionParser, object):
         
         # - test connection
         
-        try:
-            getConnection()
-        except r.ReqlError as e:
-            self.error('Unable to connect to server: %s' % str(e))
+        if connect:
+            try:
+                getConnection()
+            except r.ReqlError as e:
+                self.error('Unable to connect to server: %s' % str(e))
         
         # -
         

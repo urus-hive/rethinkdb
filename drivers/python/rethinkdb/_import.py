@@ -11,7 +11,7 @@ r = utils_common.r
 
 # Used because of API differences in the csv module, taken from
 # http://python3porting.com/problems.html
-PY3 = sys.version > '3'
+PY3 = sys.version > "3"
 
 #json parameters
 json_read_chunk_size = 32 * 1024
@@ -74,20 +74,20 @@ def parse_options(argv, prog=None):
     parser.add_option("--force",           dest="force",      action="store_true",  default=False,  help="import even if a table already exists, overwriting duplicate primary keys")
     
     # Replication settings
-    replicationOptionsGroup = optparse.OptionGroup(parser, 'Replication Options')
+    replicationOptionsGroup = optparse.OptionGroup(parser, "Replication Options")
     replicationOptionsGroup.add_option("--shards",   dest="create_args", metavar="SHARDS",   help="shards to setup on created tables (default: 1)",   type="pos_int", action="add_key")
     replicationOptionsGroup.add_option("--replicas", dest="create_args", metavar="REPLICAS", help="replicas to setup on created tables (default: 1)", type="pos_int", action="add_key")
     parser.add_option_group(replicationOptionsGroup)
 
     # Directory import options
-    dirImportGroup = optparse.OptionGroup(parser, 'Directory Import Options')
+    dirImportGroup = optparse.OptionGroup(parser, "Directory Import Options")
     dirImportGroup.add_option("-d", "--directory",      dest="directory", metavar="DIRECTORY",   default=None, help="directory to import data from")
     dirImportGroup.add_option("-i", "--import",         dest="db_tables", metavar="DB|DB.TABLE", default=[],   help="restore only the given database or table (may be specified multiple times)", action="append", type="db_table")
     dirImportGroup.add_option("--no-secondary-indexes", dest="sindexes",  action="store_false",  default=True, help="do not create secondary indexes")
     parser.add_option_group(dirImportGroup)
 
     # File import options
-    fileImportGroup = optparse.OptionGroup(parser, 'File Import Options')
+    fileImportGroup = optparse.OptionGroup(parser, "File Import Options")
     fileImportGroup.add_option("-f", "--file", dest="file",         metavar="FILE",        default=None, help="file to import data from", type="file")
     fileImportGroup.add_option("--table",      dest="import_table", metavar="DB.TABLE",    default=None, help="table to import the data into")
     fileImportGroup.add_option("--fields",     dest="fields",       metavar="FIELD,...",   default=None, help="limit which fields to use when importing one table")
@@ -96,14 +96,14 @@ def parse_options(argv, prog=None):
     parser.add_option_group(fileImportGroup)
     
     # CSV import options
-    csvImportGroup = optparse.OptionGroup(parser, 'CSV Options')
+    csvImportGroup = optparse.OptionGroup(parser, "CSV Options")
     csvImportGroup.add_option("--delimiter",     dest="delimiter",     metavar="CHARACTER", default=None, help="character separating fields, or '\\t' for tab")
     csvImportGroup.add_option("--no-header",     dest="no_header",     action="store_true", default=None, help="do not read in a header of field names")
     csvImportGroup.add_option("--custom-header", dest="custom_header", metavar="FIELD,...", default=None, help="header to use (overriding file header), must be specified if --no-header")
     parser.add_option_group(csvImportGroup)
     
     # JSON import options
-    jsonOptionsGroup = optparse.OptionGroup(parser, 'JSON Options')
+    jsonOptionsGroup = optparse.OptionGroup(parser, "JSON Options")
     jsonOptionsGroup.add_option("--max-document-size", dest="max_document_size", metavar="MAX_SIZE",  default=0, help="maximum allowed size (bytes) for a single JSON document (default: 128MiB)", type="pos_int")
     jsonOptionsGroup.add_option("--max-nesting-depth", dest="max_nesting_depth", metavar="MAX_DEPTH", default=0, help="maximum depth of the JSON documents (default: 100)", type="pos_int")
     parser.add_option_group(jsonOptionsGroup)
@@ -169,8 +169,8 @@ def parse_options(argv, prog=None):
         # import_table
         if options.import_table:
             res = utils_common._tableNameRegex.match(options.import_table)
-            if res and res.group('table'):
-                options.import_table = utils_common.DbTable(res.group('db'), res.group('table'))
+            if res and res.group("table"):
+                options.import_table = utils_common.DbTable(res.group("db"), res.group("table"))
             else:
                 parser.error("Invalid --table option: %s" )
         
@@ -276,7 +276,7 @@ def import_from_queue(progress, task_queue, error_queue, replace_conflicts, dura
         try:
             # Unpickle objects (TODO: super inefficient, would be nice if we could pass down json)
             objs = [pickle.loads(obj) for obj in task[2]]
-            conflict_action = 'replace' if replace_conflicts else 'error'
+            conflict_action = "replace" if replace_conflicts else "error"
             res = r.db(task[0]).table(task[1]).insert(r.expr(objs, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action).run(conn)
         except:
             progress[0] = task
@@ -415,7 +415,7 @@ def json_reader(task_queue, filename, db, table, fields, progress_info, exit_eve
 # Taken from https://docs.python.org/2/library/csv.html
 class Utf8Recoder:
     def __init__(self, f):
-        self.reader = codecs.getreader('utf-8')(f)
+        self.reader = codecs.getreader("utf-8")(f)
 
     def __iter__(self):
         return self
@@ -432,16 +432,16 @@ class Utf8CsvReader:
     def next(self):
         row = self.reader.next()
         self.line_num = self.reader.line_num
-        return [unicode(s, 'utf-8') for s in row]
+        return [unicode(s, "utf-8") for s in row]
 
     def __iter__(self):
         return self
 
 def open_csv_file(filename):
     if PY3:
-        return open(filename, 'r', encoding='utf-8', newline='')
+        return open(filename, "r", encoding="utf-8", newline="")
     else:
-        return open(filename, 'r')
+        return open(filename, "r")
 
 def csv_reader(task_queue, filename, db, table, options, progress_info, exit_event):
     object_buffers = []
@@ -489,51 +489,38 @@ def csv_reader(task_queue, filename, db, table, options, progress_info, exit_eve
     if len(object_buffers) > 0:
         task_queue.put((db, table, object_buffers))
 
-# This function is called through rdb_call_wrapper, which will reattempt if a connection
-# error occurs.  Progress will resume where it left off.
-def create_table(progress, db, table, create_args, sindexes):
-    conn = utils_common.getConnection()
-    # Make sure that the table is ready if it exists, or create it
-    r.expr([table]).set_difference(r.db(db).table_list())\
-        .for_each(r.db(db).table_create(r.row, **create_args)).run(conn)
-    r.db(db).table(table).wait(timeout=30).run(conn)
-    
-    if progress[0] is None:
-        progress[0] = 0
-
-    # Recreate secondary indexes - assume that any indexes that already exist are wrong
-    # and create them from scratch
-    indexes = r.db(db).table(table).index_list().run(conn)
-    created_indexes = list()
-    try:
-        for sindex in sindexes[progress[0]:]:
-            if isinstance(sindex, dict) and all(k in sindex for k in ('index', 'function')):
-                if sindex['index'] in indexes:
-                    r.db(db).table(table).index_drop(sindex['index']).run(conn)
-                r.db(db).table(table).index_create(sindex['index'], sindex['function']).run(conn)
-                created_indexes.append(sindex['index'])
-            progress[0] += 1
-        r.db(db).table(table).index_wait(r.args(created_indexes)).run(conn)
-    except RuntimeError:
-        raise RuntimeError("Sindex warning")
-
 def table_reader(options, file_info, task_queue, error_queue, warning_queue, progress_info, exit_event):
     try:
         db = file_info["db"]
         table = file_info["table"]
         create_args = dict(options.create_args)
         create_args["primary_key"] = file_info["info"]["primary_key"]
-
-        try:
-            utils_common.rdb_call_wrapper("create table", create_table, db, table, create_args,
-                         file_info["info"]["indexes"] if options.sindexes else [])
-        except RuntimeError as e:
-            if str(e) == "Sindex warning":
+        
+        # Make sure that the table is ready if it exists, or create it
+        utils_common.retryQuery(
+            "create table: %s.%s" % (db, table),
+            r.expr([table]).set_difference(r.db(db).table_list()).for_each(r.db(db).table_create(r.row, **create_args))
+        )
+        utils_common.retryQuery("wait for %s.%s" % (db, table), r.db(db).table(table).wait(timeout=30))
+        
+        # Recreate secondary indexes - drop existing on the assumption they are wrong
+        if options.sindexes:
+            created_indexes = list()
+            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (db, table), r.db(db).table(table).index_list())
+            try:
+                for index in file_info["info"]["indexes"]:
+                    if index["index"] in existing_indexes: # drop existing versions
+                        utils_common.retryQuery("drop index: %s.%s:%s" % (db, table, index["index"]), r.db(db).table(table).index_drop(index["index"]))
+                    utils_common.retryQuery("create index: %s.%s:%s" % (db, table, index["index"]), r.db(db).table(table).index_create(index["index"], index["function"]))
+                    created_indexes.append(index["index"])
+                
+                # wait for all of the created indexes to build
+                utils_common.retryQuery("waiting for indexes on %s.%s" % (db, table), r.db(db).table(table).index_wait(r.args(created_indexes)))
+            except RuntimeError as e:
                 ex_type, ex_class, tb = sys.exc_info()
                 warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), file_info["file"]))
-            else:
-                raise
-
+        
+        # start the actual reader
         if file_info["format"] == "json":
             json_reader(task_queue,
                         file_info["file"],
@@ -563,14 +550,14 @@ def abort_import(signum, frame, parent_pid, exit_event, task_queue, clients, int
     if os.getpid() == parent_pid:
         if __signalSeen:
             # second time
-            print('\nSecond terminate signal seen, aborting ungracefully')
+            print("\nSecond terminate signal seen, aborting ungracefully")
             for worker in workers:
                 try:
                     worker.terminate()
                 except Exception as e:
-                    print('Problem killing worker: %s' % str(e))
+                    print("Problem killing worker: %s" % str(e))
         else:
-            print('\nTerminate signal seen, aborting')
+            print("\nTerminate signal seen, aborting")
             __signalSeen = True
             interrupt_event.set()
             exit_event.set()
@@ -619,7 +606,7 @@ def spawn_import_clients(options, files_info):
         for file_info in files_info:
             progress_info.append((multiprocessing.Value(ctypes.c_longlong, -1), # Current lines/bytes processed
                                   multiprocessing.Value(ctypes.c_longlong, 0))) # Total lines/bytes to process
-            reader_procs.append(multiprocessing.Process(target=table_reader, name='reader: %s.%s' % (file_info['db'], file_info['table']),
+            reader_procs.append(multiprocessing.Process(target=table_reader, name="reader: %s.%s" % (file_info["db"], file_info["table"]),
                                                         args=(options,
                                                               file_info,
                                                               task_queue,
@@ -688,107 +675,94 @@ def spawn_import_clients(options, files_info):
                 print("In file: %s" % warning[3], file=sys.stderr)
         raise RuntimeError("Warnings occurred during import")
 
-def get_import_info_for_file(filename, db_table_filter):
-    file_info = {}
-    file_info["file"] = filename
-    file_info["format"] = os.path.split(filename)[1].split(".")[-1]
-    file_info["db"] = os.path.split(os.path.split(filename)[0])[1]
-    file_info["table"] = os.path.split(filename)[1].split(".")[0]
-
-    if len(db_table_filter) > 0:
-        if (file_info["db"], None) not in db_table_filter:
-            if (file_info["db"], file_info["table"]) not in db_table_filter:
-                return None
-
-    info_filepath = os.path.join(os.path.split(filename)[0], file_info["table"] + ".info")
-    with open(info_filepath, "r") as info_file:
-        file_info["info"] = json.load(info_file)
-
-    return file_info
-
-def tables_check(progress, files_info, force):
-    '''Ensure that all needed databases exist and tables don't'''
-    conn = utils_common.getConnection()
-    db_list = r.db_list().run(conn)
-    for db in set([file_info["db"] for file_info in files_info]):
-        if db == "rethinkdb":
-            raise RuntimeError("Error: Cannot import tables into the system database: 'rethinkdb'")
-        if db not in db_list:
-            r.db_create(db).run(conn)
-
-    # Ensure that all tables do not exist (unless --forced)
-    already_exist = []
-    for file_info in files_info:
-        table = file_info["table"]
-        db = file_info["db"]
-        if table in r.db(db).table_list().run(conn):
-            if not force:
-                already_exist.append("%s.%s" % (db, table))
-
-            extant_pkey = r.db(db).table(table).info().run(conn)["primary_key"]
-            if file_info["info"]["primary_key"] != extant_pkey:
-                raise RuntimeError("Error: Table '%s.%s' already exists with a different primary key" % (db, table))
-
-    return already_exist
-
 def import_directory(options):
-    '''Scan for all files, make sure no duplicated tables with different formats'''
+    # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
+    # if the user has a database named 'rethinkdb'
+    utils_common.check_minimum_version("1.6")
+    
+    # Scan for all files, make sure no duplicated tables with different formats
     dbs = False
-    db_filter = set([db_table[0] for db_table in options.db_tables])
-    files_to_import = []
+    files_info = {} # (db, table) => {file:, format:, db:, table:, info:}
     files_ignored = []
     for root, dirs, files in os.walk(options.directory):
         if not dbs:
             files_ignored.extend([os.path.join(root, f) for f in files])
             # The first iteration through should be the top-level directory, which contains the db folders
             dbs = True
-            if len(db_filter) > 0:
-                for i in reversed(xrange(len(dirs))):
-                    if dirs[i] not in db_filter:
-                        del dirs[i]
+            
+            # don't recurse into folders not matching our filter
+            db_filter = set([db_table[0] for db_table in options.db_tables or []])
+            if db_filter:
+                for dirName in dirs[:]: # iterate on a copy
+                    if dirName not in db_filter:
+                        dirs.remove(dirName)
         else:
-            if len(dirs) != 0:
+            if dirs:
                 files_ignored.extend([os.path.join(root, d) for d in dirs])
-                del dirs[0:len(dirs)]
+                del dirs[:]
             for f in files:
-                split_file = f.split(".")
-                if len(split_file) != 2 or split_file[1] not in ["json", "csv", "info"]:
+                name, ext = os.path.splitext(f)
+                if ext not in [".json", ".csv", ".info"]:
                     files_ignored.append(os.path.join(root, f))
-                elif split_file[1] == "info":
+                elif ext == ".info":
                     pass # Info files are included based on the data files
-                elif not os.access(os.path.join(root, split_file[0] + ".info"), os.F_OK):
+                elif not os.path.exists(os.path.join(root, name + ".info")):
                     files_ignored.append(os.path.join(root, f))
                 else:
-                    files_to_import.append(os.path.join(root, f))
+                    # For each table to import collect: file, format, db, table, info
+                    file_info = {
+                        "file":   os.path.join(root, f),
+                        "format": ext.lstrip("."),
+                        "db":     os.path.basename(root),
+                        "table":  name
+                    }
+                    
+                    # ensure we don't have a duplicate
+                    if (file_info["db"], file_info["table"]) in files_info:
+                        raise RuntimeError("Error: Duplicate db.table found in directory tree: %s.%s" % (file_info["db"], file_info["table"]))
+                    
+                    # apply db/table filters
+                    if options.db_tables:
+                        for db, table in options.db_tables:
+                            if db == file_info["db"] and table in (None, file_info["table"]):
+                                break # either all tables in this db, or specific pair
+                        else:
+                            continue # not a chosen db/table
+                    
+                    # collect the 
+                    try:
+                        with open(os.path.join(root, name + ".info"), "r") as info_file:
+                            file_info["info"] = json.load(info_file)
+                    except OSError:
+                        files_ignored.append(os.path.join(root, f))
+                    
+                    files_info[file_info["db"], file_info["table"]] = file_info
+    
+    # create missing dbs
+    needed_dbs = set([x[0] for x in files_info])
+    if "rethinkdb" in needed_dbs:
+        raise RuntimeError("Error: Cannot import tables into the system database: 'rethinkdb'")
+    utils_common.retryQuery("ensure dbs: %s" % ", ".join(needed_dbs), r.expr(needed_dbs).set_difference(r.db_list()).for_each(r.db_create(r.row)))
+    
+    # check for existing tables, or if --force is enabled ones with mis-matched primary keys
+    existing_tables = dict([
+        ((x["db"], x["name"]), x["primary_key"]) for x in
+        utils_common.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
+    ])
+    already_exist = []
+    for db, table, primary_key in ((x["db"], x["table"], x["info"]["primary_key"]) for x in files_info.values()):
+        if (db, table) in existing_tables:
+            if not options.force:
+                already_exist.append("%s.%s" % (db, table))
 
-    # For each table to import collect: file, format, db, table, info
-    files_info = []
-    for filename in files_to_import:
-        res = get_import_info_for_file(filename, options.db_tables)
-        if res is not None:
-            files_info.append(res)
-
-    # Ensure no two files are for the same db/table, and that all formats are recognized
-    db_tables = set()
-    for file_info in files_info:
-        if (file_info["db"], file_info["table"]) in db_tables:
-            raise RuntimeError("Error: Duplicate db.table found in directory tree: %s.%s" % (file_info["db"], file_info["table"]))
-        if file_info["format"] not in ["csv", "json"]:
-            raise RuntimeError("Error: Unrecognized format for file %s" % file_info["file"])
-
-        db_tables.add((file_info["db"], file_info["table"]))
-
-    # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
-    # if the user has a database named 'rethinkdb'
-    utils_common.rdb_call_wrapper("version check", utils_common.check_minimum_version, (1, 16, 0))
-    already_exist = utils_common.rdb_call_wrapper("tables check", tables_check, files_info, options.force)
-
+            elif primary_key != existing_tables[(db, table)]:
+                raise RuntimeError("Error: Table '%s.%s' already exists with a different primary key: %s (expected: %s)" % (db, table, existing_tables[(db, table)], primary_key))
+    
     if len(already_exist) == 1:
         raise RuntimeError("Error: Table '%s' already exists, run with --force to import into the existing table" % already_exist[0])
     elif len(already_exist) > 1:
         already_exist.sort()
-        extant_tables = "\n  ".join(already_exist)
-        raise RuntimeError("Error: The following tables already exist, run with --force to import into the existing tables:\n  %s" % extant_tables)
+        raise RuntimeError("Error: The following tables already exist, run with --force to import into the existing tables:\n  %s" % "\n  ".join(already_exist))
 
     # Warn the user about the files that were ignored
     if len(files_ignored) > 0:
@@ -797,46 +771,38 @@ def import_directory(options):
         print(" import them as single files.  The following files were ignored:", file=sys.stderr)
         for f in files_ignored:
             print("%s" % str(f), file=sys.stderr)
-
-    spawn_import_clients(options, files_info)
-
-def table_check(progress, db, table, create_args, force, quiet):
-    conn = utils_common.getConnection()
-    pkey = None
-
-    if db == "rethinkdb":
-        raise RuntimeError("Error: Cannot import a table into the system database: 'rethinkdb'")
-
-    if db not in r.db_list().run(conn):
-        r.db_create(db).run(conn)
-
-    if table in r.db(db).table_list().run(conn):
-        if not force:
-            raise RuntimeError("Error: Table already exists, run with --force if you want to import into the existing table")
-
-        if 'primary_key' in create_args:
-            pkey = r.db(db).table(table).info()["primary_key"].run(conn)
-            if create_args["primary_key"] != pkey:
-                raise RuntimeError("Error: Table already exists with a different primary key")
-    else:
-        if 'primary_key' in create_args:
-            pkey = create_args["primary_key"]
-        else:
-            if not quiet:
-                print("no primary key specified, using default primary key when creating table")
-        r.db(db).table_create(table, **create_args).run(conn)
-
-    return pkey
+    
+    # start the imports
+    
+    spawn_import_clients(options, files_info.values())
 
 def import_file(options):
-    db = options.import_db_table[0]
-    table = options.import_db_table[1]
-
-    # Ensure that the database and table exist with the right primary key
+    db, table = options.import_table
+    if db == "rethinkdb":
+        raise RuntimeError("Error: Cannot import a table into the system database: 'rethinkdb'")
+    
     # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
     # if the user has a database named 'rethinkdb'
-    utils_common.rdb_call_wrapper("version check", utils_common.check_minimum_version, (1, 16, 0))
-    pkey = utils_common.rdb_call_wrapper("table check", table_check, db, table, options.create_args, options.force, options.quiet)
+    utils_common.check_minimum_version("1.6")
+    
+    # Ensure that the database and table exist with the right primary key
+    utils_common.retryQuery("create db %s" % db, r.expr([db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
+    tableInfo = None
+    try:
+        tableInfo = utils_common.retryQuery('table info: %s.%s' % (db, table), r.db(db).table(table).info())
+    except r.ReqlOpFailedError:
+        pass # table does not exist
+    if tableInfo:
+        if not force:
+            raise RuntimeError("Error: Table `%s.%s` already exists, run with --force if you want to import into the existing table" % (db, table))
+        if "primary_key" in create_args:
+            if create_args["primary_key"] != tableInfo["primary_key"]:
+                raise RuntimeError("Error: Table already exists with a different primary key")
+    else:
+        if "primary_key" not in create_args and not quiet:
+            print("no primary key specified, using default primary key when creating table")
+        utils_common.retryQuery("create table: %s.%s" % (db, table), r.db(db).table_create(table, **create_args))
+        tableInfo = utils_common.retryQuery("table info: %s.%s" % (db, table), r.db(db).table(table).info())
 
     # Make this up so we can use the same interface as with an import directory
     file_info = {}
@@ -844,7 +810,7 @@ def import_file(options):
     file_info["format"] = options.format
     file_info["db"] = db
     file_info["table"] = table
-    file_info["info"] = {"primary_key": pkey, "indexes": []}
+    file_info["info"] = {"primary_key": tableInfo["primary_key"], "indexes": []}
 
     spawn_import_clients(options, [file_info])
 

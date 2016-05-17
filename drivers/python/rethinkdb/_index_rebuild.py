@@ -28,7 +28,7 @@ rethinkdb index-rebuild -r test -r production.users -n 5
 temp_index_prefix = '$reql_temp_index$_'
 
 def parse_options(argv, prog=None):
-    parser = utils_common.CommonOptionsParser(usage=usage, epilog=help_epilog, , prog=prog)
+    parser = utils_common.CommonOptionsParser(usage=usage, epilog=help_epilog, prog=prog)
 
     parser.add_option("-r", "--rebuild", dest="db_table",   metavar="DB|DB.TABLE", default=[],    help="databases or tables to rebuild indexes on (default: all, may be specified multiple times)",  action="append", type="db_table")
     parser.add_option("-n",              dest="concurrent", metavar="NUM",         default=1,     help="concurrent indexes to rebuild (default: 1)", type="pos_int")
@@ -42,74 +42,44 @@ def parse_options(argv, prog=None):
 
     return options
 
-def get_indexes(progress, db_tables, only_outdated=False):
-    conn = utils_common.getConnection()
-    res = []
-    if len(db_tables) == 0:
-        dbs = r.db_list().run(conn)
-        db_tables = [utils_common.DbTable(db, None) for db in dbs]
-
-    for db, table in db_tables:
-        table_list = (table,) if table else r.db(db).table_list().run(conn)
-        for table in table_list:
-            indexes = None
-            if only_outdated:
-                indexes = r.db(db).table(table).index_status().filter({'outdated':True}).get_field('index').run(conn)
-            else:
-                indexes = r.db(db).table(table).index_status().get_field('index').run(conn)
-            for index in indexes:
-                res.append({'db':db, 'table':table, 'name':index})
-    return res
-
-def drop_outdated_temp_indexes(progress, indexes):
-    conn = utils_common.getConnection()
-    indexes_to_drop = [i for i in indexes if i['name'].find(temp_index_prefix) == 0]
-    for index in indexes_to_drop:
-        r.db(index['db']).table(index['table']).index_drop(index['name']).run(conn)
-        indexes.remove(index)
-
-def create_temp_index(progress, index):
-    conn = utils_common.getConnection()
-    # If this index is already being rebuilt, don't try to recreate it
-    extant_indexes = r.db(index['db']).table(index['table']).index_status().map(lambda i: i['index']).run(conn)
-    if index['temp_name'] not in extant_indexes:
-        index_fn = r.db(index['db']).table(index['table']).index_status(index['name']).nth(0)['function']
-        r.db(index['db']).table(index['table']).index_create(index['temp_name'], index_fn).run(conn)
-
-def get_index_progress(progress, index):
-    conn = utils_common.getConnection()
-    status = r.db(index['db']).table(index['table']).index_status(index['temp_name']).nth(0).run(conn)
-    index['function'] = status['function']
-    if status['ready']:
-        return None
-    else:
-        return float(status.get('progress'))
-
-def rename_index(progress, index):
-    conn = utils_common.getConnection()
-    r.db(index['db']).table(index['table']).index_rename(index['temp_name'], index['name'], overwrite=True).run(conn)
-
-def check_index_renamed(progress, index):
-    conn = utils_common.getConnection()
-    status = r.db(index['db']).table(index['table']).index_status(index['name']).nth(0).run(conn)
-    if status['outdated'] or status['ready'] != True or status['function'] != index['function']:
-        raise RuntimeError("Error: failed to rename `%(db)s.%(table)s` temporary index for `%(name)s`" % index)
-
-
 def rebuild_indexes(options):
-    ISSUE2904FORMAT = r"ReQL error during 'create `%(db)s.%(table)s` index `%(name)s`': Index `%(temp_name)s` already exists on table `%(db)s.%(table)s`."
     
-    indexes_to_build = utils_common.rdb_call_wrapper("get indexes", get_indexes, options.db_table, only_outdated=(not options.force))
-    indexes_in_progress = []
+    # flesh out options.db_table
+    if not options.db_table:
+        options.db_table = [
+            utils_common.DbTable(x['db'], x['name']) for x in
+                utils_common.retryQuery('all tables', r.db('rethinkdb').table('table_config').pluck(['db', 'name']))
+        ]
+    else:
+        for db_table in options.db_table[:]: # work from a copy
+            if not db_table[1]:
+                options.db_table += [utils_common.DbTable(db_table[0], x) for x in utils_common.retryQuery('table list of %s' % db_table[0], r.db(db_table[0]).table_list())]
+                del options.db_table[db_table]
     
-    # Drop any outdated indexes with the temp_index_prefix
-    utils_common.rdb_call_wrapper("drop temporary outdated indexes", drop_outdated_temp_indexes, indexes_to_build)
-
-    random.shuffle(indexes_to_build)
+    # wipe out any indexes with the temp_index_prefix
+    for db, table in options.db_table:
+        for index in utils_common.retryQuery('list indexes on %s.%s' % (db, table), r.db(db).table(table).index_list()):
+            if index.startswith(temp_index_prefix):
+                utils_common.retryQuery('drop index: %s.%s:%s' % (db, table, index), r.db(index['db']).table(index['table']).index_drop(index['name']))
+    
+    # get the list of indexes to rebuild
+    indexes_to_build = []
+    for db, table in options.db_table:
+        indexes = None
+        if not options.force:
+            indexes = utils_common.retryQuery('get outdated indexes from %s.%s' % (db, table), r.db(db).table(table).index_status().filter({'outdated':True}).get_field('index'))
+        else:
+            indexes = utils_common.retryQuery('get all indexes from %s.%s' % (db, table), r.db(db).table(table).index_status().get_field('index'))
+        for index in indexes:
+            indexes_to_build.append({'db':db, 'table':table, 'name':index})
+    
+    # rebuild selected indexes
+    
     total_indexes = len(indexes_to_build)
     indexes_completed = 0
     progress_ratio = 0.0
     highest_progress = 0.0
+    indexes_in_progress = []
     
     print("Rebuilding %d index%s: %s" % (total_indexes, 'es' if total_indexes > 1 else '',  ", ".join(["`%(db)s.%(table)s:%(name)s`" % i for i in indexes_to_build])))
 
@@ -122,13 +92,17 @@ def rebuild_indexes(options):
             index['progress'] = 0
             index['ready'] = False
 
-            try:
-                utils_common.rdb_call_wrapper("create `%(db)s.%(table)s` index `%(name)s`" % index, create_temp_index, index)
-            except RuntimeError as ex:
-                # This may be caused by a spurious failure (see github issue #2904), ignore if so
-                if ex.message != ISSUE2904FORMAT % index:
-                    raise
-
+            existingIndexes = dict(
+                (x['index'], x['function']) for x in
+                utils_common.retryQuery('existing indexes', r.db(index['db']).table(index['table']).index_status().pluck('index', 'function'))
+            )
+            assert index['name'] in existingIndexes
+            if index['temp_name'] not in existingIndexes:
+                utils_common.retryQuery(
+                    'create temp index: %(db)s.%(table)s:%(name)s' % index,
+                    r.db(index['db']).table(index['table']).index_create(index['temp_name'], existingIndexes[index['name']])
+                )
+        
         # Report progress
         highest_progress = max(highest_progress, progress_ratio)
         utils_common.print_progress(highest_progress)
@@ -136,18 +110,18 @@ def rebuild_indexes(options):
         # Check the status of indexes in progress
         progress_ratio = 0.0
         for index in indexes_in_progress:
-            index_progress = utils_common.rdb_call_wrapper("progress `%(db)s.%(table)s` index `%(name)s`" % index, get_index_progress, index)
-            if index_progress is None:
+            status = utils_common.retryQuery(
+                "progress `%(db)s.%(table)s` index `%(name)s`" % index,
+                r.db(index['db']).table(index['table']).index_status(index['temp_name']).nth(0)
+            )
+            if status['ready']:
                 index['ready'] = True
-                try:
-                    utils_common.rdb_call_wrapper("rename `%(db)s.%(table)s` index `%(name)s`" % index, rename_index, index)
-                except r.ReqlRuntimeError as ex:
-                    # This may be caused by a spurious failure (see github issue #2904), check if it actually succeeded
-                    if ex.message != ISSUE2904FORMAT % index:
-                        raise
-                    utils_common.rdb_call_wrapper("check rename `%(db)s.%(table)s` index `%(name)s`" % index, check_index_renamed, index)
+                utils_common.retryQuery(
+                    "rename `%(db)s.%(table)s` index `%(name)s`" % index,
+                    r.db(index['db']).table(index['table']).index_rename(index['temp_name'], index['name'], overwrite=True)
+                )
             else:
-                progress_ratio += index_progress / total_indexes
+                progress_ratio += status.get('progress', 0) / total_indexes
 
         indexes_in_progress = [index for index in indexes_in_progress if not index['ready']]
         indexes_completed = total_indexes - len(indexes_to_build) - len(indexes_in_progress)

@@ -144,7 +144,7 @@ def main(argv=None, prog=None):
 
     try:
         run_rethinkdb_export(options)
-    except RuntimeError as ex:
+    except Exception as ex:
         print(ex, file=sys.stderr)
         return 1
     return 0

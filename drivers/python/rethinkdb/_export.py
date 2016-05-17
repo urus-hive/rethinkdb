@@ -91,48 +91,6 @@ def parse_options(argv, prog=None):
     return options
 
 # This is called through rdb_call_wrapper and may be called multiple times if
-# connection errors occur.  Don't bother setting progress, because this is a
-# fairly small operation.
-def get_tables(progress, tables):
-    conn = utils_common.getConnection()
-    dbs = r.db_list().filter(r.row.ne('rethinkdb')).run(conn)
-    res = []
-
-    if len(tables) == 0:
-        tables = [(db, None) for db in dbs]
-
-    for db_table in tables:
-        if db_table[0] == 'rethinkdb':
-            raise RuntimeError("Error: Cannot export tables from the system database: 'rethinkdb'")
-        if db_table[0] not in dbs:
-            raise RuntimeError("Error: Database '%s' not found" % db_table[0])
-
-        if db_table[1] is None: # This is just a db name
-            res.extend([(db_table[0], table) for table in r.db(db_table[0]).table_list().run(conn)])
-        else: # This is db and table name
-            if db_table[1] not in r.db(db_table[0]).table_list().run(conn):
-                raise RuntimeError("Error: Table not found: '%s.%s'" % tuple(db_table))
-            res.append(tuple(db_table))
-
-    # Remove duplicates by making results a set
-    return set(res)
-
-# This is called through rdb_call_wrapper and may be called multiple times if
-# connection errors occur.  Don't bother setting progress, because we either
-# succeed or fail, there is no partial success.
-def write_table_metadata(progress, db, table, base_path):
-    conn = utils_common.getConnection()
-    table_info = r.db(db).table(table).info().run(conn)
-
-    # Rather than just the index names, store all index information
-    table_info['indexes'] = r.db(db).table(table).index_status().run(conn, binary_format='raw')
-
-    out = open(base_path + "/%s/%s.info" % (db, table), "w")
-    out.write(json.dumps(table_info) + "\n")
-    out.close()
-    return table_info
-
-# This is called through rdb_call_wrapper and may be called multiple times if
 # connection errors occur.  In order to facilitate this, we do an order_by by the
 # primary key so that we only ever get a given row once.
 def read_table_into_queue(progress, db, table, pkey, task_queue, progress_info, exit_event):
@@ -229,23 +187,24 @@ def csv_writer(filename, fields, delimiter, task_queue, error_queue):
         while not isinstance(task_queue.get(), StopIteration):
             pass
 
-def get_all_table_sizes(db_table_set):
-    def get_table_size(progress, db, table):
-        conn = utils_common.getConnection()
-        return r.db(db).table(table).info()['doc_count_estimates'].sum().run(conn)
-
-    ret = dict()
-    for pair in db_table_set:
-        db, table = pair
-        ret[pair] = int(utils_common.rdb_call_wrapper("count", get_table_size, db, table))
-
-    return ret
-
 def export_table(db, table, directory, fields, delimiter, format, error_queue, progress_info, sindex_counter, exit_event):
     writer = None
 
     try:
-        table_info = utils_common.rdb_call_wrapper("info", write_table_metadata, db, table, directory)
+        # -- get table info
+        
+        table_info = utils_common.retryQuery('table info: %s.%s' % (db, table), r.db(db).table(table).info())
+        
+        # Rather than just the index names, store all index information
+        table_info['indexes'] = utils_common.retryQuery(
+            'table index data %s.%s' % (db, table),
+            r.db(db).table(table).index_status(),
+            runOptions={'binary_format':'raw'}
+        )
+        
+        with open(os.path.join(directory, db, table + '.info'), 'w') as info_file:
+            info_file.write(json.dumps(table_info) + "\n")
+        
         sindex_counter.value += len(table_info["indexes"])
         
         # -- start the writer
@@ -316,17 +275,17 @@ def run_clients(options, partialDirectory, db_table_set):
     sindex_counter = multiprocessing.Value(ctypes.c_longlong, 0)
 
     signal.signal(signal.SIGINT, lambda a, b: abort_export(a, b, exit_event, interrupt_event))
-    errors = [ ]
+    errors = []
 
     try:
-        sizes = get_all_table_sizes(db_table_set)
-
         progress_info = []
-
         arg_lists = []
         for db, table in db_table_set:
+            
+            tableSize = int(utils_common.retryQuery("count", r.db(db).table(table).info()['doc_count_estimates'].sum()))
+            
             progress_info.append((multiprocessing.Value(ctypes.c_longlong, 0),
-                                  multiprocessing.Value(ctypes.c_longlong, sizes[(db, table)])))
+                                  multiprocessing.Value(ctypes.c_longlong, tableSize)))
             arg_lists.append((db, table,
                               partialDirectory,
                               options.fields,
@@ -387,10 +346,27 @@ def run_clients(options, partialDirectory, db_table_set):
 def run(options):
     # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
     # if the user has a database named 'rethinkdb'
-    utils_common.rdb_call_wrapper("version check", utils_common.check_minimum_version, (1, 16, 0))
+    utils_common.check_minimum_version('1.6')
     
     # get the complete list of tables
-    db_table_set = utils_common.rdb_call_wrapper("table list", get_tables, options.db_tables)
+    db_table_set = set()
+    allTables = [utils_common.DbTable(x['db'], x['name']) for x in utils_common.retryQuery('list tables', r.db('rethinkdb').table('table_config').pluck(['db', 'name']))]
+    if not options.db_tables:
+        db_table_set = allTables # default to all tables
+    else:
+        allDatabases = utils_common.retryQuery('list dbs', r.db_list().filter(r.row.ne('rethinkdb')))
+        for db_table in db_table_set:
+            db, table = db_table
+            assert db != 'rethinkdb', "Error: Cannot export tables from the system database: 'rethinkdb'" # should not be possible
+            if db not in allDatabases:
+                raise RuntimeError("Error: Database '%s' not found" % db)
+            
+            if table is None: # This is just a db name, implicitly selecting all tables in that db
+                db_table_set.update(set([x for x in allTables if x.db == db]))
+            else:
+                if utils_common.DbTable(db, table) not in allTables:
+                    raise RuntimeError("Error: Table not found: '%s.%s'" % (db, table))
+                db_table_set.add(db_table)
 
     # Determine the actual number of client processes we'll have
     options.clients = min(options.clients, len(db_table_set))
@@ -426,7 +402,7 @@ def main(argv=None, prog=None):
     start_time = time.time()
     try:
         run(options)
-    except RuntimeError as ex:
+    except Exception as ex:
         print(ex, file=sys.stderr)
         return 1
     if not options.quiet:
