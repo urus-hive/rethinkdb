@@ -128,12 +128,12 @@ public class Connection implements Closeable {
         });
     }
 
-    public Integer clientPort() {
-      return socket.map(SocketWrapper::clientPort).orElse(-1);
+    public Optional<Integer> clientPort() {
+      return socket.map(SocketWrapper::clientPort);
     }
 
-    public SocketAddress clientAddress() {
-        return socket.map(SocketWrapper::clientAddress).orElse(null);
+    public Optional<SocketAddress> clientAddress() {
+        return socket.map(SocketWrapper::clientAddress);
     }
 
     public boolean isOpen() {
