@@ -129,11 +129,11 @@ public class Connection implements Closeable {
     }
 
     public Optional<Integer> clientPort() {
-      return socket.map(SocketWrapper::clientPort);
+        return socket.map(SocketWrapper::clientPort).orElse(Optional.empty());
     }
 
     public Optional<SocketAddress> clientAddress() {
-        return socket.map(SocketWrapper::clientAddress);
+        return socket.map(SocketWrapper::clientAddress).orElse(Optional.empty());
     }
 
     public boolean isOpen() {

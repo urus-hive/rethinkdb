@@ -154,18 +154,18 @@ public class SocketWrapper {
         return ByteBuffer.wrap(buf).order(ByteOrder.LITTLE_ENDIAN);
     }
 
-    Optional<Integer> clientPort() {
+    public Optional<Integer> clientPort() {
+        Optional<Integer> ret;
         if (socket != null) {
-            return Optional<Integer>(socket.getLocalPort());
+            ret = Optional.ofNullable(socket.getLocalPort());
+        } else {
+            ret = Optional.empty();
         }
-        return Optional.empty();
+        return ret;
     }
 
-    Optional<SocketAddress> clientAddress() {
-        if (socket != null) {
-            return Optional<SocketAddress>(socket.getLocalSocketAddress());
-        }
-        return Optional.empty();
+    public Optional<SocketAddress> clientAddress() {
+        return Optional.ofNullable(socket.getLocalSocketAddress());
     }
     /**
      * Tells whether we have a working connection or not.
