@@ -5,7 +5,12 @@
 from __future__ import print_function
 
 import codecs, collections, csv, ctypes, datetime, json, multiprocessing
-import optparse, os, re, signal, sys, time, traceback
+import optparse, os, re, signal, sys, threading, time, traceback
+
+try:
+    import Queue
+except NameError:
+    import queue as Queue
 
 from . import utils_common, net
 r = utils_common.r
@@ -36,6 +41,7 @@ except ImportError:
     from multiprocessing.queues import SimpleQueue
 
 Error = collections.namedtuple("Error", ["message", "traceback", "file"])
+SourceFile = collections.namedtuple("SourceFile", ['path', 'db', 'table', 'format', 'primary_key', 'indexes'])
 
 usage = """rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
       [--force] [-i (DB | DB.TABLE)] [--clients NUM]
@@ -253,74 +259,92 @@ def parse_options(argv, prog=None):
     return options
 
 # This is run for each client requested, and accepts tasks from the reader processes
-def client_process(task_queue, error_queue, rows_written, replace_conflicts, durability):
-    
-    conflict_action = "replace" if replace_conflicts else "error"
-    
-    primaryKeys = dict([((x["db"], x["name"]), x["primary_key"]) for x in 
-        utils_common.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
-    ]) # (db, table) => key
-    
-    while True:
-        write_count = 0
+def table_writer(file_info, options, task_queue, error_queue, rows_written, batch_timeout=1, batch_max=200):
+    try:
+        conflict_action = "replace" if options.force else "error"
+        tbl = r.db(file_info.db).table(file_info.table)
         
-        # get a batch
-        task = task_queue.get()
-        if isinstance(task, StopIteration):
-            break
-        db, table, batch = task
-        
-        # Unpickle objects (TODO: super inefficient, would be nice if we could pass down json)
-        batch = [pickle.loads(x) for x in batch]
-        
-        # write the batch to the database
-        try:
-            res = utils_common.retryQuery(
-                "write batch to %s.%s" % (db, table),
-                r.db(db).table(table).insert(r.expr(batch, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
-            )
+        shouldContinue = True
+        while shouldContinue:
+            write_count = 0
             
-            if res["errors"] > 0:
-                raise RuntimeError("Error when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
-            modified = res["inserted"] + res["replaced"] + res["unchanged"]
-            if modified != len(batch):
-                raise RuntimeError("The inserted/replaced/unchanged number did not match when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
+            # get a batch
+            deadline = time.time() + batch_timeout
+            batch = []
+            while len(batch) < batch_max:
+                waitTime = deadline - time.time()
+                if waitTime <= 0:
+                    break
+                try:
+                    item = task_queue.get(timeout=waitTime)
+                    if isinstance(item, StopIteration):
+                        shouldContinue = False
+                        break
+                    else:
+                        # block bad items
+                        if not isinstance(item, dict):
+                            error_queue.put(Error('Error importing row on table %s.%s:\n%s' % (file_info.db, file_info.table, str(item)), None, file_info.path))
+                            continue
+                        
+                        # apply the fields filter
+                        if options.fields:
+                            for key in [x for x in item.keys() if x not in options.fields and x != file_info.primary_key]:
+                                del item[key]
+                        
+                        batch.append(item)
+                except Queue.Empty:
+                    break
             
-            write_count += res["inserted"] + res["replaced"] + res["unchanged"]
-            
-        except r.ReqlError:
-            # the error might have been caused by a comm error or temporary error causing a partial batch write
-            
-            for row in batch:
-                if not primaryKeys[(db, table)] in row:
-                    raise RuntimeError("Connection error while importing.  Current row does not have the specified primary key (%s), so cannot guarantee absence of duplicates" % primaryKeys[(db, table)])
-                res = None
-                if conflict_action == "replace":
-                    res = utils_common.retryQuery(
-                        "write row to %s.%s" % (db, table),
-                        r.db(db).table(table).insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
-                    )
-                else:
-                    existingRow = utils_common.retryQuery(
-                        "read row from %s.%s" % (db, table),
-                        r.db(db).table(table).get(row[primaryKeys[(db, table)]])
-                    )
-                    if not existingRow:
-                        res = utils_common.retryQuery(
-                            "write row to %s.%s" % (db, table),
-                            r.db(db).table(table).insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
-                        )
-                    elif existingRow != row:
-                        raise RuntimeError("Duplicate primary key `%s`:\n%s\n%s" % (primaryKeys[(db, table)], str(row), str(existingRow)))
+            # write the batch to the database
+            try:
+                res = utils_common.retryQuery(
+                    "write batch to %s.%s" % (file_info.db, file_info.table),
+                    tbl.insert(r.expr(batch, nesting_depth=max_nesting_depth), durability=options.durability, conflict=conflict_action)
+                )
                 
                 if res["errors"] > 0:
                     raise RuntimeError("Error when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
-                if res["inserted"] + res["replaced"] + res["unchanged"] != 1:
-                    raise RuntimeError("The inserted/replaced/unchanged number was not 1 when inserting on '%s.%s': %s" % (db, table, res))
-                write_count += 1
-        
-        with rows_written.get_lock():
-            rows_written.value += write_count
+                modified = res["inserted"] + res["replaced"] + res["unchanged"]
+                if modified != len(batch):
+                    raise RuntimeError("The inserted/replaced/unchanged number did not match when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
+                
+                write_count += res["inserted"] + res["replaced"] + res["unchanged"]
+                
+            except r.ReqlError:
+                # the error might have been caused by a comm or temporary error causing a partial batch write
+                
+                for row in batch:
+                    if not file_info.primary_key in row:
+                        raise RuntimeError("Connection error while importing.  Current row does not have the specified primary key (%s), so cannot guarantee absence of duplicates" % file_info.primary_key)
+                    res = None
+                    if conflict_action == "replace":
+                        res = utils_common.retryQuery(
+                            "write row to %s.%s" % (file_info.db, file_info.table),
+                            tbl.insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
+                        )
+                    else:
+                        existingRow = utils_common.retryQuery(
+                            "read row from %s.%s" % (file_info.db, file_info.table),
+                            tbl.get(row[file_info.primary_key])
+                        )
+                        if not existingRow:
+                            res = utils_common.retryQuery(
+                                "write row to %s.%s" % (file_info.db, file_info.table),
+                                tbl.insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
+                            )
+                        elif existingRow != row:
+                            raise RuntimeError("Duplicate primary key `%s`:\n%s\n%s" % (file_info.primary_key, str(row), str(existingRow)))
+                    
+                    if res["errors"] > 0:
+                        raise RuntimeError("Error when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
+                    if res["inserted"] + res["replaced"] + res["unchanged"] != 1:
+                        raise RuntimeError("The inserted/replaced/unchanged number was not 1 when inserting on '%s.%s': %s" % (db, table, res))
+                    write_count += 1
+            
+            with rows_written.get_lock():
+                rows_written.value += write_count
+    except Exception as e:
+        error_queue.put(Error(str(e), traceback.format_exc, file_info.path))
 
 batch_length_limit = 200
 batch_size_limit = 500000
@@ -332,9 +356,7 @@ class InterruptedError(Exception):
 # This function is called for each object read from a file by the reader processes
 #  and will push tasks to the client processes on the task queue
 def object_callback(obj, db, table, task_queue, object_buffers, buffer_sizes, fields, exit_event):
-    global batch_size_limit
-    global batch_length_limit
-
+    
     if exit_event.is_set():
         raise InterruptedError()
 
@@ -356,77 +378,92 @@ def object_callback(obj, db, table, task_queue, object_buffers, buffer_sizes, fi
         del buffer_sizes[0:len(buffer_sizes)]
     return obj
 
-
-def read_json_array(json_data, file_in, callback, progress_info, json_array=True):
+def json_reader(file_info, options, progress_info, exit_event):
+    
+    # set the total size for progress report
+    progress_info[1].value = os.path.getsize(file_info.path)
     decoder = json.JSONDecoder()
-    file_offset = 0
-    offset = 0
-    while True:
-        try:
-            offset = json.decoder.WHITESPACE.match(json_data, offset).end()
-            if json_array and json_data[offset] == "]":
-                break  # End of JSON
-            (obj, offset) = decoder.raw_decode(json_data, idx=offset)
-            callback(obj)
-
-            # Read past whitespace to the next record
+    
+    with open(file_info.path, "r") as file_in:
+        file_offset = 0
+        offset      = 0
+        foundStart  = False
+        foundFirst  = False
+        readMore    = False
+        json_array  = False
+        json_data   = ''
+        while not exit_event.is_set():
             file_offset += offset
-            json_data = json_data[offset:]
-            offset = json.decoder.WHITESPACE.match(json_data, 0).end()
-
-            if json_array and json_data[offset] == ",":
-                # Read past the comma
-                offset = json.decoder.WHITESPACE.match(json_data, offset + 1).end()
-            elif json_array and json_data[offset] != "]":
-                raise ValueError("Error: JSON format not recognized - expected ',' or ']' after object")
-
-        except (ValueError, IndexError):
-            before_len = len(json_data)
-            to_read = max(json_read_chunk_size, before_len)
-            json_data += file_in.read(min(to_read, json_max_buffer_size - before_len))
-            if json_array and json_data[offset] == ",":
-                offset = json.decoder.WHITESPACE.match(json_data, offset + 1).end()
-            elif (not json_array) and before_len == len(json_data):
-                break  # End of JSON
-            elif before_len == len(json_data) :
-                raise
-            elif len(json_data) >= json_max_buffer_size:
-                raise ValueError("Error: JSON max buffer size exceeded. Use '--max-document-size' to extend your buffer.")
             progress_info[0].value = file_offset
-
-    # Read the rest of the file and return it so it can be checked for unexpected data
-    json_data += file_in.read()
-    return json_data[offset + 1:]
-
-def json_reader(task_queue, filename, db, table, fields, progress_info, exit_event):
-    object_buffers = []
-    buffer_sizes = []
-    with open(filename, "r") as file_in:
-        # Scan to the first '[', then load objects one-by-one
-        # Read in the data in chunks, since the json module would just read the whole thing at once
-        json_data = file_in.read(json_read_chunk_size)
-        callback = lambda x: object_callback(x, db, table, task_queue, object_buffers, buffer_sizes, fields, exit_event)
-
-        progress_info[1].value = os.path.getsize(filename)
-        offset = json.decoder.WHITESPACE.match(json_data, 0).end()
-        if json_data[offset] in "[{":
-            json_data = read_json_array(
-                json_data[offset + (1 if json_data[offset] == "[" else 0):],
-                file_in, callback, progress_info,
-                json_data[offset] == "[")
-        else:
-            raise RuntimeError("Error: JSON format not recognized - file does not begin with an object or array")
+            
+            if foundStart is False or readMore:
+                # Read the data in chunks, since the json module would just read the whole thing at once
+                chunk = file_in.read(min(json_read_chunk_size, json_max_buffer_size - len(json_data)))
+                if len(chunk) == 0:
+                    break # end of file
+                dataLength = len(json_data) + len(chunk) - offset
+                if dataLength >= json_max_buffer_size:
+                    raise Exception("Error: JSON max buffer size exceeded on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (file_info.path, file_offset - len(json_data)))
+                json_data = json_data[offset:] + chunk
+                
+                # reset offset
+                offset = 0
+            
+            # read past leading whitespace
+            offset = json.decoder.WHITESPACE.match(json_data, offset).end()
+            if len(json_data) == 0:
+                continue
+            
+            # check if we are in a newline-delimited or standard json array document
+            if not foundStart:
+                if len(json_data) < 2:
+                    continue # go back and read more
+                if json_data[offset] == "[": # read as a standard json array of dicts
+                    foundStart = True
+                    json_array = True
+                    offset += 1
+                elif json_data[offset] == "{": # read as a newline-terminates list of dicts
+                    foundStart = True
+                else:
+                    raise RuntimeError("Error: JSON format not recognized - file does not begin with an object or array")
+            
+            # look for the end of the outer array or intermediate ',' character
+            elif json_array:
+                if json_data[offset] == "]":
+                    json_data = json_data[offset + 1:]
+                    break
+                elif foundFirst:
+                    if json_data[offset] == ",":
+                        offset = json.decoder.WHITESPACE.match(json_data, offset + 1).end() # Read past the comma and any additional whitespace
+                    else:
+                        raise ValueError("Error: JSON format not recognized - expected ',' or ']' after object at byte %d in %s.%s file" % (offset + file_offset, file_info.db, file_info.table))
+            
+            # read a row
+            try:
+                row, offset = decoder.raw_decode(json_data, idx=offset)
+                foundFirst = True
+                yield row
+            except (ValueError, IndexError):
+                pass # did not find a complete JSON object in the buffer, read more
         
-        # Make sure only remaining data is whitespace
+        # - try to read any remaining parts of the file
+        
+        file_offset += offset
+        progress_info[0].value = file_offset
+        chunk = file_in.read(min(json_read_chunk_size, json_max_buffer_size - len(json_data)))
+        if len(json_data) + len(chunk) - offset >= json_max_buffer_size:
+            raise Exception("Error: JSON max buffer size exceeded after data ended on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (file_info.path, file_offset - len(json_data)))
+        json_data = json_data[offset:] + chunk
+        
+        # - make sure only remaining data is whitespace
+        
         while len(json_data) > 0:
-            if json.decoder.WHITESPACE.match(json_data, 0).end() != len(json_data):
-                raise RuntimeError("Error: JSON format not recognized - extra characters found after end of data")
+            offset = json.decoder.WHITESPACE.match(json_data, 0).end()
+            if offset != len(json_data):
+                raise RuntimeError("Error: JSON format not recognized - extra characters found after end of data (position %d)" % (file_offset + offset))
             json_data = file_in.read(json_read_chunk_size)
-
+    
     progress_info[0].value = progress_info[1].value
-
-    if len(object_buffers) > 0:
-        task_queue.put((db, table, object_buffers))
 
 # Wrapper classes for the handling of unicode csv files
 # Taken from https://docs.python.org/2/library/csv.html
@@ -467,14 +504,14 @@ def csv_reader(task_queue, filename, db, table, options, progress_info, exit_eve
     # Count the lines so we can report progress
     # TODO: this requires us to make two passes on csv files
     line_count = 0
-    with open_csv_file(filename) as file_in:
+    with open_csv_file(file_info.path) as file_in:
         for i, l in enumerate(file_in):
             pass
         line_count = i + 1
 
     progress_info[1].value = line_count
 
-    with open_csv_file(filename) as file_in:
+    with open_csv_file(file_info.path) as file_in:
         if PY3:
             reader = csv.reader(file_in, delimiter=options.delimiter)
         else:
@@ -495,69 +532,97 @@ def csv_reader(task_queue, filename, db, table, options, progress_info, exit_eve
             file_line = reader.line_num
             progress_info[0].value = file_line
             if len(fields_in) != len(row):
-                raise RuntimeError("Error: File '%s' line %d has an inconsistent number of columns" % (filename, file_line))
+                raise RuntimeError("Error: File '%s' line %d has an inconsistent number of columns" % (file_info.path, file_line))
             # We import all csv fields as strings (since we can't assume the type of the data)
             obj = dict(zip(fields_in, row))
             for key in list(obj.keys()): # Treat empty fields as no entry rather than empty string
                 if len(obj[key]) == 0:
                     del obj[key]
-            object_callback(obj, db, table, task_queue, object_buffers, buffer_sizes, options.fields, exit_event)
+            object_callback(obj, file_info.db, file_info.table, task_queue, object_buffers, buffer_sizes, options.fields, exit_event)
 
     if len(object_buffers) > 0:
-        task_queue.put((db, table, object_buffers))
+        task_queue.put((file_info.db, file_info.table, object_buffers))
 
-def table_reader(options, file_info, task_queue, error_queue, warning_queue, progress_info, exit_event):
+def table_worker(file_info, options, error_queue, warning_queue, progress_info, rows_written, exit_event):
+    work_queue = Queue.Queue()
     try:
-        db = file_info["db"]
-        table = file_info["table"]
-        create_args = dict(options.create_args)
-        create_args["primary_key"] = file_info["info"]["primary_key"]
+        # - ensure the db exists
+        utils_common.retryQuery("ensure db: %s" % file_info.db, r.expr([file_info.db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
         
-        # Make sure that the table is ready if it exists, or create it
+        # - ensure the table exists and is ready
         utils_common.retryQuery(
-            "create table: %s.%s" % (db, table),
-            r.expr([table]).set_difference(r.db(db).table_list()).for_each(r.db(db).table_create(r.row, **create_args))
+            "create table: %s.%s" % (file_info.db, file_info.table),
+            r.expr([file_info.table]).set_difference(r.db(file_info.db).table_list()).for_each(r.db(file_info.db).table_create(r.row, **options.create_args))
         )
-        utils_common.retryQuery("wait for %s.%s" % (db, table), r.db(db).table(table).wait(timeout=30))
+        utils_common.retryQuery("wait for %s.%s" % (file_info.db, file_info.table), r.db(file_info.db).table(file_info.table).wait(timeout=30))
         
-        # Recreate secondary indexes - drop existing on the assumption they are wrong
+        # - recreate secondary indexes - droping existing on the assumption they are wrong
         if options.sindexes:
-            created_indexes = list()
-            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (db, table), r.db(db).table(table).index_list())
+            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (file_info.db, file_info.table), r.db(file_info.db).table(file_info.table).index_list())
             try:
-                for index in file_info["info"]["indexes"]:
+                created_indexes = []
+                for index in file_info.indexes:
                     if index["index"] in existing_indexes: # drop existing versions
-                        utils_common.retryQuery("drop index: %s.%s:%s" % (db, table, index["index"]), r.db(db).table(table).index_drop(index["index"]))
-                    utils_common.retryQuery("create index: %s.%s:%s" % (db, table, index["index"]), r.db(db).table(table).index_create(index["index"], index["function"]))
+                        utils_common.retryQuery(
+                            "drop index: %s.%s:%s" % (file_info.db, file_info.table, index["index"]),
+                            r.db(file_info.db).table(file_info.table).index_drop(index["index"])
+                        )
+                    utils_common.retryQuery(
+                        "create index: %s.%s:%s" % (file_info.db, file_info.table, index["index"]),
+                        r.db(file_info.db).table(file_info.table).index_create(index["index"], index["function"])
+                    )
                     created_indexes.append(index["index"])
                 
                 # wait for all of the created indexes to build
-                utils_common.retryQuery("waiting for indexes on %s.%s" % (db, table), r.db(db).table(table).index_wait(r.args(created_indexes)))
+                utils_common.retryQuery(
+                    "waiting for indexes on %s.%s" % (file_info.db, file_info.table),
+                    r.db(file_info.db).table(file_info.table).index_wait(r.args(created_indexes))
+                )
             except RuntimeError as e:
                 ex_type, ex_class, tb = sys.exc_info()
-                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), file_info["file"]))
+                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), file_info.path))
         
-        # start the actual reader
-        if file_info["format"] == "json":
-            json_reader(task_queue,
-                        file_info["file"],
-                        db, table,
-                        options.fields,
-                        progress_info,
-                        exit_event)
-        elif file_info["format"] == "csv":
-            csv_reader(task_queue,
-                       file_info["file"],
-                       db, table,
-                       options,
-                       progress_info,
-                       exit_event)
+        # - start the writer thread
+        writer_thread = threading.Thread(
+            target=table_writer,
+            name="%s.%s writer" % (file_info.db, file_info.table),
+            kwargs={
+                "file_info":         file_info,
+                "options":           options,
+                "task_queue":        work_queue,
+                "error_queue":       error_queue,
+                "rows_written":      rows_written
+            }
+        )
+        writer_thread.start()
+        
+        # - setup the data source
+        
+        source = None
+        if file_info.format == "json":
+            source = json_reader(file_info, options, progress_info, exit_event)
+        elif file_info.format == "csv":
+            source = csv_reader(file_info, options, progress_info, exit_event)
         else:
-            raise RuntimeError("Error: Unknown file format specified")
+            raise RuntimeError("Error: Unknown file format specified: %s" % file_info.format)
+        
+        # - read the source into the queue
+        
+        for row in source:
+            work_queue.put(row)
+        work_queue.put(StopIteration())
+        
+        # - wait for the worker
+        writer_thread.join()
+        
+    
+    # -- report relevent errors
     except InterruptedError:
-        pass # Don't save interrupted errors, they are side-effects
+        pass # Don't save interrupted errors, they are side-effects of signals
     except Exception as e:
-        error_queue.put(Error(str(e), traceback.format_exc(), file_info["file"]))
+        error_queue.put(Error(str(e), traceback.format_exc(), file_info.path))
+    finally:
+        work_queue.put(StopIteration())
 
 __signalSeen = False
 def abort_import(signum, frame, parent_pid, exit_event, task_queue, clients, interrupt_event):
@@ -591,80 +656,84 @@ def update_progress(progress_info, options):
             lowest_completion = min(lowest_completion, float(curr_val) / max_val)
 
     if not options.quiet:
-        utils_common.print_progress(lowest_completion)
+        utils_common.print_progress(lowest_completion, padding=2)
 
 workers = []
-def spawn_import_clients(options, files_info):
+def import_tables(options, files_info):
     global workers
     
-    # Spawn one reader process for each db.table, as well as many client processes
-    task_queue = SimpleQueue()
+    # Spaw a worker (reader + writer in threads in a external process) for each table, options.clients at a time
     error_queue = SimpleQueue()
     warning_queue = SimpleQueue()
     exit_event = multiprocessing.Event()
     interrupt_event = multiprocessing.Event()
     errors = []
-    reader_procs = []
-    client_procs = []
-
+    start_time = time.time()
+    
     parent_pid = os.getpid()
     signal.signal(signal.SIGINT, lambda a, b: abort_import(a, b, parent_pid, exit_event, task_queue, client_procs, interrupt_event))
-
+    
     try:
         progress_info = []
         rows_written = multiprocessing.Value(ctypes.c_longlong, 0)
-
-        for i in xrange(options.clients):
-            client_procs.append(multiprocessing.Process(target=client_process, args=(task_queue, error_queue, rows_written, options.force, options.durability)))
-            client_procs[-1].start()
-        workers += client_procs
         
+        # - start the workers options.clients at a time
+        filesLeft = len(files_info)
         for file_info in files_info:
-            progress_info.append((multiprocessing.Value(ctypes.c_longlong, -1), # Current lines/bytes processed
-                                  multiprocessing.Value(ctypes.c_longlong, 0))) # Total lines/bytes to process
-            reader_procs.append(multiprocessing.Process(target=table_reader, name="reader: %s.%s" % (file_info["db"], file_info["table"]),
-                                                        args=(options,
-                                                              file_info,
-                                                              task_queue,
-                                                              error_queue,
-                                                              warning_queue,
-                                                              progress_info[-1],
-                                                              exit_event)))
-            reader_procs[-1].start()
-        workers += reader_procs
+            # add it to the queue
+            progress = (
+                multiprocessing.Value(ctypes.c_longlong, -1), # Current lines/bytes processed
+                multiprocessing.Value(ctypes.c_longlong, 0)   # Total lines/bytes to process
+            )
+            progress_info.append(progress)
+            
+            worker = multiprocessing.Process(
+                target=table_worker,
+                name="worker %s.%s" % (file_info.db, file_info.table),
+                args=(file_info, options, error_queue, warning_queue, progress, rows_written, exit_event)
+            )
+            worker.start()
+            workers.append(worker)
+            filesLeft -= 1
+            
+            # wait for there to be another opening
+            while len(workers) == min(options.clients, filesLeft):
+                time.sleep(0.1)
+                for worker in workers[:]:
+                    if not worker.is_alive():
+                        workers.remove(worker)
+                
+                # monitor the error queue while we are waiting
+                while not error_queue.empty():
+                    exit_event.set()
+                    errors.append(error_queue.get())
+                
+                # update the progress bar
+                update_progress(progress_info, options)
         
-        # Wait for all reader processes to finish - hooray, polling
-        while len(reader_procs) > 0:
+        # - wait for the last of the workers to complete
+        while workers:
             time.sleep(0.1)
-            # If an error has occurred, exit out early
+            for worker in workers[:]:
+                if not worker.is_alive():
+                    workers.remove(worker)
+            
+            # monitor the error queue while we are waiting
             while not error_queue.empty():
                 exit_event.set()
                 errors.append(error_queue.get())
-
-            reader_procs = [proc for proc in reader_procs if proc.is_alive()]
+            
+            # update the progress bar
             update_progress(progress_info, options)
-
-        # Wait for all clients to finish
-        alive_clients = sum([client.is_alive() for client in client_procs])
-        for i in xrange(alive_clients):
-            task_queue.put(StopIteration())
-
-        while len(client_procs) > 0:
-            time.sleep(0.1)
-            client_procs = [client for client in client_procs if client.is_alive()]
 
         # If we were successful, make sure 100% progress is reported
         if len(errors) == 0 and not interrupt_event.is_set() and not options.quiet:
-            utils_common.print_progress(1.0)
-
-        def plural(num, text):
-            return "%d %s%s" % (num, text, "" if num == 1 else "s")
-
+            utils_common.print_progress(1.0, padding=2)
+        
+        plural = lambda num, text: "%d %s%s" % (num, text, "" if num == 1 else "s")
         if not options.quiet:
             # Continue past the progress output line
-            print("")
-            print("%s imported in %s" % (plural(rows_written.value, "row"),
-                                         plural(len(files_info), "table")))
+            print("\n  %s imported to %s in %.2f secs" % (plural(rows_written.value, "row"), plural(len(files_info), "table"), time.time() - start_time))
     finally:
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -672,10 +741,9 @@ def spawn_import_clients(options, files_info):
         raise RuntimeError("Interrupted")
 
     if len(errors) != 0:
-        # multiprocessing queues don't handle tracebacks, so they've already been stringified in the queue
         for error in errors:
             print("%s" % error.message, file=sys.stderr)
-            if options.debug:
+            if options.debug and error.traceback:
                 print("  Traceback:\n%s" % error.traceback, file=sys.stderr)
             if len(error.file) == 4:
                 print("  In file: %s" % error.file, file=sys.stderr)
@@ -716,43 +784,46 @@ def import_directory(options):
             if dirs:
                 files_ignored.extend([os.path.join(root, d) for d in dirs])
                 del dirs[:]
-            for f in files:
-                name, ext = os.path.splitext(f)
+            
+            db = os.path.basename(root)
+            for filename in files:
+                table, ext = os.path.splitext(filename)
+                table = os.path.basename(table)
+                
                 if ext not in [".json", ".csv", ".info"]:
-                    files_ignored.append(os.path.join(root, f))
+                    files_ignored.append(os.path.join(root, filename))
                 elif ext == ".info":
                     pass # Info files are included based on the data files
-                elif not os.path.exists(os.path.join(root, name + ".info")):
-                    files_ignored.append(os.path.join(root, f))
+                elif not os.path.exists(os.path.join(root, table + ".info")):
+                    files_ignored.append(os.path.join(root, filename))
                 else:
-                    # For each table to import collect: file, format, db, table, info
-                    file_info = {
-                        "file":   os.path.join(root, f),
-                        "format": ext.lstrip("."),
-                        "db":     os.path.basename(root),
-                        "table":  name
-                    }
-                    
                     # ensure we don't have a duplicate
-                    if (file_info["db"], file_info["table"]) in files_info:
-                        raise RuntimeError("Error: Duplicate db.table found in directory tree: %s.%s" % (file_info["db"], file_info["table"]))
+                    if (db, table) in files_info:
+                        raise RuntimeError("Error: Duplicate db.table found in directory tree: %s.%s" % (db, table))
                     
                     # apply db/table filters
                     if options.db_tables:
-                        for db, table in options.db_tables:
-                            if db == file_info["db"] and table in (None, file_info["table"]):
+                        for filter_db, filter_table in options.db_tables:
+                            if db == filter_db and filter_table in (None, table):
                                 break # either all tables in this db, or specific pair
                         else:
+                            files_ignored.append(os.path.join(root, filename))
                             continue # not a chosen db/table
                     
-                    # collect the 
+                    # collect the info
+                    primary_key = None
+                    indexes = []
                     try:
-                        with open(os.path.join(root, name + ".info"), "r") as info_file:
-                            file_info["info"] = json.load(info_file)
+                        with open(os.path.join(root, table + ".info"), "r") as info_file:
+                            metadata = json.load(info_file)
+                            if "primary_key" in metadata:
+                                primary_key = metadata["primary_key"]
+                            if "indexes" in metadata:
+                                indexes = metadata["indexes"]
                     except OSError:
                         files_ignored.append(os.path.join(root, f))
                     
-                    files_info[file_info["db"], file_info["table"]] = file_info
+                    files_info[(db, table)] = SourceFile(path=os.path.join(root, filename), db=db, table=table, format=ext.lstrip("."), primary_key=primary_key, indexes=indexes)
     
     # create missing dbs
     needed_dbs = set([x[0] for x in files_info])
@@ -766,7 +837,7 @@ def import_directory(options):
         utils_common.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
     ])
     already_exist = []
-    for db, table, primary_key in ((x["db"], x["table"], x["info"]["primary_key"]) for x in files_info.values()):
+    for db, table, primary_key in ((x.db, x.table, x.primary_key) for x in files_info.values()):
         if (db, table) in existing_tables:
             if not options.force:
                 already_exist.append("%s.%s" % (db, table))
@@ -790,7 +861,7 @@ def import_directory(options):
     
     # start the imports
     
-    spawn_import_clients(options, files_info.values())
+    import_tables(options, files_info.values())
 
 def import_file(options):
     db, table = options.import_table
@@ -819,16 +890,18 @@ def import_file(options):
             print("no primary key specified, using default primary key when creating table")
         utils_common.retryQuery("create table: %s.%s" % (db, table), r.db(db).table_create(table, **create_args))
         tableInfo = utils_common.retryQuery("table info: %s.%s" % (db, table), r.db(db).table(table).info())
-
+    
     # Make this up so we can use the same interface as with an import directory
-    file_info = {}
-    file_info["file"] = options.file
-    file_info["format"] = options.format
-    file_info["db"] = db
-    file_info["table"] = table
-    file_info["info"] = {"primary_key": tableInfo["primary_key"], "indexes": []}
-
-    spawn_import_clients(options, [file_info])
+    file_info = SourceFile(
+        path=options.file,
+        db=db,
+        table=table,
+        format=options.format,
+        primary_key=tableInfo["primary_key"],
+        indexes=[]
+    )
+    
+    import_tables(options, [file_info])
 
 def main(argv=None, prog=None):
     if argv is None:
