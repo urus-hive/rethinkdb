@@ -92,7 +92,7 @@ def parse_options(argv, prog=None):
     dirImportGroup = optparse.OptionGroup(parser, "Directory Import Options")
     dirImportGroup.add_option("-d", "--directory",      dest="directory", metavar="DIRECTORY",   default=None, help="directory to import data from")
     dirImportGroup.add_option("-i", "--import",         dest="db_tables", metavar="DB|DB.TABLE", default=[],   help="restore only the given database or table (may be specified multiple times)", action="append", type="db_table")
-    dirImportGroup.add_option("--no-secondary-indexes", dest="sindexes",  action="store_false",  default=True, help="do not create secondary indexes")
+    dirImportGroup.add_option("--no-secondary-indexes", dest="sindexes",  action="store_false",  default=None, help="do not create secondary indexes")
     parser.add_option_group(dirImportGroup)
 
     # File import options
@@ -157,6 +157,9 @@ def parse_options(argv, prog=None):
         if options.custom_header:
             parser.error("table create options are not valid when importing a directory: %s" % ", ".join([x.lower().replace("_", " ") for x in options.custom_header.keys()]))
         
+        if options.sindexes is None:
+            options.sindexes = True
+        
         # check valid options
         if not os.path.isdir(options.directory):
             parser.error("Directory to import does not exist: %s" % options.directory)
@@ -173,7 +176,7 @@ def parse_options(argv, prog=None):
         
         # format
         if options.format is None:
-            _, options.format = os.path.splitext(options.file)
+            options.format = os.path.splitext(options.file)[1].lstrip('.')
         
         # import_table
         if options.import_table:
@@ -181,7 +184,7 @@ def parse_options(argv, prog=None):
             if res and res.group("table"):
                 options.import_table = utils_common.DbTable(res.group("db"), res.group("table"))
             else:
-                parser.error("Invalid --table option: %s" )
+                parser.error("Invalid --table option: %s" % options.import_table)
         
         # fields
         options.fields = options.fields.split(",") if options.fields else None
@@ -197,7 +200,7 @@ def parse_options(argv, prog=None):
                 parser.error("--max_document_size only affects importing JSON documents")
             
             # required options
-            if not options.table:
+            if not options.import_table:
                 paser.error("A value is required for --table when importing from a file")
             
             # delimiter
@@ -346,38 +349,6 @@ def table_writer(file_info, options, task_queue, error_queue, rows_written, batc
     except Exception as e:
         error_queue.put(Error(str(e), traceback.format_exc, file_info.path))
 
-batch_length_limit = 200
-batch_size_limit = 500000
-
-class InterruptedError(Exception):
-    def __str__(self):
-        return "Interrupted"
-
-# This function is called for each object read from a file by the reader processes
-#  and will push tasks to the client processes on the task queue
-def object_callback(obj, db, table, task_queue, object_buffers, buffer_sizes, fields, exit_event):
-    
-    if exit_event.is_set():
-        raise InterruptedError()
-
-    if not isinstance(obj, dict):
-        raise RuntimeError("Error: Invalid input, expected an object, but got %s" % type(obj))
-
-    # filter out fields
-    if fields is not None:
-        for key in list(obj.keys()):
-            if key not in fields:
-                del obj[key]
-
-    # Pickle the object here because we want an accurate size, and it'll pickle anyway for IPC
-    object_buffers.append(pickle.dumps(obj))
-    buffer_sizes.append(len(object_buffers[-1]))
-    if len(object_buffers) >= batch_length_limit or sum(buffer_sizes) > batch_size_limit:
-        task_queue.put((db, table, object_buffers))
-        del object_buffers[0:len(object_buffers)]
-        del buffer_sizes[0:len(buffer_sizes)]
-    return obj
-
 def json_reader(file_info, options, progress_info, exit_event):
     
     # set the total size for progress report
@@ -478,45 +449,37 @@ class Utf8Recoder:
         return self.reader.next().encode("utf-8")
 
 class Utf8CsvReader:
-    def __init__(self, f, **kwargs):
-        f = Utf8Recoder(f)
-        self.reader = csv.reader(f, **kwargs)
-        self.line_num = self.reader.line_num
-
+    reader = None
+    
+    def __init__(self, iterable, **kwargs):
+        self.reader = csv.reader(Utf8Recoder(iterable), **kwargs)
+    
+    @property
+    def line_num(self):
+        return self.reader.line_num
+    
     def next(self):
-        row = self.reader.next()
-        self.line_num = self.reader.line_num
-        return [unicode(s, "utf-8") for s in row]
-
+        return [unicode(s, "utf-8") for s in self.reader.next()]
+    
     def __iter__(self):
         return self
 
-def open_csv_file(filename):
-    if PY3:
-        return open(filename, "r", encoding="utf-8", newline="")
-    else:
-        return open(filename, "r")
-
-def csv_reader(task_queue, filename, db, table, options, progress_info, exit_event):
-    object_buffers = []
-    buffer_sizes = []
-
-    # Count the lines so we can report progress
-    # TODO: this requires us to make two passes on csv files
-    line_count = 0
-    with open_csv_file(file_info.path) as file_in:
-        for i, l in enumerate(file_in):
+def csv_reader(file_info, options, progress_info, exit_event):
+    with open(filename, "r", encoding="utf-8", newline="") if PY3 else open(file_info.path, "r") as file_in:
+        # - Count the lines so we can report progress # TODO: work around the double pass
+        for i, _ in enumerate(file_in):
             pass
-        line_count = i + 1
-
-    progress_info[1].value = line_count
-
-    with open_csv_file(file_info.path) as file_in:
+        progress_info[1].value = i + 1
+        
+        # rewind the file
+        file_in.seek(0)
+        
         if PY3:
             reader = csv.reader(file_in, delimiter=options.delimiter)
         else:
             reader = Utf8CsvReader(file_in, delimiter=options.delimiter)
-
+        
+        # - Get the header information for column names
         if not options.no_header:
             fields_in = next(reader)
 
@@ -527,21 +490,29 @@ def csv_reader(task_queue, filename, db, table, options, progress_info, exit_eve
             fields_in = options.custom_header
         elif options.no_header:
             raise RuntimeError("Error: No field name information available")
-
+        
+        # - Read in the data
+        
         for row in reader:
+            if exit_event.is_set():
+                break
+            
+            # update progress
             file_line = reader.line_num
             progress_info[0].value = file_line
+            
             if len(fields_in) != len(row):
                 raise RuntimeError("Error: File '%s' line %d has an inconsistent number of columns" % (file_info.path, file_line))
+            
             # We import all csv fields as strings (since we can't assume the type of the data)
             obj = dict(zip(fields_in, row))
-            for key in list(obj.keys()): # Treat empty fields as no entry rather than empty string
+            
+            # Treat empty fields as no entry rather than empty string
+            for key in list(obj.keys()):
                 if len(obj[key]) == 0:
                     del obj[key]
-            object_callback(obj, file_info.db, file_info.table, task_queue, object_buffers, buffer_sizes, options.fields, exit_event)
-
-    if len(object_buffers) > 0:
-        task_queue.put((file_info.db, file_info.table, object_buffers))
+            
+            yield obj
 
 def table_worker(file_info, options, error_queue, warning_queue, progress_info, rows_written, exit_event):
     work_queue = Queue.Queue()
@@ -617,8 +588,6 @@ def table_worker(file_info, options, error_queue, warning_queue, progress_info, 
         
     
     # -- report relevent errors
-    except InterruptedError:
-        pass # Don't save interrupted errors, they are side-effects of signals
     except Exception as e:
         error_queue.put(Error(str(e), traceback.format_exc(), file_info.path))
     finally:
@@ -880,15 +849,15 @@ def import_file(options):
     except r.ReqlOpFailedError:
         pass # table does not exist
     if tableInfo:
-        if not force:
+        if not options.force:
             raise RuntimeError("Error: Table `%s.%s` already exists, run with --force if you want to import into the existing table" % (db, table))
-        if "primary_key" in create_args:
-            if create_args["primary_key"] != tableInfo["primary_key"]:
+        if "primary_key" in options.create_args:
+            if options.create_args["primary_key"] != tableInfo["primary_key"]:
                 raise RuntimeError("Error: Table already exists with a different primary key")
     else:
-        if "primary_key" not in create_args and not quiet:
+        if "primary_key" not in options.create_args and not options.quiet:
             print("no primary key specified, using default primary key when creating table")
-        utils_common.retryQuery("create table: %s.%s" % (db, table), r.db(db).table_create(table, **create_args))
+        utils_common.retryQuery("create table: %s.%s" % (db, table), r.db(db).table_create(table, **options.create_args))
         tableInfo = utils_common.retryQuery("table info: %s.%s" % (db, table), r.db(db).table(table).info())
     
     # Make this up so we can use the same interface as with an import directory
