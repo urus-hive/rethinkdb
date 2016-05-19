@@ -315,9 +315,9 @@ void connectivity_cluster_t::run_t::on_new_connection(
     } catch (const interrupted_exc_t &) {
         // TLS handshake was interrupted.
         return;
-    } catch (const tcp_conn_t::connect_failed_exc_t &err) {
+    } catch (const crypto::openssl_error_t &err) {
         // TLS handshake failed.
-        logERR("Cluster server connection TLS handshake failed: %d - %s", err.error, err.info.c_str());
+        logERR("Cluster server connection TLS handshake failed: %s", err.what());
         return;
     }
 
@@ -368,6 +368,8 @@ void connectivity_cluster_t::run_t::connect_to_peer(
                     drainer_lock, successful_join_inout, join_delay_secs);
             }
         } catch (const tcp_conn_t::connect_failed_exc_t &) {
+            /* Ignore */
+        } catch (const crypto::openssl_error_t &) {
             /* Ignore */
         } catch (const interrupted_exc_t &) {
             /* Ignore */
@@ -1456,7 +1458,7 @@ void connectivity_cluster_t::send_message(connection_t *connection,
 
     /* We're allowed to block indefinitely, but it's tempting to write code on
     the assumption that we won't. This might catch some programming errors. */
-    if (debug_rng.randint(10) == 0) {
+    if (randint(10) == 0) {
         nap(10);
     }
 #endif

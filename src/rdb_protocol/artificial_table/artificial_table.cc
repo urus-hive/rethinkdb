@@ -234,6 +234,8 @@ void artificial_table_t::do_single_update(
         signal_t *interruptor,
         ql::datum_t *stats_inout,
         std::set<std::string> *conditions_inout) {
+    cross_thread_mutex_t::acq_t txn = m_backend->aquire_transaction_mutex();
+
     admin_err_t error;
     ql::datum_t old_row;
     if (!checked_read_row_from_backend(

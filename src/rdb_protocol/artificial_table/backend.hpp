@@ -90,6 +90,10 @@ public:
         counted_t<ql::datum_stream_t> *cfeed_out,
         admin_err_t *error_out) = 0;
 
+    cross_thread_mutex_t::acq_t aquire_transaction_mutex() {
+        return cross_thread_mutex_t::acq_t(&transaction_mutex);
+    }
+
     static const uuid_u base_table_id;
 
 protected:
@@ -98,6 +102,7 @@ protected:
 private:
     name_string_t m_table_name;
     uuid_u m_table_id;
+    cross_thread_mutex_t transaction_mutex;
 };
 
 #endif /* RDB_PROTOCOL_ARTIFICIAL_TABLE_BACKEND_HPP_ */

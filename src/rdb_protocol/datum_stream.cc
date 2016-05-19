@@ -1678,7 +1678,10 @@ std::vector<changespec_t> slice_datum_stream_t::get_changespecs() {
         filter_wire_func_t *filter = boost::get<filter_wire_func_t>(&transform);
         if (filter == nullptr) {
             rfail(base_exc_t::LOGIC,
-                  "Getting a changefeed on a filter after a limit is not supported.");
+                  "Changefeeds are not supported on queries that have a transformation"
+                  " following a `limit` term.  Transformations include terms such as "
+                  "`filter`, `map`, `pluck`, etc.  Consider moving the transformation "
+                  "before the `limit` term.");
         }
     }
     if (left == 0) {
@@ -2298,6 +2301,11 @@ std::vector<datum_t> eq_join_datum_stream_t::next_raw_batch(
             // Get a new batch of keys
             std::vector<datum_t> stream_batch = stream->next_batch(env,
                                                                    inner_batchspec);
+            if (stream_batch.empty()) {
+                // We got an empty batch from the input stream. It's either exhausted
+                // or a changefeed. In either case we abort and emit our current results.
+                break;
+            }
             // Basically do a get all on the new keys
             // but we get the reader directly so we can read the sindex from the lookup.
             sindex_to_datum.clear();

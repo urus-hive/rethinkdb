@@ -1,6 +1,7 @@
 // Copyright 2010-2016 RethinkDB, all rights reserved.
 #include "random.hpp"
 
+#include "containers/scoped.hpp"
 #include "thread_local.hpp"
 
 rng_t::rng_t()
@@ -12,6 +13,7 @@ rng_t::rng_t(uint64_t seed)
 }
 
 int rng_t::randint(int n) {
+    assert_thread();
     guarantee(n > 0, "non-positive argument for randint's [0, n) interval");
 
     // `std::uniform_int_distribution` operates on [a, b]
@@ -19,6 +21,7 @@ int rng_t::randint(int n) {
 }
 
 uint64_t rng_t::randuint64(uint64_t n) {
+    assert_thread();
     guarantee(n > 0, "non-positive argument for randint's [0, n) interval");
 
     // `std::uniform_int_distribution` operates on [a, b]
@@ -26,6 +29,7 @@ uint64_t rng_t::randuint64(uint64_t n) {
 }
 
 size_t rng_t::randsize(size_t n) {
+    assert_thread();
     guarantee(n > 0, "non-positive argument for randint's [0, n) interval");
 
     // `std::uniform_int_distribution` operates on [a, b]
@@ -33,23 +37,34 @@ size_t rng_t::randsize(size_t n) {
 }
 
 double rng_t::randdouble() {
+    assert_thread();
     return std::uniform_real_distribution<double>(0, 1)(m_mt19937);
 }
 
-TLS_ptr_with_constructor(rng_t, rng)
+TLS_ptr_with_constructor(scoped_ptr_t<rng_t>, rng)
+
+rng_t *get_TLS_rng() {
+    // This lazy construction is to ensure that we construct the thread local
+    // rng_t on the correct thread, instead of creating it on startup.
+
+    if (!TLS_ptr_rng()->has()) {
+        TLS_ptr_rng()->init(new rng_t());
+    }
+    return TLS_ptr_rng()->get();
+}
 
 int randint(int n) {
-    return TLS_ptr_rng()->randint(n);
+    return get_TLS_rng()->randint(n);
 }
 
 uint64_t randuint64(uint64_t n) {
-    return TLS_ptr_rng()->randuint64(n);
+    return get_TLS_rng()->randuint64(n);
 }
 
 size_t randsize(size_t n) {
-    return TLS_ptr_rng()->randsize(n);
+    return get_TLS_rng()->randsize(n);
 }
 
 double randdouble() {
-    return TLS_ptr_rng()->randdouble();
+    return get_TLS_rng()->randdouble();
 }
