@@ -23,17 +23,20 @@ class common_server_artificial_table_backend_t :
     public caching_cfeed_artificial_table_backend_t {
 public:
     common_server_artificial_table_backend_t(
+            name_string_t const &table_name,
             server_config_client_t *_server_config_client,
             watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory);
 
     std::string get_primary_key_name();
 
     bool read_all_rows_as_vector(
+            auth::user_context_t const &user_context,
             signal_t *interruptor_on_caller,
             std::vector<ql::datum_t> *rows_out,
             admin_err_t *error_out);
 
     bool read_row(
+            auth::user_context_t const &user_context,
             ql::datum_t primary_key,
             signal_t *interruptor_on_caller,
             ql::datum_t *row_out,

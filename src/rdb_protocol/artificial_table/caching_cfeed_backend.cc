@@ -4,67 +4,88 @@
 #include "clustering/administration/admin_op_exc.hpp"
 #include "rdb_protocol/env.hpp"
 
-caching_cfeed_artificial_table_backend_t::caching_cfeed_artificial_table_backend_t() :
-    caching_machinery(nullptr) { }
+caching_cfeed_artificial_table_backend_t::caching_cfeed_artificial_table_backend_t(
+        name_string_t const &table_name)
+    : cfeed_artificial_table_backend_t(table_name) {
+      // caching_machinery(nullptr) {
+}
 
 void caching_cfeed_artificial_table_backend_t::notify_row(const ql::datum_t &pkey) {
     ASSERT_FINITE_CORO_WAITING;
-    if (caching_machinery != nullptr) {
-        /* If we're going to reload all the rows anyway, don't bother storing this
-        individual row */
-        if (caching_machinery->dirtiness !=
-                caching_machinery_t::dirtiness_t::none_or_some) {
-            return;
-        }
-        caching_machinery->dirty_keys.insert(pkey);
-        if (caching_machinery->waker != nullptr) {
-            caching_machinery->waker->pulse_if_not_already_pulsed();
+    for (auto &caching_machinery : caching_machineries) {
+        if (caching_machinery.second != nullptr) {
+            /* If we're going to reload all the rows anyway, don't bother storing this
+            individual row */
+            if (caching_machinery.second->dirtiness !=
+                    caching_machinery_t::dirtiness_t::none_or_some) {
+                return;
+            }
+            caching_machinery.second->dirty_keys.insert(pkey);
+            if (caching_machinery.second->waker != nullptr) {
+                caching_machinery.second->waker->pulse_if_not_already_pulsed();
+            }
         }
     }
 }
 
 void caching_cfeed_artificial_table_backend_t::notify_all() {
     ASSERT_FINITE_CORO_WAITING;
-    if (caching_machinery != nullptr) {
-        /* If the previous value was `all_stop`, then leave it the way it is instead of
-        changing it to `all`. */
-        if (caching_machinery->dirtiness ==
-                caching_machinery_t::dirtiness_t::none_or_some) {
-            caching_machinery->dirtiness = caching_machinery_t::dirtiness_t::all;
-        }
-        if (caching_machinery->waker) {
-            caching_machinery->waker->pulse_if_not_already_pulsed();
+    for (auto &caching_machinery : caching_machineries) {
+        if (caching_machinery.second != nullptr) {
+            /* If the previous value was `all_stop`, then leave it the way it is instead
+            of changing it to `all`. */
+            if (caching_machinery.second->dirtiness ==
+                    caching_machinery_t::dirtiness_t::none_or_some) {
+                caching_machinery.second->dirtiness =
+                    caching_machinery_t::dirtiness_t::all;
+            }
+            if (caching_machinery.second->waker) {
+                caching_machinery.second->waker->pulse_if_not_already_pulsed();
+            }
         }
     }
 }
 
 void caching_cfeed_artificial_table_backend_t::notify_break() {
     ASSERT_FINITE_CORO_WAITING;
-    if (caching_machinery != nullptr) {
-        caching_machinery->dirtiness = caching_machinery_t::dirtiness_t::all_stop;
-        if (caching_machinery->waker) {
-            caching_machinery->waker->pulse_if_not_already_pulsed();
+    for (auto &caching_machinery : caching_machineries) {
+        if (caching_machinery.second != nullptr) {
+            caching_machinery.second->dirtiness =
+                caching_machinery_t::dirtiness_t::all_stop;
+            if (caching_machinery.second->waker) {
+                caching_machinery.second->waker->pulse_if_not_already_pulsed();
+            }
         }
     }
 }
 
 caching_cfeed_artificial_table_backend_t::caching_machinery_t::caching_machinery_t(
-            caching_cfeed_artificial_table_backend_t *_parent) :
-        /* Set `dirtiness` to force us to load initial values. Either `dirtiness_t::all`
-        or `dirtiness_t::all_stop` would work equally well here since we don't have any
-        subscribers yet, but `all_stop` saves us a few CPU cycles by not diffing the old
-        values against the new ones. */
-        dirtiness(dirtiness_t::all_stop),
-        waker(nullptr),
-        parent(_parent) {
-    guarantee(parent->caching_machinery == nullptr);
-    parent->caching_machinery = this;
+            auth::user_context_t const &user_context,
+            caching_cfeed_artificial_table_backend_t *_parent)
+    : cfeed_artificial_table_backend_t::machinery_t(user_context),
+      /* Set `dirtiness` to force us to load initial values. Either `dirtiness_t::all`
+      or `dirtiness_t::all_stop` would work equally well here since we don't have any
+      subscribers yet, but `all_stop` saves us a few CPU cycles by not diffing the old
+      values against the new ones. */
+      dirtiness(dirtiness_t::all_stop),
+      waker(nullptr),
+      parent(_parent) {
+    if (parent->caching_machineries.empty()) {
+        parent->set_notifications(true);
+    }
+
+    guarantee(parent->caching_machineries.count(m_user_context) == 0);
+    parent->caching_machineries[m_user_context] = this;
     coro_t::spawn_sometime(std::bind(&caching_machinery_t::run, this, drainer.lock()));
 }
 
 caching_cfeed_artificial_table_backend_t::caching_machinery_t::~caching_machinery_t() {
-    guarantee(parent->caching_machinery == this);
-    parent->caching_machinery = nullptr;
+    guarantee(parent->caching_machineries[m_user_context] == this);
+    parent->caching_machineries.erase(m_user_context);
+
+    if (parent->caching_machineries.empty()) {
+        parent->set_notifications(false);
+    }
 }
 
 bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::get_initial_values(
@@ -92,7 +113,6 @@ bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::get_initial_
 void caching_cfeed_artificial_table_backend_t::caching_machinery_t::run(
         auto_drainer_t::lock_t keepalive)
         THROWS_NOTHING {
-    parent->set_notifications(true);
     try {
         while (true) {
             bool success;
@@ -124,7 +144,6 @@ void caching_cfeed_artificial_table_backend_t::caching_machinery_t::run(
     } catch (const interrupted_exc_t &) {
         /* break out of the loop */
     }
-    parent->set_notifications(false);
 }
 
 bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::diff_dirty(
@@ -154,7 +173,7 @@ bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::diff_one(
     /* Fetch new value from backend */
     ql::datum_t new_val;
     admin_err_t error;
-    if (!parent->read_row(key, interruptor, &new_val, &error)) {
+    if (!parent->read_row(m_user_context, key, interruptor, &new_val, &error)) {
         return false;
     }
     /* Fetch old value from `old_values` map */
@@ -228,6 +247,7 @@ bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::get_values(
     admin_err_t error;
     counted_t<ql::datum_stream_t> stream;
     if (!parent->read_all_rows_as_stream(
+            m_user_context,
             ql::backtrace_id_t(),
             ql::datumspec_t(ql::datum_range_t::universe()),
             sorting_t::UNORDERED,
@@ -260,12 +280,19 @@ bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::get_values(
     return true;
 }
 
-scoped_ptr_t<cfeed_artificial_table_backend_t::machinery_t>
-        caching_cfeed_artificial_table_backend_t::
-            construct_changefeed_machinery(signal_t *interruptor) {
-    scoped_ptr_t<caching_machinery_t> m(new caching_machinery_t(this));
-    wait_interruptible(&m->ready, interruptor);
-    return scoped_ptr_t<cfeed_artificial_table_backend_t::machinery_t>(m.release());
+timer_cfeed_artificial_table_backend_t::timer_cfeed_artificial_table_backend_t(
+        name_string_t const &table_name)
+    : caching_cfeed_artificial_table_backend_t(table_name) {
+}
+
+cfeed_artificial_table_backend_t::machinery_t *
+caching_cfeed_artificial_table_backend_t::construct_changefeed_machinery(
+        auth::user_context_t const &user_context,
+        signal_t *interruptor) {
+    std::unique_ptr<caching_machinery_t> machinery(
+        new caching_machinery_t(user_context, this));
+    wait_interruptible(&machinery->ready, interruptor);
+    return machinery.release();
 }
 
 void timer_cfeed_artificial_table_backend_t::set_notifications(bool notify) {

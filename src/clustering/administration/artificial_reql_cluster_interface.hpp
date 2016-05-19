@@ -22,6 +22,7 @@
 #include "clustering/administration/logs/logs_backend.hpp"
 #include "clustering/administration/jobs/backend.hpp"
 #include "containers/name_string.hpp"
+#include "containers/uuid.hpp"
 #include "rdb_protocol/artificial_table/backend.hpp"
 #include "rdb_protocol/artificial_table/in_memory.hpp"
 #include "rdb_protocol/context.hpp"
@@ -40,18 +41,18 @@ class artificial_reql_cluster_interface_t : public reql_cluster_interface_t {
 public:
     artificial_reql_cluster_interface_t(
             /* This is the name of the special database; i.e. `rethinkdb` */
-            name_string_t database,
+            name_string_t database_name,
             /* These are the tables that live in the special database. For each pair, the
             first value will be used if `identifier_format` is unspecified or "name", and
             the second value will be used if `identifier_format` is "uuid". */
             const std::map<name_string_t,
                 std::pair<artificial_table_backend_t *, artificial_table_backend_t *>
                 > &tables,
+            boost::shared_ptr<semilattice_readwrite_view_t<
+                auth_semilattice_metadata_t> > auth_semilattice_view,
+            rdb_context_t *rdb_context,
             /* This is the `real_reql_cluster_interface_t` that we're proxying. */
-            reql_cluster_interface_t *next) :
-        m_database(database),
-        m_tables(tables),
-        m_next(next) { }
+            reql_cluster_interface_t *next);
 
     bool db_create(
             auth::user_context_t const &user_context,
@@ -239,10 +240,16 @@ public:
             std::map<std::string, std::pair<sindex_config_t, sindex_status_t> >
                 *configs_and_statuses_out);
 
+    static const uuid_u base_database_id;
+
 private:
-    name_string_t m_database;
+    name_string_t m_database_name;
+    database_id_t m_database_id;
     std::map<name_string_t,
         std::pair<artificial_table_backend_t *, artificial_table_backend_t *> > m_tables;
+    boost::shared_ptr<semilattice_readwrite_view_t<
+        auth_semilattice_metadata_t> > m_auth_semilattice_view;
+    rdb_context_t *m_rdb_context;
     reql_cluster_interface_t *m_next;
 };
 
@@ -259,6 +266,7 @@ public:
                 cluster_semilattice_metadata_t> > _semilattice_view,
             boost::shared_ptr<semilattice_readwrite_view_t<
                 heartbeat_semilattice_metadata_t> > _heartbeat_view,
+            rdb_context_t *rdb_context,
             clone_ptr_t< watchable_t< change_tracking_map_t<peer_id_t,
                 cluster_directory_metadata_t> > > _directory_view,
             watchable_map_t<peer_id_t, cluster_directory_metadata_t>

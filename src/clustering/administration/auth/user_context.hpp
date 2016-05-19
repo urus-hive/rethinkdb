@@ -55,6 +55,10 @@ public:
 
     std::string to_string() const;
 
+    bool operator<(user_context_t const &rhs) const;
+    bool operator==(user_context_t const &rhs) const;
+    bool operator!=(user_context_t const &rhs) const;
+
     RDB_DECLARE_ME_SERIALIZABLE(user_context_t);
 
 private:

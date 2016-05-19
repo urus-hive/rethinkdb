@@ -209,6 +209,18 @@ std::string user_context_t::to_string() const {
     }
 }
 
+bool user_context_t::operator<(user_context_t const &rhs) const {
+    return std::tie(m_context, m_read_only) < std::tie(rhs.m_context, rhs.m_read_only);
+}
+
+bool user_context_t::operator==(user_context_t const &rhs) const {
+    return std::tie(m_context, m_read_only) == std::tie(rhs.m_context, rhs.m_read_only);
+}
+
+bool user_context_t::operator!=(user_context_t const &rhs) const {
+    return !(*this == rhs);
+}
+
 RDB_IMPL_SERIALIZABLE_2(
     user_context_t,
     m_context,

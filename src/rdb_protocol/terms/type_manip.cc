@@ -374,10 +374,7 @@ private:
         switch (type) {
         case DB_TYPE: {
             b |= info.add("name", datum_t(datum_string_t(v->as_db()->name.str())));
-            b |= info.add("id",
-                          v->as_db()->id.is_nil() ?
-                              datum_t::null() :
-                              datum_t(datum_string_t(uuid_to_str(v->as_db()->id))));
+            b |= info.add("id", datum_t(datum_string_t(uuid_to_str(v->as_db()->id))));
         } break;
         case TABLE_TYPE: {
             counted_t<table_t> table = v->as_table();
@@ -385,11 +382,9 @@ private:
             b |= info.add("primary_key",
                           datum_t(datum_string_t(table->get_pkey())));
             b |= info.add("db", val_info(env, new_val(table->db)));
-            b |= info.add("id",
-                          table->get_id().is_nil() ?
-                              datum_t::null() :
-                              datum_t(datum_string_t(uuid_to_str(table->get_id()))));
-            name_string_t table_name = name_string_t::guarantee_valid(table->name.c_str());
+            b |= info.add("id", datum_t(datum_string_t(uuid_to_str(table->get_id()))));
+            name_string_t table_name =
+                name_string_t::guarantee_valid(table->name.c_str());
             {
                 std::vector<int64_t> doc_counts;
                 try {

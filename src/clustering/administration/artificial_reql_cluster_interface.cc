@@ -1,6 +1,7 @@
 // Copyright 2010-2014 RethinkDB, all rights reserved.
 #include "clustering/administration/artificial_reql_cluster_interface.hpp"
 
+#include "clustering/administration/auth/grant.hpp"
 #include "clustering/administration/main/watchable_fields.hpp"
 #include "clustering/administration/metadata.hpp"
 #include "clustering/administration/real_reql_cluster_interface.hpp"
@@ -8,15 +9,35 @@
 #include "rdb_protocol/env.hpp"
 #include "rpc/semilattice/view/field.hpp"
 
+const uuid_u artificial_reql_cluster_interface_t::base_database_id =
+    str_to_uuid("39a24924-14ec-4deb-99f1-742eda7aba5e");
+
+artificial_reql_cluster_interface_t::artificial_reql_cluster_interface_t(
+        name_string_t database_name,
+        const std::map<name_string_t,
+                std::pair<artificial_table_backend_t *, artificial_table_backend_t *>
+            > &tables,
+        boost::shared_ptr<semilattice_readwrite_view_t<
+            auth_semilattice_metadata_t> > auth_semilattice_view,
+        rdb_context_t *rdb_context,
+        reql_cluster_interface_t *next) :
+    m_database_name(database_name),
+    m_database_id(uuid_u::from_hash(base_database_id, database_name.str())),
+    m_tables(tables),
+    m_auth_semilattice_view(auth_semilattice_view),
+    m_rdb_context(rdb_context),
+    m_next(next) {
+}
+
 bool artificial_reql_cluster_interface_t::db_create(
         auth::user_context_t const &user_context,
         const name_string_t &name,
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (name == m_database) {
+    if (name == m_database_name) {
         *error_out = admin_err_t{
-            strprintf("Database `%s` already exists.", m_database.c_str()),
+            strprintf("Database `%s` already exists.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -29,10 +50,10 @@ bool artificial_reql_cluster_interface_t::db_drop(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (name == m_database) {
+    if (name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't delete it.",
-                      m_database.c_str()),
+                      m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -45,16 +66,18 @@ bool artificial_reql_cluster_interface_t::db_list(
     if (!m_next->db_list(interruptor, names_out, error_out)) {
         return false;
     }
-    guarantee(names_out->count(m_database) == 0);
-    names_out->insert(m_database);
+    guarantee(names_out->count(m_database_name) == 0);
+    names_out->insert(m_database_name);
     return true;
 }
 
-bool artificial_reql_cluster_interface_t::db_find(const name_string_t &name,
+bool artificial_reql_cluster_interface_t::db_find(
+        const name_string_t &name,
         signal_t *interruptor,
-        counted_t<const ql::db_t> *db_out, admin_err_t *error_out) {
-    if (name == m_database) {
-        *db_out = make_counted<const ql::db_t>(nil_uuid(), m_database);
+        counted_t<const ql::db_t> *db_out,
+        admin_err_t *error_out) {
+    if (name == m_database_name) {
+        *db_out = make_counted<const ql::db_t>(m_database_id, m_database_name);
         return true;
     }
     return m_next->db_find(name, interruptor, db_out, error_out);
@@ -67,10 +90,10 @@ bool artificial_reql_cluster_interface_t::db_config(
         ql::env_t *env,
         scoped_ptr_t<ql::val_t> *selection_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't configure it.",
-                      m_database.c_str()),
+                      m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -87,10 +110,10 @@ bool artificial_reql_cluster_interface_t::table_create(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't create new tables "
-                      "in it.", m_database.c_str()),
+                      "in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -113,10 +136,10 @@ bool artificial_reql_cluster_interface_t::table_drop(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't drop tables in it.",
-                      m_database.c_str()),
+                      m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -126,7 +149,7 @@ bool artificial_reql_cluster_interface_t::table_drop(
 bool artificial_reql_cluster_interface_t::table_list(counted_t<const ql::db_t> db,
         signal_t *interruptor,
         std::set<name_string_t> *names_out, admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         for (auto it = m_tables.begin(); it != m_tables.end(); ++it) {
             if (it->first.str()[0] == '_') {
                 /* If a table's name starts with `_`, don't show it to the user unless
@@ -141,26 +164,28 @@ bool artificial_reql_cluster_interface_t::table_list(counted_t<const ql::db_t> d
 }
 
 bool artificial_reql_cluster_interface_t::table_find(
-        const name_string_t &name, counted_t<const ql::db_t> db,
+        const name_string_t &name,
+        counted_t<const ql::db_t> db,
         boost::optional<admin_identifier_format_t> identifier_format,
         signal_t *interruptor,
-        counted_t<base_table_t> *table_out, admin_err_t *error_out) {
-    if (db->name == m_database) {
+        counted_t<base_table_t> *table_out,
+        admin_err_t *error_out) {
+    if (db->name == m_database_name) {
         auto it = m_tables.find(name);
         if (it != m_tables.end()) {
-            artificial_table_backend_t *b;
+            artificial_table_backend_t *backend;
             if (!static_cast<bool>(identifier_format) ||
                     *identifier_format == admin_identifier_format_t::name) {
-                b = it->second.first;
+                backend = it->second.first;
             } else {
-                b = it->second.second;
+                backend = it->second.second;
             }
-            table_out->reset(new artificial_table_t(b));
+            table_out->reset(new artificial_table_t(backend));
             return true;
         } else {
             *error_out = admin_err_t{
                 strprintf("Table `%s.%s` does not exist.",
-                          m_database.c_str(), name.c_str()),
+                          m_database_name.c_str(), name.c_str()),
                 query_state_t::FAILED};
             return false;
         }
@@ -176,13 +201,14 @@ bool artificial_reql_cluster_interface_t::table_estimate_doc_counts(
         ql::env_t *env,
         std::vector<int64_t> *doc_counts_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         auto it = m_tables.find(name);
         if (it != m_tables.end()) {
             counted_t<ql::datum_stream_t> docs;
             /* We arbitrarily choose to read from the UUID version of the system table
             rather than the name version. */
             if (!it->second.second->read_all_rows_as_stream(
+                    user_context,
                     ql::backtrace_id_t::empty(),
                     ql::datumspec_t(ql::datum_range_t::universe()),
                     sorting_t::UNORDERED,
@@ -206,7 +232,7 @@ bool artificial_reql_cluster_interface_t::table_estimate_doc_counts(
         } else {
             *error_out = admin_err_t{
                 strprintf("Table `%s.%s` does not exist.",
-                          m_database.c_str(), name.c_str()),
+                          m_database_name.c_str(), name.c_str()),
                 query_state_t::FAILED};
             return false;
         }
@@ -223,10 +249,10 @@ bool artificial_reql_cluster_interface_t::table_config(
         ql::backtrace_id_t bt,
         ql::env_t *env,
         scoped_ptr_t<ql::val_t> *selection_out, admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't configure the "
-                      "tables in it.", m_database.c_str()),
+                      "tables in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -238,10 +264,10 @@ bool artificial_reql_cluster_interface_t::table_status(
         counted_t<const ql::db_t> db, const name_string_t &name,
         ql::backtrace_id_t bt, ql::env_t *env,
         scoped_ptr_t<ql::val_t> *selection_out, admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; the system tables in it don't "
-                      "have meaningful status information.", m_database.c_str()),
+                      "have meaningful status information.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -252,11 +278,11 @@ bool artificial_reql_cluster_interface_t::table_wait(
         counted_t<const ql::db_t> db, const name_string_t &name,
         table_readiness_t readiness, signal_t *interruptor,
         ql::datum_t *result_out, admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; the system tables in it are "
                       "always available and don't need to be waited on.",
-                      m_database.c_str()),
+                      m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -267,11 +293,11 @@ bool artificial_reql_cluster_interface_t::db_wait(
         counted_t<const ql::db_t> db, table_readiness_t readiness,
         signal_t *interruptor,
         ql::datum_t *result_out, admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; the system tables in it are "
                       "always available and don't need to be waited on.",
-                      m_database.c_str()),
+                      m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -287,10 +313,10 @@ bool artificial_reql_cluster_interface_t::table_reconfigure(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't configure the "
-                      "tables in it.", m_database.c_str()),
+                      "tables in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -306,10 +332,10 @@ bool artificial_reql_cluster_interface_t::db_reconfigure(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't configure the "
-                      "tables in it.", m_database.c_str()),
+                      "tables in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -326,10 +352,10 @@ bool artificial_reql_cluster_interface_t::table_emergency_repair(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't configure the "
-                      "tables in it.", m_database.c_str()),
+                      "tables in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -344,10 +370,10 @@ bool artificial_reql_cluster_interface_t::table_rebalance(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't rebalance the "
-                      "tables in it.", m_database.c_str()),
+                      "tables in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -361,10 +387,10 @@ bool artificial_reql_cluster_interface_t::db_rebalance(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't rebalance the "
-                      "tables in it.", m_database.c_str()),
+                      "tables in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -395,12 +421,19 @@ bool artificial_reql_cluster_interface_t::grant_database(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (database_id.is_nil()) {
-        *error_out = admin_err_t{
-            strprintf("The `%s` database is special, you can't grant permissions on it.",
-                      m_database.c_str()),
-            query_state_t::FAILED};
-        return false;
+    if (database_id == m_database_id) {
+        return auth::grant(
+            m_auth_semilattice_view,
+            m_rdb_context,
+            user_context,
+            std::move(username),
+            std::move(permissions),
+            interruptor,
+            [&](auth::user_t &user) -> auth::permissions_t & {
+                return user.get_database_permissions(database_id);
+            },
+            result_out,
+            error_out);
     }
     return m_next->grant_database(
         user_context,
@@ -421,12 +454,19 @@ bool artificial_reql_cluster_interface_t::grant_table(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (database_id.is_nil() || table_id.is_nil()) {
-        *error_out = admin_err_t{
-            strprintf("The `%s` database is special, you can't grant permissions on it.",
-                      m_database.c_str()),
-            query_state_t::FAILED};
-        return false;
+    if (database_id == m_database_id) {
+        return auth::grant(
+            m_auth_semilattice_view,
+            m_rdb_context,
+            user_context,
+            std::move(username),
+            std::move(permissions),
+            interruptor,
+            [&](auth::user_t &user) -> auth::permissions_t & {
+                return user.get_table_permissions(table_id);
+            },
+            result_out,
+            error_out);
     }
     return m_next->grant_table(
         user_context,
@@ -447,10 +487,10 @@ bool artificial_reql_cluster_interface_t::sindex_create(
         const sindex_config_t &config,
         signal_t *interruptor,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Database `%s` is special; you can't create secondary "
-                      "indexes on the tables in it.", m_database.c_str()),
+                      "indexes on the tables in it.", m_database_name.c_str()),
             query_state_t::FAILED};
         return false;
     }
@@ -465,7 +505,7 @@ bool artificial_reql_cluster_interface_t::sindex_drop(
         const std::string &name,
         signal_t *interruptor,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Index `%s` does not exist on table `%s.%s`.",
                       name.c_str(), db->name.c_str(), table.c_str()),
@@ -484,7 +524,7 @@ bool artificial_reql_cluster_interface_t::sindex_rename(
         bool overwrite,
         signal_t *interruptor,
         admin_err_t *error_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         *error_out = admin_err_t{
             strprintf("Index `%s` does not exist on table `%s.%s`.",
                       name.c_str(), db->name.c_str(), table.c_str()),
@@ -502,7 +542,7 @@ bool artificial_reql_cluster_interface_t::sindex_list(
         admin_err_t *error_out,
         std::map<std::string, std::pair<sindex_config_t, sindex_status_t> >
             *configs_and_statuses_out) {
-    if (db->name == m_database) {
+    if (db->name == m_database_name) {
         configs_and_statuses_out->clear();
         return true;
     }
@@ -518,6 +558,7 @@ admin_artificial_tables_t::admin_artificial_tables_t(
             cluster_semilattice_metadata_t> > _semilattice_view,
         boost::shared_ptr<semilattice_readwrite_view_t<
             heartbeat_semilattice_metadata_t> > _heartbeat_view,
+        rdb_context_t *rdb_context,
         clone_ptr_t< watchable_t< change_tracking_map_t<peer_id_t,
             cluster_directory_metadata_t> > > _directory_view,
         watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory_map_view,
@@ -638,7 +679,9 @@ admin_artificial_tables_t::admin_artificial_tables_t(
     backends[name_string_t::guarantee_valid("jobs")] =
         std::make_pair(jobs_backend[0].get(), jobs_backend[1].get());
 
-    debug_scratch_backend.init(new in_memory_artificial_table_backend_t);
+    debug_scratch_backend.init(
+        new in_memory_artificial_table_backend_t(
+            name_string_t::guarantee_valid("_debug_scratch")));
     backends[name_string_t::guarantee_valid("_debug_scratch")] =
         std::make_pair(debug_scratch_backend.get(), debug_scratch_backend.get());
 
@@ -659,6 +702,8 @@ admin_artificial_tables_t::admin_artificial_tables_t(
     reql_cluster_interface.init(new artificial_reql_cluster_interface_t(
         name_string_t::guarantee_valid("rethinkdb"),
         backends,
+        auth_semilattice_view,
+        rdb_context,
         _next_reql_cluster_interface));
 }
 

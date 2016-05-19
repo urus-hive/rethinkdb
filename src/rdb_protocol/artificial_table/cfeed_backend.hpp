@@ -31,7 +31,10 @@ public:
 protected:
     class machinery_t : private ql::changefeed::artificial_t {
     public:
-        machinery_t() : last_subscriber_time(current_microtime()) { }
+        explicit machinery_t(auth::user_context_t const &user_context)
+            : m_user_context(user_context),
+              last_subscriber_time(current_microtime()) {
+        }
         virtual ~machinery_t() { }
 
     protected:
@@ -54,6 +57,7 @@ protected:
             signal_t *interruptor) = 0;
 
         new_mutex_t mutex;
+        auth::user_context_t m_user_context;
 
     private:
         friend class cfeed_artificial_table_backend_t;
@@ -65,14 +69,15 @@ protected:
         microtime_t last_subscriber_time;
     };
 
-    cfeed_artificial_table_backend_t();
+    explicit cfeed_artificial_table_backend_t(name_string_t const &table_name);
     virtual ~cfeed_artificial_table_backend_t();
 
     /* `cfeed_artificial_table_backend_t` guarantees that it will never have two sets of
     machinery in existence at the same time. */
 
     /* Subclasses should override this to return their own subclass of `machinery_t`. */
-    virtual scoped_ptr_t<machinery_t> construct_changefeed_machinery(
+    virtual machinery_t *construct_changefeed_machinery(
+        auth::user_context_t const &user_context,
         signal_t *interruptor) = 0;
 
     /* The subclass must call this in its destructor. It ensures that the changefeed
@@ -83,7 +88,7 @@ protected:
 
 private:
     void maybe_remove_machinery();
-    scoped_ptr_t<machinery_t> machinery;
+    std::map<auth::user_context_t, std::unique_ptr<machinery_t>> machineries;
     new_mutex_t mutex;
     bool begin_destruction_was_called;
     auto_drainer_t drainer;

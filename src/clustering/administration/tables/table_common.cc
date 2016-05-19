@@ -7,14 +7,15 @@
 #include "concurrency/cross_thread_signal.hpp"
 
 common_table_artificial_table_backend_t::common_table_artificial_table_backend_t(
+        name_string_t const &table_name,
         boost::shared_ptr<semilattice_readwrite_view_t<
             cluster_semilattice_metadata_t> > _semilattice_view,
         table_meta_client_t *_table_meta_client,
-        admin_identifier_format_t _identifier_format) :
-    semilattice_view(_semilattice_view),
-    table_meta_client(_table_meta_client),
-    identifier_format(_identifier_format)
-{
+        admin_identifier_format_t _identifier_format)
+    : timer_cfeed_artificial_table_backend_t(table_name),
+      semilattice_view(_semilattice_view),
+      table_meta_client(_table_meta_client),
+      identifier_format(_identifier_format) {
     semilattice_view->assert_thread();
 }
 
@@ -23,6 +24,7 @@ std::string common_table_artificial_table_backend_t::get_primary_key_name() {
 }
 
 bool common_table_artificial_table_backend_t::read_all_rows_as_vector(
+        UNUSED auth::user_context_t const &user_context,
         signal_t *interruptor_on_caller,
         std::vector<ql::datum_t> *rows_out,
         UNUSED admin_err_t *error_out) {
@@ -71,6 +73,7 @@ bool common_table_artificial_table_backend_t::read_all_rows_as_vector(
 }
 
 bool common_table_artificial_table_backend_t::read_row(
+        UNUSED auth::user_context_t const &user_context,
         ql::datum_t primary_key,
         signal_t *interruptor_on_caller,
         ql::datum_t *row_out,

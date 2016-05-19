@@ -277,6 +277,7 @@ private:
     void get_databases_metadata(databases_semilattice_metadata_t *out);
 
     void make_single_selection(
+            auth::user_context_t const &user_context,
             artificial_table_backend_t *table_backend,
             const name_string_t &table_name,
             const uuid_u &primary_key,
@@ -294,6 +295,7 @@ private:
             THROWS_ONLY(interrupted_exc_t, admin_op_exc_t);
 
     void reconfigure_internal(
+            auth::user_context_t const &user_context,
             const counted_t<const ql::db_t> &db,
             const namespace_id_t &table_id,
             const table_generate_config_params_t &params,
@@ -304,6 +306,7 @@ private:
                 failed_table_op_exc_t, maybe_failed_table_op_exc_t, admin_op_exc_t);
 
     void emergency_repair_internal(
+            auth::user_context_t const &user_context,
             const counted_t<const ql::db_t> &db,
             const namespace_id_t &table_id,
             emergency_repair_mode_t mode,
@@ -314,6 +317,7 @@ private:
                 failed_table_op_exc_t, maybe_failed_table_op_exc_t, admin_op_exc_t);
 
     void rebalance_internal(
+            auth::user_context_t const &user_context,
             const namespace_id_t &table_id,
             signal_t *interruptor,
             ql::datum_t *results_out)
