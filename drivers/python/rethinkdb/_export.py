@@ -416,7 +416,7 @@ def main(argv=None, prog=None):
         print(ex, file=sys.stderr)
         return 1
     if not options.quiet:
-        print("  Done (%d seconds)" % (time.time() - start_time))
+        print("  Done (%.2f seconds)" % (time.time() - start_time))
     return 0
 
 if __name__ == "__main__":

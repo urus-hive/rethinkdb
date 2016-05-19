@@ -131,7 +131,7 @@ NOTE: 'rethinkdb-dump' saves data and secondary indexes, but does *not* save
         # --
         
         if not options.quiet:
-            print("Done (%d seconds): %s" % (time.time() - start_time, options.out_file.name if hasattr(options.out_file, 'name') else options.out_file))
+            print("Done (%.2f seconds): %s" % (time.time() - start_time, options.out_file.name if hasattr(options.out_file, 'name') else options.out_file))
     except KeyboardInterrupt:
         time.sleep(0.2)
         raise RuntimeError("Interrupted")

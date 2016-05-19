@@ -41,7 +41,53 @@ except ImportError:
     from multiprocessing.queues import SimpleQueue
 
 Error = collections.namedtuple("Error", ["message", "traceback", "file"])
-SourceFile = collections.namedtuple("SourceFile", ['path', 'db', 'table', 'format', 'primary_key', 'indexes'])
+
+class SourceFile(object):
+    path        = None
+    db          = None
+    table       = None
+    format      = None
+    primary_key = None
+    indexes     = None
+    
+    __completed = None
+    __size      = None
+    
+    def __init__(self, path, db, table, format=None, primary_key=None, indexes=None):
+        self.path        = os.path.realpath(path)
+        self.db          = db
+        self.table       = table
+        self.format      = format or 'json'
+        self.primary_key = primary_key or 'id'
+        self.indexes     = indexes or []
+        
+        self.__completed = multiprocessing.Value(ctypes.c_longlong, 0)
+        self.__size      = multiprocessing.Value(ctypes.c_longlong, os.path.getsize(self.path))
+    
+    @property
+    def completed(self):
+        return self.__completed.value
+    
+    @completed.setter
+    def completed(self, value):
+        self.__completed.value = value
+    
+    @property
+    def size(self):
+        return self.__size.value
+    
+    @size.setter
+    def size(self, value):
+        self.__size.value = value
+    
+    @property
+    def percentDone(self):
+        if self.size <= 0 or self.size <= self.completed:
+            return 1.0
+        elif self.completed <= 0:
+            return 0.0
+        else:
+            return self.completed / float(self.size)
 
 usage = """rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
       [--force] [-i (DB | DB.TABLE)] [--clients NUM]
@@ -262,7 +308,7 @@ def parse_options(argv, prog=None):
     return options
 
 # This is run for each client requested, and accepts tasks from the reader processes
-def table_writer(file_info, options, task_queue, error_queue, rows_written, batch_timeout=1, batch_max=200):
+def table_writer(file_info, options, task_queue, error_queue, rows_written, exit_event, batch_timeout=1, batch_max=200):
     try:
         conflict_action = "replace" if options.force else "error"
         tbl = r.db(file_info.db).table(file_info.table)
@@ -287,7 +333,7 @@ def table_writer(file_info, options, task_queue, error_queue, rows_written, batc
                         # block bad items
                         if not isinstance(item, dict):
                             error_queue.put(Error('Error importing row on table %s.%s:\n%s' % (file_info.db, file_info.table, str(item)), None, file_info.path))
-                            continue
+                            continue # this is not fatal for the moment
                         
                         # apply the fields filter
                         if options.fields:
@@ -348,93 +394,92 @@ def table_writer(file_info, options, task_queue, error_queue, rows_written, batc
                 rows_written.value += write_count
     except Exception as e:
         error_queue.put(Error(str(e), traceback.format_exc, file_info.path))
+        exit_event.set()
 
-def json_reader(file_info, options, progress_info, exit_event):
-    
-    # set the total size for progress report
-    progress_info[1].value = os.path.getsize(file_info.path)
+def json_reader(file_info, options, exit_event):
     decoder = json.JSONDecoder()
     
-    with open(file_info.path, "r") as file_in:
-        file_offset = 0
-        offset      = 0
-        foundStart  = False
-        foundFirst  = False
-        readMore    = False
-        json_array  = False
-        json_data   = ''
-        while not exit_event.is_set():
-            file_offset += offset
-            progress_info[0].value = file_offset
-            
-            if foundStart is False or readMore:
-                # Read the data in chunks, since the json module would just read the whole thing at once
-                chunk = file_in.read(min(json_read_chunk_size, json_max_buffer_size - len(json_data)))
-                if len(chunk) == 0:
-                    break # end of file
-                dataLength = len(json_data) + len(chunk) - offset
-                if dataLength >= json_max_buffer_size:
-                    raise Exception("Error: JSON max buffer size exceeded on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (file_info.path, file_offset - len(json_data)))
-                json_data = json_data[offset:] + chunk
+    try:
+        with open(file_info.path, "r") as file_in:
+            offset      = 0
+            foundStart  = False
+            foundComma  = True
+            readMore    = True
+            json_array  = False
+            json_data   = ''
+            while not exit_event.is_set():
+                file_info.completed = file_in.tell() - len(json_data)
                 
-                # reset offset
-                offset = 0
-            
-            # read past leading whitespace
-            offset = json.decoder.WHITESPACE.match(json_data, offset).end()
-            if len(json_data) == 0:
-                continue
-            
-            # check if we are in a newline-delimited or standard json array document
-            if not foundStart:
-                if len(json_data) < 2:
-                    continue # go back and read more
-                if json_data[offset] == "[": # read as a standard json array of dicts
-                    foundStart = True
-                    json_array = True
-                    offset += 1
-                elif json_data[offset] == "{": # read as a newline-terminates list of dicts
-                    foundStart = True
-                else:
-                    raise RuntimeError("Error: JSON format not recognized - file does not begin with an object or array")
-            
-            # look for the end of the outer array or intermediate ',' character
-            elif json_array:
-                if json_data[offset] == "]":
-                    json_data = json_data[offset + 1:]
-                    break
-                elif foundFirst:
-                    if json_data[offset] == ",":
-                        offset = json.decoder.WHITESPACE.match(json_data, offset + 1).end() # Read past the comma and any additional whitespace
+                if readMore:
+                    # Read the data in chunks, since the json module would just read the whole thing at once
+                    chunk = file_in.read(min(json_read_chunk_size, json_max_buffer_size - len(json_data)))
+                    if len(chunk) == 0:
+                        break # end of file
+                    dataLength = len(json_data) + len(chunk) - offset
+                    if dataLength >= json_max_buffer_size:
+                        raise Exception("Error: JSON max buffer size exceeded on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (file_info.path, file_in.tell() - len(json_data)))
+                    
+                    json_data = json_data[offset:] + chunk
+                    
+                    # reset offset
+                    offset = 0
+                    readMore = False
+                
+                # read past leading whitespace
+                offset = json.decoder.WHITESPACE.match(json_data, offset).end()
+                if len(json_data) == 0:
+                    continue
+                
+                # check if we are in a newline-delimited or standard json array document
+                if not foundStart:
+                    if len(json_data) < 2:
+                        continue # go back and read more
+                    if json_data[offset] == "[": # read as a standard json array of dicts
+                        foundStart = True
+                        json_array = True
+                        offset += 1
+                    elif json_data[offset] == "{": # read as a newline-terminates list of dicts
+                        foundStart = True
                     else:
-                        raise ValueError("Error: JSON format not recognized - expected ',' or ']' after object at byte %d in %s.%s file" % (offset + file_offset, file_info.db, file_info.table))
+                        raise RuntimeError("Error: JSON format not recognized - file does not begin with an object or array")
+                
+                # look for the end of the outer array or intermediate ',' character
+                elif json_array:
+                    if len(json_data) <= offset:
+                        readMore = True
+                        continue
+                    elif json_data[offset] == "]":
+                        json_data = json_data[offset + 1:] if len(json_data) > offset else ''
+                        break
+                    elif not foundComma:
+                        if json_data[offset] == ",":
+                            foundComma = True
+                            offset += 1
+                            offset = json.decoder.WHITESPACE.match(json_data, offset).end() # Read past the comma and any additional whitespace
+                        else:
+                            raise ValueError("Error: JSON format not recognized - expected ',' or ']' after object at byte %d in %s.%s file but found: %s" % (offset + file_in.tell() - len(json_data), file_info.db, file_info.table, json_data[offset]))
+                
+                # read a row
+                try:
+                    row, offset = decoder.raw_decode(json_data, idx=offset)
+                    foundComma = False
+                    yield row
+                except (ValueError, IndexError):
+                    readMore = True # did not find a complete JSON object in the buffer, read more
             
-            # read a row
-            try:
-                row, offset = decoder.raw_decode(json_data, idx=offset)
-                foundFirst = True
-                yield row
-            except (ValueError, IndexError):
-                pass # did not find a complete JSON object in the buffer, read more
-        
-        # - try to read any remaining parts of the file
-        
-        file_offset += offset
-        progress_info[0].value = file_offset
-        chunk = file_in.read(min(json_read_chunk_size, json_max_buffer_size - len(json_data)))
-        if len(json_data) + len(chunk) - offset >= json_max_buffer_size:
-            raise Exception("Error: JSON max buffer size exceeded after data ended on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (file_info.path, file_offset - len(json_data)))
-        json_data = json_data[offset:] + chunk
-        
-        # - make sure only remaining data is whitespace
-        
-        while len(json_data) > 0:
-            offset = json.decoder.WHITESPACE.match(json_data, 0).end()
-            if offset != len(json_data):
-                raise RuntimeError("Error: JSON format not recognized - extra characters found after end of data (position %d)" % (file_offset + offset))
-            json_data = file_in.read(json_read_chunk_size)
-    
-    progress_info[0].value = progress_info[1].value
+            # - make sure only remaining data is whitespace
+            
+            json_data = json_data[offset:]
+            while len(json_data) > 0:
+                offset = json.decoder.WHITESPACE.match(json_data, 0).end()
+                if offset != len(json_data):
+                    displayString = json_data[:40] + ('...' if len(json_data) > 40 else '')
+                    raise RuntimeError("Error: JSON format not recognized - extra characters found after end of data in %s.%s (position %d): %s" % (file_info.db, file_info.table, file_in.tell() + offset - len(json_data), displayString))
+                json_data = file_in.read(json_read_chunk_size)
+    except Exception as e:
+        print(offset, len(json_data))
+        raise    
+    file_info.completed = file_info.size
 
 # Wrapper classes for the handling of unicode csv files
 # Taken from https://docs.python.org/2/library/csv.html
@@ -464,12 +509,12 @@ class Utf8CsvReader:
     def __iter__(self):
         return self
 
-def csv_reader(file_info, options, progress_info, exit_event):
+def csv_reader(file_info, options, exit_event):
     with open(filename, "r", encoding="utf-8", newline="") if PY3 else open(file_info.path, "r") as file_in:
         # - Count the lines so we can report progress # TODO: work around the double pass
         for i, _ in enumerate(file_in):
             pass
-        progress_info[1].value = i + 1
+        file_info.size = i + 1
         
         # rewind the file
         file_in.seek(0)
@@ -499,7 +544,7 @@ def csv_reader(file_info, options, progress_info, exit_event):
             
             # update progress
             file_line = reader.line_num
-            progress_info[0].value = file_line
+            file_info.stats[0].value = file_line
             
             if len(fields_in) != len(row):
                 raise RuntimeError("Error: File '%s' line %d has an inconsistent number of columns" % (file_info.path, file_line))
@@ -514,7 +559,7 @@ def csv_reader(file_info, options, progress_info, exit_event):
             
             yield obj
 
-def table_worker(file_info, options, error_queue, warning_queue, progress_info, rows_written, exit_event):
+def table_worker(file_info, options, error_queue, warning_queue, rows_written, exit_event):
     work_queue = Queue.Queue()
     try:
         # - ensure the db exists
@@ -562,7 +607,8 @@ def table_worker(file_info, options, error_queue, warning_queue, progress_info, 
                 "options":           options,
                 "task_queue":        work_queue,
                 "error_queue":       error_queue,
-                "rows_written":      rows_written
+                "rows_written":      rows_written,
+                "exit_event":        exit_event
             }
         )
         writer_thread.start()
@@ -571,9 +617,9 @@ def table_worker(file_info, options, error_queue, warning_queue, progress_info, 
         
         source = None
         if file_info.format == "json":
-            source = json_reader(file_info, options, progress_info, exit_event)
+            source = json_reader(file_info, options, exit_event)
         elif file_info.format == "csv":
-            source = csv_reader(file_info, options, progress_info, exit_event)
+            source = csv_reader(file_info, options, exit_event)
         else:
             raise RuntimeError("Error: Unknown file format specified: %s" % file_info.format)
         
@@ -585,16 +631,16 @@ def table_worker(file_info, options, error_queue, warning_queue, progress_info, 
         
         # - wait for the worker
         writer_thread.join()
-        
     
     # -- report relevent errors
     except Exception as e:
         error_queue.put(Error(str(e), traceback.format_exc(), file_info.path))
+        exit_event.set()
     finally:
         work_queue.put(StopIteration())
 
 __signalSeen = False
-def abort_import(signum, frame, parent_pid, exit_event, task_queue, clients, interrupt_event):
+def abort_import(parent_pid, exit_event, interrupt_event):
     global __signalSeen
     # Only do the abort from the parent process
     if os.getpid() == parent_pid:
@@ -612,90 +658,84 @@ def abort_import(signum, frame, parent_pid, exit_event, task_queue, clients, int
             interrupt_event.set()
             exit_event.set()
 
-def update_progress(progress_info, options):
-    lowest_completion = 1.0
-    for current, max_count in progress_info:
-        curr_val = current.value
-        max_val = max_count.value
-        if curr_val < 0:
-            lowest_completion = 0.0
-        elif max_val <= 0:
-            lowest_completion = 1.0
-        else:
-            lowest_completion = min(lowest_completion, float(curr_val) / max_val)
-
-    if not options.quiet:
-        utils_common.print_progress(lowest_completion, padding=2)
+def update_progress(tables, options, done_event, sleep=0.1):
+    assert isinstance(tables, list)
+    completionPercent = 0
+    while not done_event.is_set():
+        complete = 0
+        perTable = 1.0 / len(tables) # equally weighting all tables
+        for table in tables:
+            complete = table.percentDone * perTable
+    
+        if not options.quiet:
+            utils_common.print_progress(complete, padding=2)
+        time.sleep(0.1)
 
 workers = []
 def import_tables(options, files_info):
     global workers
     
+    # continuously update the progress bar
+    progress_bar = None
+    done_event = None
+    if not options.quiet:
+        done_event = multiprocessing.Event()
+        progress_bar = multiprocessing.Process(
+            target=update_progress,
+            name="progress bar",
+            args=(files_info, options, done_event)
+        )
+        progress_bar.daemon = True
+        progress_bar.start()
+    
     # Spaw a worker (reader + writer in threads in a external process) for each table, options.clients at a time
     error_queue = SimpleQueue()
     warning_queue = SimpleQueue()
     exit_event = multiprocessing.Event()
-    interrupt_event = multiprocessing.Event()
     errors = []
     start_time = time.time()
     
-    parent_pid = os.getpid()
-    signal.signal(signal.SIGINT, lambda a, b: abort_import(a, b, parent_pid, exit_event, task_queue, client_procs, interrupt_event))
+    interrupt_event = threading.Event()
+    signal.signal(signal.SIGINT, lambda a, b: abort_import(os.getpid(), exit_event, interrupt_event))
     
     try:
-        progress_info = []
         rows_written = multiprocessing.Value(ctypes.c_longlong, 0)
-        
+                
         # - start the workers options.clients at a time
         filesLeft = len(files_info)
         for file_info in files_info:
             # add it to the queue
-            progress = (
-                multiprocessing.Value(ctypes.c_longlong, -1), # Current lines/bytes processed
-                multiprocessing.Value(ctypes.c_longlong, 0)   # Total lines/bytes to process
-            )
-            progress_info.append(progress)
-            
             worker = multiprocessing.Process(
                 target=table_worker,
                 name="worker %s.%s" % (file_info.db, file_info.table),
-                args=(file_info, options, error_queue, warning_queue, progress, rows_written, exit_event)
+                args=(file_info, options, error_queue, warning_queue, rows_written, exit_event)
             )
             worker.start()
             workers.append(worker)
             filesLeft -= 1
             
             # wait for there to be another opening
-            while len(workers) == min(options.clients, filesLeft):
+            while len(workers) >= options.clients and filesLeft:
                 time.sleep(0.1)
                 for worker in workers[:]:
                     if not worker.is_alive():
                         workers.remove(worker)
-                
-                # monitor the error queue while we are waiting
-                while not error_queue.empty():
-                    exit_event.set()
-                    errors.append(error_queue.get())
-                
-                # update the progress bar
-                update_progress(progress_info, options)
         
-        # - wait for the last of the workers to complete
-        while workers:
-            time.sleep(0.1)
-            for worker in workers[:]:
-                if not worker.is_alive():
-                    workers.remove(worker)
-            
-            # monitor the error queue while we are waiting
-            while not error_queue.empty():
-                exit_event.set()
-                errors.append(error_queue.get())
-            
-            # update the progress bar
-            update_progress(progress_info, options)
-
-        # If we were successful, make sure 100% progress is reported
+        # - wait for the last batch of workers to complete
+        for worker in workers:
+            worker.join()
+            workers.remove(worker)
+        
+        # - stop the progress bar
+        if progress_bar:
+            done_event.set()
+            progress_bar.join()
+        
+        # - drain the error_queue
+        while not error_queue.empty():
+            errors.append(error_queue.get())
+        
+        # - If we were successful, make sure 100% progress is reported
         if len(errors) == 0 and not interrupt_event.is_set() and not options.quiet:
             utils_common.print_progress(1.0, padding=2)
         
@@ -756,6 +796,7 @@ def import_directory(options):
             
             db = os.path.basename(root)
             for filename in files:
+                path = os.path.join(root, filename)
                 table, ext = os.path.splitext(filename)
                 table = os.path.basename(table)
                 
@@ -792,7 +833,13 @@ def import_directory(options):
                     except OSError:
                         files_ignored.append(os.path.join(root, f))
                     
-                    files_info[(db, table)] = SourceFile(path=os.path.join(root, filename), db=db, table=table, format=ext.lstrip("."), primary_key=primary_key, indexes=indexes)
+                    files_info[(db, table)] = SourceFile(
+                        path=path,
+                        db=db, table=table,
+                        format=ext.lstrip("."),
+                        primary_key=primary_key,
+                        indexes=indexes
+                    )
     
     # create missing dbs
     needed_dbs = set([x[0] for x in files_info])
@@ -867,7 +914,6 @@ def import_file(options):
         table=table,
         format=options.format,
         primary_key=tableInfo["primary_key"],
-        indexes=[]
     )
     
     import_tables(options, [file_info])
