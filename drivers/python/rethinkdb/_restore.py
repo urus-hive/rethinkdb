@@ -4,7 +4,7 @@
 
 from __future__ import print_function
 
-import copy, datetime, optparse, os, shutil, sys, tarfile, tempfile, time, traceback
+import copy, datetime, multiprocessing, optparse, os, shutil, sys, tarfile, tempfile, time, traceback
 from . import utils_common, net
 
 usage = "rethinkdb restore FILE [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME] [--clients NUM] [--shards NUM_SHARDS] [--replicas NUM_REPLICAS] [--force] [-i (DB | DB.TABLE)]..."
@@ -43,6 +43,9 @@ def parse_options(argv, prog=None):
     parser.add_option("--hard-durability",      dest="durability", action="store_const",  default="soft", help="use hard durability writes (slower, uses less memory)", const="hard")
     parser.add_option("--force",                dest="force",      action="store_true",   default=False,  help="import data even if a table already exists")
     parser.add_option("--no-secondary-indexes", dest="sindexes",   action="store_false",  default=True,   help="do not create secondary indexes for the restored tables")
+
+    parser.add_option("--writers-per-table",    dest="writers",    metavar="WRITERS",     default=multiprocessing.cpu_count(), help=optparse.SUPPRESS_HELP, type="pos_int")
+    parser.add_option("--batch-size",           dest="batch_size", metavar="BATCH",       default=200,                         help=optparse.SUPPRESS_HELP, type="pos_int")
     
     # Replication settings
     replicationOptionsGroup = optparse.OptionGroup(parser, 'Replication Options')
