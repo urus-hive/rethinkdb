@@ -1437,9 +1437,9 @@ def getTestList(rootPath, allowedLanguages, testFilters=None, shards=0):
             
             # - process testLangExtensions
             
-            testLangauges = set() if testLangExtensions else None
+            testLanguages = set() if testLangExtensions else None
             if testLangExtensions and testLangExtensions in langSetsCache:
-                testLangauges = langSetsCache[testLangExtensions]
+                testLanguages = langSetsCache[testLangExtensions]
             elif testLangExtensions:
                 for langExt in testLangExtensions.split(','):
                     res = langExtRegex.match(langExt)
@@ -1458,32 +1458,32 @@ def getTestList(rootPath, allowedLanguages, testFilters=None, shards=0):
                     elif pre:
                         preVersion = distutils.version.LooseVersion(version.replace('_', '.').lower() + '.99999')
                         for language in (x for x in interpreters[lang] if x in allowedLanguages):
-                            if language.interpreter_version <= version:
-                                testLangauges.add(language)
+                            if language.interpreter_version <= preVersion:
+                                testLanguages.add(language)
                                 if single:
                                     break
                     elif post:
                         postVersion = distutils.version.LooseVersion(version.replace('_', '.').lower())
                         for language in (x for x in interpreters[lang] if x in allowedLanguages):
                             if language.interpreter_version >= postVersion:
-                                testLangauges.add(language)
+                                testLanguages.add(language)
                                 if single:
                                     break
                     else:
                         # all of the versions this works for
-                        testLangauges = [x for x in interpreters[lang] if x in allowedLanguages] or None
-                        if single and testLangauges:
-                            testLangauges = [testLangauges[0]]
-                langSetsCache[testLangExtensions] = testLangauges
+                        testLanguages = [x for x in interpreters[lang] if x in allowedLanguages] or None
+                        if single and testLanguages:
+                            testLanguages = [testLanguages[0]]
+                langSetsCache[testLangExtensions] = testLanguages
             
             elif extension in ('mocha', 'yaml'):
-                testLangauges = langSetsCache[extension]
+                testLanguages = langSetsCache[extension]
             else:
-                testLangauges = [None]
+                testLanguages = [None]
             
             # -- create tests for all language versions that pass the filters
             
-            for language in testLangauges or []:
+            for language in testLanguages or []:
                 subTestName = '%s.%s' % (testName, language.test_types[0]) if language else testName
                 
                 # - run the filters
