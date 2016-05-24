@@ -929,7 +929,7 @@ public:
                   const key_range_t *_pk_range,
                   const keyspec_t::limit_t *_spec,
                   sorting_t _sorting,
-                  boost::optional<item_queue_t::iterator> _start,
+                  boost::optional<queue_val_t> _start,
                   size_t _n)
         : env(_env),
           ops(_ops),
@@ -945,14 +945,14 @@ public:
         switch (sorting) {
         case sorting_t::ASCENDING: {
             if (start) {
-                store_key_t start_key = mangled_primary_to_pkey((**start)->first);
+                store_key_t start_key = mangled_primary_to_pkey(start->first);
                 start_key.increment(); // open bound
                 range.left = std::move(start_key);
             }
         } break;
         case sorting_t::DESCENDING: {
             if (start) {
-                store_key_t start_key = mangled_primary_to_pkey((**start)->first);
+                store_key_t start_key = mangled_primary_to_pkey(start->first);
                 // right bound is open by default
                 range.right = key_range_t::right_bound_t(std::move(start_key));
             }
@@ -1015,7 +1015,7 @@ public:
                 [](const std::map<datum_t, uint64_t> &) { return false; }));
         datum_range_t srange = spec->range.datumspec.covering_range();
         if (start) {
-            datum_t dstart = (**start)->second.first;
+            datum_t dstart = start->second.first;
             switch (sorting) {
             case sorting_t::ASCENDING:
                 srange = srange.with_left_bound(dstart, key_range_t::bound_t::open);
@@ -1081,14 +1081,14 @@ private:
     const key_range_t *pk_range;
     const keyspec_t::limit_t *spec;
     sorting_t sorting;
-    boost::optional<item_queue_t::iterator> start;
+    boost::optional<queue_val_t> start;
     size_t n;
 };
 
 std::vector<item_t> limit_manager_t::read_more(
     const boost::variant<primary_ref_t, sindex_ref_t> &ref,
     sorting_t sorting,
-    const boost::optional<item_queue_t::iterator> &start,
+    const boost::optional<queue_val_t> &start,
     size_t n) {
     ref_visitor_t visitor(env.get(), &ops, &region.inner, &spec, sorting, start, n);
     return boost::apply_visitor(visitor, ref);
@@ -1104,23 +1104,23 @@ void limit_manager_t::commit(
 
     // Before we delete anything, we get the boundary between the active set and
     // the data that didn't make it into the set.  Anything strictly smaller
-    // than than according to our ordering is guaranteed to be strictly smaller
+    // than that according to our ordering is guaranteed to be strictly smaller
     // than anything we will load off of disk with our generated read.
-    boost::optional<datum_t> active_boundary;
+    boost::optional<queue_val_t> active_boundary;
     auto item_queue_it = item_queue.begin();
     if (item_queue_it != item_queue.end()) {
-        active_boundary = (*item_queue_it)->second.first;
+        active_boundary = **item_queue_it;
     }
-    auto beats_read_p = [&active_boundary, this](const datum_t &key) {
+    auto beats_read_p = [&active_boundary, this](queue_val_t val) {
         if (!active_boundary) {
             // Empty set => nothing on disk.
             return true;
         }
         switch (spec.range.sorting) {
         case sorting_t::ASCENDING:
-            return key < *active_boundary;
+            return gt(*active_boundary, val);
         case sorting_t::DESCENDING:
-            return key > *active_boundary;
+            return gt(val, *active_boundary);
         case sorting_t::UNORDERED: // fallthru
         default: unreachable();
         }
@@ -1141,7 +1141,7 @@ void limit_manager_t::commit(
         // off of disk below.  This is fine because if the resulting set is
         // still too small, and the things we didn't add happen to beat the
         // other things in the table, we'll read them first.
-        if (beats_read_p(pair.second.first)) {
+        if (beats_read_p(pair)) {
             bool inserted = item_queue.insert(pair).second;
             // We can never get two additions for the same key without a deletion
             // in-between.
@@ -1164,17 +1164,12 @@ void limit_manager_t::commit(
     }
 
     if (item_queue.size() < spec.limit && real_deleted.size() != 0) {
-        auto data_it = item_queue.begin();
-        boost::optional<item_queue_t::iterator> start;
-        if (data_it != item_queue.end()) {
-            start = data_it;
-        }
         std::vector<item_t> s;
         boost::optional<exc_t> exc;
         try {
             s = read_more(sindex_ref,
                           spec.range.sorting,
-                          start,
+                          active_boundary,
                           spec.limit - item_queue.size());
         } catch (const exc_t &e) {
             exc = e;

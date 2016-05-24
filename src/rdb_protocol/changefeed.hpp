@@ -383,6 +383,8 @@ struct sindex_ref_t {
     const sindex_disk_info_t *sindex_info;
 };
 
+typedef std::pair<std::string, std::pair<datum_t, datum_t> > queue_val_t;
+
 class server_t;
 class limit_manager_t {
 public:
@@ -426,7 +428,7 @@ private:
     std::vector<item_t> read_more(
         const boost::variant<primary_ref_t, sindex_ref_t> &ref,
         sorting_t sorting,
-        const boost::optional<item_queue_t::iterator> &start,
+        const boost::optional<queue_val_t> &start,
         size_t n);
     void send(msg_t &&msg);
 
