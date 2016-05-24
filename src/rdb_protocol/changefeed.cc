@@ -896,10 +896,11 @@ void limit_manager_t::add(
     if ((is_primary == is_primary_t::YES && region.inner.contains_key(sk))
         || (is_primary == is_primary_t::NO && spec.range.datumspec.copies(key) != 0)) {
         if (boost::optional<datum_t> d = apply_ops(val, ops, env.get(), key)) {
-            added.push_back(
+            auto pair = added.insert(
                 std::make_pair(
                     key_to_mangled_primary(sk, is_primary),
                     std::make_pair(std::move(key), *d)));
+            guarantee(pair.second);
         }
     }
 }
@@ -909,7 +910,16 @@ void limit_manager_t::del(
     store_key_t sk,
     is_primary_t is_primary) THROWS_NOTHING {
     guarantee(spot->write_signal()->is_pulsed());
-    deleted.push_back(key_to_mangled_primary(sk, is_primary));
+    std::string key = key_to_mangled_primary(sk, is_primary);
+    size_t erased = added.erase(key);
+    // Note that we don't actually have to check whether or not the thing we're
+    // deleting matches any predicates that might be in the operations, because
+    // we already have to handle the case where we're deleting something that
+    // isn't in the top `n`, so trying to delete too much doesn't hurt anything.
+    if (erased == 0) {
+        auto pair = deleted.insert(std::move(key));
+        guarantee(pair.second);
+    }
 }
 
 class ref_visitor_t : public boost::static_visitor<std::vector<item_t>> {
@@ -1091,30 +1101,54 @@ void limit_manager_t::commit(
     if (added.size() == 0 && deleted.size() == 0) {
         return;
     }
+
+    // Before we delete anything, we get the boundary between the active set and
+    // the data that didn't make it into the set.  Anything strictly smaller
+    // than than according to our ordering is guaranteed to be strictly smaller
+    // than anything we will load off of disk with our generated read.
+    boost::optional<datum_t> active_boundary;
+    auto item_queue_it = item_queue.begin();
+    if (item_queue_it != item_queue.end()) {
+        active_boundary = (*item_queue_it)->second.first;
+    }
+    auto beats_read_p = [&active_boundary, this](const datum_t &key) {
+        if (!active_boundary) {
+            // Empty set => nothing on disk.
+            return true;
+        }
+        switch (spec.range.sorting) {
+        case sorting_t::ASCENDING:
+            return key < *active_boundary;
+        case sorting_t::DESCENDING:
+            return key > *active_boundary;
+        case sorting_t::UNORDERED: // fallthru
+        default: unreachable();
+        }
+    };
+
     item_queue_t real_added(gt);
     std::set<std::string> real_deleted;
-    for (auto &&id : deleted) {
+    for (const auto &id : deleted) {
         bool data_deleted = item_queue.del_id(id);
         if (data_deleted) {
-            bool inserted = real_deleted.insert(std::move(id)).second;
+            bool inserted = real_deleted.insert(id).second;
             guarantee(inserted);
         }
     }
     deleted.clear();
-    for (auto &&pair : added) {
-        auto it = item_queue.find_id(pair.first);
-        if (it != item_queue.end()) {
-            // We can enter this branch if we're doing a batched update and the
-            // same row is changed multiple times.  We use the later row.
-            auto sub_it = real_added.find_id(pair.first);
-            guarantee(sub_it != real_added.end());
-            item_queue.erase(it);
-            real_added.erase(sub_it);
+    for (const auto &pair : added) {
+        // We only add to the set if we know we beat anything that might be read
+        // off of disk below.  This is fine because if the resulting set is
+        // still too small, and the things we didn't add happen to beat the
+        // other things in the table, we'll read them first.
+        if (beats_read_p(pair.second.first)) {
+            bool inserted = item_queue.insert(pair).second;
+            // We can never get two additions for the same key without a deletion
+            // in-between.
+            guarantee(inserted);
+            inserted = real_added.insert(pair).second;
+            guarantee(inserted);
         }
-        bool inserted = item_queue.insert(pair).second;
-        guarantee(inserted);
-        inserted = real_added.insert(std::move(pair)).second;
-        guarantee(inserted);
     }
     added.clear();
 
@@ -1128,8 +1162,8 @@ void limit_manager_t::commit(
             guarantee(inserted);
         }
     }
-    // TODO: we should try to avoid this read if we know we only added rows.
-    if (item_queue.size() < spec.limit) {
+
+    if (item_queue.size() < spec.limit && real_deleted.size() != 0) {
         auto data_it = item_queue.begin();
         boost::optional<item_queue_t::iterator> start;
         if (data_it != item_queue.end()) {

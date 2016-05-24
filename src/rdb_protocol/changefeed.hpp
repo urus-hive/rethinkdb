@@ -441,8 +441,8 @@ private:
     limit_order_t gt;
     item_queue_t item_queue;
 
-    std::vector<std::pair<std::string, std::pair<datum_t, datum_t> > > added;
-    std::vector<std::string> deleted;
+    std::map<std::string, std::pair<datum_t, datum_t> > added;
+    std::set<std::string> deleted;
 
     bool aborted;
 public:
