@@ -145,6 +145,8 @@ def main(argv=None, prog=None):
     try:
         run_rethinkdb_export(options)
     except Exception as ex:
+        if options.debug:
+            traceback.print_exc()
         print(ex, file=sys.stderr)
         return 1
     return 0

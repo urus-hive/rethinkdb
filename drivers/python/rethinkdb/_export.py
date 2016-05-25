@@ -63,7 +63,7 @@ def parse_options(argv, prog=None):
     # -- Check validity of arguments
     
     if len(args) != 0:
-        raise parser.error("No positional arguments supported. Unrecognized option(s): %s" % args)
+        parser.error("No positional arguments supported. Unrecognized option(s): %s" % args)
     
     if options.fields:
         if len(options.db_tables) != 1 or options.db_tables[0].table is None:
@@ -413,6 +413,8 @@ def main(argv=None, prog=None):
     try:
         run(options)
     except Exception as ex:
+        if options.debug:
+            traceback.print_exc()
         print(ex, file=sys.stderr)
         return 1
     if not options.quiet:

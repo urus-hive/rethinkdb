@@ -109,7 +109,7 @@ class SourceFile(object):
         elif self.__bytes_read < 0 and self.__total_rows.value >= 0:
             # done by rows read
             if self.__rows_read > 0:
-                completed += float(self.__rows_read)/float(self.__total_rows.value)
+                completed += float(self.__rows_read) / float(self.__total_rows.value)
         else:
             # done by bytes read
             if self.__bytes_read.value > 0:
@@ -123,12 +123,12 @@ class SourceFile(object):
                 completed += 1.0
             elif totalRows < 0:
                 # a guesstimate
-                perRowSize = float(self.__bytes_read.value)/float(self.__rows_read.value)
-                totalRows = float(self.__rows_read.value) + (float(self.__bytes_size.value - self.__bytes_read.value)/perRowSize)
-                completed += float(self.__rows_written.value)/totalRows
+                perRowSize = float(self.__bytes_read.value) / float(self.__rows_read.value)
+                totalRows = float(self.__rows_read.value) + (float(self.__bytes_size.value - self.__bytes_read.value) / perRowSize)
+                completed += float(self.__rows_written.value) / totalRows
             else:
                 # accurate count
-                completed += float(self.__rows_written.value)/totalRows
+                completed += float(self.__rows_written.value) / totalRows
         
         # - return the value
         return completed * 0.5
@@ -690,11 +690,8 @@ def abort_import(pools, exit_event, interrupt_event):
         print("\nSecond terminate signal seen, aborting ungracefully")
         for pool in pools:
             for worker in pool:
-                try:
-                    worker.terminate()
-                    worker.join()
-                except Exception as e:
-                    traceback.print_exc()
+                worker.terminate()
+                worker.join(.1)
     else:
         print("\nTerminate signal seen, aborting")
         interrupt_event.set()
@@ -731,8 +728,8 @@ def update_progress(tables, options, done_event, exit_event, sleep=0.2):
             if complete != lastComplete:
                 timeDelta = readWrites[-1][0] - readWrites[0][0]
                 if options.debug and len(readWrites) > 1:
-                    readRate  = max((readWrites[-1][1] - readWrites[0][1])/timeDelta, 0)
-                    writeRate = max((readWrites[-1][2] - readWrites[0][2])/timeDelta, 0)
+                    readRate  = max((readWrites[-1][1] - readWrites[0][1]) / timeDelta, 0)
+                    writeRate = max((readWrites[-1][2] - readWrites[0][2]) / timeDelta, 0)
                 utils_common.print_progress(complete, padding=2, read=readRate, write=writeRate)
                 lastComplete = complete
             time.sleep(sleep)
@@ -995,7 +992,6 @@ def import_directory(options):
             print("%s" % str(f), file=sys.stderr)
     
     # start the imports
-    
     import_tables(options, files_info.values())
 
 def import_file(options):
