@@ -34,8 +34,14 @@ class SourceFile(object):
     primary_key    = None
     indexes        = None
     
-    __completed    = None
-    __size         = None
+    start_time     = None
+    end_time       = None
+    
+    __bytes_size   = None
+    __bytes_read   = None # -1 until started
+    
+    __total_rows   = None # -1 until known
+    __rows_read    = None
     __rows_written = None
     
     def __init__(self, path, db, table, format=None, primary_key=None, indexes=None):
@@ -46,42 +52,86 @@ class SourceFile(object):
         self.primary_key    = primary_key or 'id'
         self.indexes        = indexes or []
         
-        self.__completed    = multiprocessing.Value(ctypes.c_longlong, 0)
-        self.__size         = multiprocessing.Value(ctypes.c_longlong, os.path.getsize(self.path))
+        self.__bytes_size   = multiprocessing.Value(ctypes.c_longlong, os.path.getsize(self.path))
+        self.__bytes_read   = multiprocessing.Value(ctypes.c_longlong, -1)
+        
+        self.__total_rows   = multiprocessing.Value(ctypes.c_longlong, -1)
+        self.__rows_read    = multiprocessing.Value(ctypes.c_longlong, 0)
         self.__rows_written = multiprocessing.Value(ctypes.c_longlong, 0)
     
+    # - bytes
     @property
-    def completed(self):
-        return self.__completed.value
-    
-    @completed.setter
-    def completed(self, value):
-        self.__completed.value = value
+    def bytes_size(self):
+        return self.__bytes_size.value
+    @bytes_size.setter
+    def bytes_size(self, value):
+        self.__bytes_size.value = value
     
     @property
-    def size(self):
-        return self.__size.value
+    def bytes_read(self):
+        return self.__bytes_read.value
+    @bytes_read.setter
+    def bytes_read(self, value):
+        self.__bytes_read.value = value
     
-    @size.setter
-    def size(self, value):
-        self.__size.value = value
+    # - rows
+    @property
+    def total_rows(self):
+        return self.__total_rows.value
+    @total_rows.setter
+    def total_rows(self, value):
+        self.__total_rows.value = value
+    
+    @property
+    def rows_read(self):
+        return self.__rows_read.value
+    @rows_read.setter
+    def rows_read(self, value):
+        self.__rows_read.value = value
     
     @property
     def rows_written(self):
         return self.__rows_written.value
+    def add_rows_written(self, increment): # we have multiple writers to coordinate
+        with self.__rows_written.get_lock():
+            self.__rows_written.value += increment
     
-    @rows_written.setter
-    def rows_written(self, value):
-        self.__rows_written.value = value
-    
+    # - percent done
     @property
     def percentDone(self):
-        if self.size <= 0 or self.size <= self.completed:
-            return 1.0
-        elif self.completed <= 0:
-            return 0.0
+        '''return a float between 0 and 1 for a reasonable guess of percentage complete'''
+        # assume that reading takes 50% of the time and writing the other 50%
+        completed = 0.0 # of 2.0
+        
+        # - add read percentage
+        if self.__bytes_size.value <= 0 or self.__bytes_size.value <= self.__bytes_read.value:
+            completed += 1.0
+        elif self.__bytes_read < 0 and self.__total_rows.value >= 0:
+            # done by rows read
+            if self.__rows_read > 0:
+                completed += float(self.__rows_read)/float(self.__total_rows.value)
         else:
-            return self.completed / float(self.size)
+            # done by bytes read
+            if self.__bytes_read.value > 0:
+                completed += float(self.__bytes_read.value) / float(self.__bytes_size.value)
+        read = completed
+        
+        # - add written percentage
+        if self.__rows_read.value or self.__rows_written.value:
+            totalRows = float(self.__total_rows.value)
+            if totalRows == 0:
+                completed += 1.0
+            elif totalRows < 0:
+                # a guesstimate
+                perRowSize = float(self.__bytes_read.value)/float(self.__rows_read.value)
+                totalRows = float(self.__rows_read.value) + (float(self.__bytes_size.value - self.__bytes_read.value)/perRowSize)
+                completed += float(self.__rows_written.value)/totalRows
+            else:
+                # accurate count
+                completed += float(self.__rows_written.value)/totalRows
+        
+        # - return the value
+        return completed * 0.5
 
 usage = """rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
       [--force] [-i (DB | DB.TABLE)] [--clients NUM]
@@ -305,27 +355,28 @@ def parse_options(argv, prog=None):
     return options
 
 # This is run for each client requested, and accepts tasks from the reader processes
-def table_writer(file_info, options, work_queue, error_queue, exit_event, queue_timeout=0.001):
+def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_event):
+    signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should not get these
+    db = table = batch = None
+    
     try:
         conflict_action = "replace" if options.force else "error"
-        tbl = r.db(file_info.db).table(file_info.table)
-        
         while not exit_event.is_set():
             # get a batch
-            try:
-                batch = work_queue.popleft()
-            except IndexError:
-                time.sleep(queue_timeout)
-                continue
+            db, table, batch = work_queue.get()
             
             # shut down when appropriate
             if isinstance(batch, StopIteration):
-                break
+                return
+            
+            # find the table we are working on
+            table_info = tables[(db, table)]
+            tbl = r.db(db).table(table)
             
             # write the batch to the database
             try:
                 res = utils_common.retryQuery(
-                    "write batch to %s.%s" % (file_info.db, file_info.table),
+                    "write batch to %s.%s" % (db, table),
                     tbl.insert(r.expr(batch, nesting_depth=max_nesting_depth), durability=options.durability, conflict=conflict_action)
                 )
                 
@@ -335,48 +386,49 @@ def table_writer(file_info, options, work_queue, error_queue, exit_event, queue_
                 if modified != len(batch):
                     raise RuntimeError("The inserted/replaced/unchanged number did not match when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
                 
-                file_info.rows_written += modified
+                table_info.add_rows_written(modified)
                 
             except r.ReqlError:
                 # the error might have been caused by a comm or temporary error causing a partial batch write
                 
                 for row in batch:
-                    if not file_info.primary_key in row:
-                        raise RuntimeError("Connection error while importing.  Current row does not have the specified primary key (%s), so cannot guarantee absence of duplicates" % file_info.primary_key)
+                    if not table_info.primary_key in row:
+                        raise RuntimeError("Connection error while importing.  Current row does not have the specified primary key (%s), so cannot guarantee absence of duplicates" % table_info.primary_key)
                     res = None
                     if conflict_action == "replace":
                         res = utils_common.retryQuery(
-                            "write row to %s.%s" % (file_info.db, file_info.table),
+                            "write row to %s.%s" % (db, table),
                             tbl.insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
                         )
                     else:
                         existingRow = utils_common.retryQuery(
-                            "read row from %s.%s" % (file_info.db, file_info.table),
-                            tbl.get(row[file_info.primary_key])
+                            "read row from %s.%s" % (db, table),
+                            tbl.get(row[table_info.primary_key])
                         )
                         if not existingRow:
                             res = utils_common.retryQuery(
-                                "write row to %s.%s" % (file_info.db, file_info.table),
+                                "write row to %s.%s" % (db, table),
                                 tbl.insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
                             )
                         elif existingRow != row:
-                            raise RuntimeError("Duplicate primary key `%s`:\n%s\n%s" % (file_info.primary_key, str(row), str(existingRow)))
+                            raise RuntimeError("Duplicate primary key `%s`:\n%s\n%s" % (table_info.primary_key, str(row), str(existingRow)))
                     
                     if res["errors"] > 0:
                         raise RuntimeError("Error when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
                     if res["inserted"] + res["replaced"] + res["unchanged"] != 1:
                         raise RuntimeError("The inserted/replaced/unchanged number was not 1 when inserting on '%s.%s': %s" % (db, table, res))
-                    file_info.rows_written += 1
+                    table_info.add_rows_written(1)
             
     except Exception as e:
-        error_queue.put(Error(str(e), traceback.format_exc, file_info.path))
+        error_queue.put(Error(str(e), traceback.format_exc(), "%s.%s" % (db , table)))
         exit_event.set()
 
-def json_reader(file_info, options, exit_event):
-    decoder = json.JSONDecoder()
+def json_reader(table, options, exit_event):
+    decoder   = json.JSONDecoder()
     startTime = time.time()
+    table.bytes_read = 0
     try:
-        with open(file_info.path, "r") as file_in:
+        with open(table.path, "r") as file_in:
             offset      = 0
             foundStart  = False
             foundComma  = True
@@ -384,8 +436,9 @@ def json_reader(file_info, options, exit_event):
             json_array  = False
             json_data   = ''
             batch       = []
-            while not exit_event.is_set():
-                file_info.completed = file_in.tell() - len(json_data)
+            while True:
+                if exit_event.is_set():
+                    return
                 
                 if readMore:
                     # Read the data in chunks, since the json module would just read the whole thing at once
@@ -394,7 +447,7 @@ def json_reader(file_info, options, exit_event):
                         break # end of file
                     dataLength = len(json_data) + len(chunk) - offset
                     if dataLength >= json_max_buffer_size:
-                        raise Exception("Error: JSON max buffer size exceeded on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (file_info.path, file_in.tell() - len(json_data)))
+                        raise Exception("Error: JSON max buffer size exceeded on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (table.path, file_in.tell() - len(json_data)))
                     
                     json_data = json_data[offset:] + chunk
                     
@@ -434,7 +487,7 @@ def json_reader(file_info, options, exit_event):
                             offset += 1
                             offset = json.decoder.WHITESPACE.match(json_data, offset).end() # Read past the comma and any additional whitespace
                         else:
-                            raise ValueError("Error: JSON format not recognized - expected ',' or ']' after object at byte %d in %s.%s file but found: %s" % (offset + file_in.tell() - len(json_data), file_info.db, file_info.table, json_data[offset]))
+                            raise ValueError("Error: JSON format not recognized - expected ',' or ']' after object at byte %d in %s.%s file but found: %s" % (offset + file_in.tell() - len(json_data), table.db, table.table, json_data[offset]))
                 
                 # read a row
                 try:
@@ -443,7 +496,7 @@ def json_reader(file_info, options, exit_event):
                     
                      # Ensure the row looks good
                     if not isinstance(row, dict):
-                        error_queue.put(Error('Error importing row on table %s.%s:\n%s' % (file_info.db, file_info.table, str(row)), None, file_info.path))
+                        error_queue.put(Error('Error importing row on table %s.%s:\n%s' % (table.db, table.table, str(row)), None, table.path))
                         continue # this is not fatal
                             
                     # apply the fields filter
@@ -453,6 +506,8 @@ def json_reader(file_info, options, exit_event):
                     
                     batch.append(row)
                     if len(batch) >= options.batch_size:
+                        table.rows_read += len(batch)
+                        table.bytes_read = file_in.tell() - len(json_data) + offset
                         yield batch
                         batch = []
                 except (ValueError, IndexError):
@@ -460,6 +515,7 @@ def json_reader(file_info, options, exit_event):
             
             # - yield the final batch, if any
             if batch:
+                table.rows_read += len(batch)
                 yield batch
             
             # - make sure only remaining data is whitespace
@@ -468,13 +524,11 @@ def json_reader(file_info, options, exit_event):
                 offset = json.decoder.WHITESPACE.match(json_data, 0).end()
                 if offset != len(json_data):
                     displayString = json_data[:40] + ('...' if len(json_data) > 40 else '')
-                    raise RuntimeError("Error: JSON format not recognized - extra characters found after end of data in %s.%s (position %d): %s" % (file_info.db, file_info.table, file_in.tell() + offset - len(json_data), displayString))
+                    raise RuntimeError("Error: JSON format not recognized - extra characters found after end of data in %s.%s (position %d): %s" % (table.db, table.table, file_in.tell() + offset - len(json_data), displayString))
                 json_data = file_in.read(json_read_chunk_size)
-    except Exception as e:
-        raise
     finally:
-        print(time.time() - startTime)
-        file_info.completed = file_info.size
+        table.bytes_read = table.bytes_size
+        table.total_rows = table.rows_read
 
 # Wrapper classes for the handling of unicode csv files
 # Taken from https://docs.python.org/2/library/csv.html
@@ -504,12 +558,12 @@ class Utf8CsvReader:
     def __iter__(self):
         return self
 
-def csv_reader(file_info, options, exit_event):
-    with open(filename, "r", encoding="utf-8", newline="") if PY3 else open(file_info.path, "r") as file_in:
+def csv_reader(table, options, exit_event):
+    with open(filename, "r", encoding="utf-8", newline="") if PY3 else open(table.path, "r") as file_in:
         # - Count the lines so we can report progress # TODO: work around the double pass
         for i, _ in enumerate(file_in):
             pass
-        file_info.size = i + 1
+        table.total_rows = i + 1
         
         # rewind the file
         file_in.seek(0)
@@ -540,10 +594,10 @@ def csv_reader(file_info, options, exit_event):
             
             # update progress
             file_line = reader.line_num
-            file_info.stats[0].value = file_line
+            table.rows_read = file_line
             
             if len(fields_in) != len(row):
-                raise RuntimeError("Error: File '%s' line %d has an inconsistent number of columns" % (file_info.path, file_line))
+                raise RuntimeError("Error: File '%s' line %d has an inconsistent number of columns" % (table.path, file_line))
             
             # We import all csv fields as strings (since we can't assume the type of the data)
             row = dict(zip(fields_in, row))
@@ -557,205 +611,246 @@ def csv_reader(file_info, options, exit_event):
             
             batch.append(row)
             if len(batch) >= options.batch_size:
+                table.rows_read += len(batch)
                 yield batch
                 batch = []
         
         if batch:
+            table.rows_read += len(batch)
             yield batch
 
-
-def table_worker(file_info, options, error_queue, warning_queue, exit_event):
-    work_queue = collections.deque()
+def table_reader(table, options, work_queue, error_queue, warning_queue, exit_event):
+    '''Sets up and reads a table from a file'''
+    signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should not get these
+    table.start_time = time.time()
     try:
         # - ensure the db exists
-        utils_common.retryQuery("ensure db: %s" % file_info.db, r.expr([file_info.db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
+        utils_common.retryQuery("ensure db: %s" % table.db, r.expr([table.db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
         
         # - ensure the table exists and is ready
         utils_common.retryQuery(
-            "create table: %s.%s" % (file_info.db, file_info.table),
-            r.expr([file_info.table]).set_difference(r.db(file_info.db).table_list()).for_each(r.db(file_info.db).table_create(r.row, **options.create_args))
+            "create table: %s.%s" % (table.db, table.table),
+            r.expr([table.table]).set_difference(r.db(table.db).table_list()).for_each(r.db(table.db).table_create(r.row, **options.create_args))
         )
-        utils_common.retryQuery("wait for %s.%s" % (file_info.db, file_info.table), r.db(file_info.db).table(file_info.table).wait(timeout=30))
+        utils_common.retryQuery("wait for %s.%s" % (table.db, table.table), r.db(table.db).table(table.table).wait(timeout=30))
         
         # - recreate secondary indexes - droping existing on the assumption they are wrong
         if options.sindexes:
-            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (file_info.db, file_info.table), r.db(file_info.db).table(file_info.table).index_list())
+            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (table.db, table.table), r.db(table.db).table(table.table).index_list())
             try:
                 created_indexes = []
-                for index in file_info.indexes:
+                for index in table.indexes:
                     if index["index"] in existing_indexes: # drop existing versions
                         utils_common.retryQuery(
-                            "drop index: %s.%s:%s" % (file_info.db, file_info.table, index["index"]),
-                            r.db(file_info.db).table(file_info.table).index_drop(index["index"])
+                            "drop index: %s.%s:%s" % (table.db, table.table, index["index"]),
+                            r.db(table.db).table(table.table).index_drop(index["index"])
                         )
                     utils_common.retryQuery(
-                        "create index: %s.%s:%s" % (file_info.db, file_info.table, index["index"]),
-                        r.db(file_info.db).table(file_info.table).index_create(index["index"], index["function"])
+                        "create index: %s.%s:%s" % (table.db, table.table, index["index"]),
+                        r.db(table.db).table(table.table).index_create(index["index"], index["function"])
                     )
                     created_indexes.append(index["index"])
                 
                 # wait for all of the created indexes to build
                 utils_common.retryQuery(
-                    "waiting for indexes on %s.%s" % (file_info.db, file_info.table),
-                    r.db(file_info.db).table(file_info.table).index_wait(r.args(created_indexes))
+                    "waiting for indexes on %s.%s" % (table.db, table.table),
+                    r.db(table.db).table(table.table).index_wait(r.args(created_indexes))
                 )
             except RuntimeError as e:
                 ex_type, ex_class, tb = sys.exc_info()
-                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), file_info.path))
-        
-        # - start the writer thread
-        writers = []
-        for i in range(options.writers):
-            writer_thread = threading.Thread(
-                target=table_writer,
-                name="%s.%s writer %d" % (file_info.db, file_info.table, i),
-                kwargs={
-                    "file_info":         file_info,
-                    "options":           options,
-                    "work_queue":        work_queue,
-                    "error_queue":       error_queue,
-                    "exit_event":        exit_event
-                }
-            )
-            writer_thread.daemon = True
-            writer_thread.start()
-            writers.append(writer_thread)
+                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), table.path))
         
         # - setup the data source
         
         source = None
-        if file_info.format == "json":
-            source = json_reader(file_info, options, exit_event)
-        elif file_info.format == "csv":
-            source = csv_reader(file_info, options, exit_event)
+        if table.format == "json":
+            source = json_reader(table, options, exit_event)
+        elif table.format == "csv":
+            source = csv_reader(table, options, exit_event)
         else:
-            raise RuntimeError("Error: Unknown file format specified: %s" % file_info.format)
+            raise RuntimeError("Error: Unknown file format specified: %s" % table.format)
         
-        # - read the source into the queue
-        for i, batch in enumerate(source):
+        # - put baches into the work_queue
+        for batch in source:
             if exit_event.is_set():
                 break
-            work_queue.append(batch)
-            if i % 20 == 0:
-                while len(work_queue) >= 20:
-                    time.sleep(.05)
-        
-        # - send the writers the stop message
-        for _ in range(options.writers):
-            work_queue.append(StopIteration())
-        
-        # - wait for the writers
-        for writer_thread in writers:
-            writer_thread.join()
+            work_queue.put((table.db, table.table, batch))
     
     # -- report relevent errors
     except Exception as e:
-        error_queue.put(Error(str(e), traceback.format_exc(), file_info.path))
+        error_queue.put(Error(str(e), traceback.format_exc(), table.path))
         exit_event.set()
+        raise
     finally:
-        for _ in range(options.writers): # make sure all writers get the stop message
-            work_queue.append(StopIteration())
+        table.end_time = time.time()
 
-__signalSeen = False
-def abort_import(parent_pid, exit_event, interrupt_event):
-    global __signalSeen
-    # Only do the abort from the parent process
-    if os.getpid() == parent_pid:
-        if __signalSeen:
-            # second time
-            print("\nSecond terminate signal seen, aborting ungracefully")
-            for worker in workers:
+def abort_import(pools, exit_event, interrupt_event):
+    if interrupt_event.is_set():
+        # second time
+        print("\nSecond terminate signal seen, aborting ungracefully")
+        for pool in pools:
+            for worker in pool:
                 try:
                     worker.terminate()
+                    worker.join()
                 except Exception as e:
-                    print("Problem killing worker: %s" % str(e))
-        else:
-            print("\nTerminate signal seen, aborting")
-            __signalSeen = True
-            interrupt_event.set()
-            exit_event.set()
+                    traceback.print_exc()
+    else:
+        print("\nTerminate signal seen, aborting")
+        interrupt_event.set()
+        exit_event.set()
 
-def update_progress(tables, options, done_event, sleep=0.3):
-    assert isinstance(tables, list)
+def update_progress(tables, options, done_event, exit_event, sleep=0.2):
+    signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should not get these
+    if options.quiet:
+        raise Exception('update_progress called when --quiet was set')
     
-    # give weights to each of the tables
-    totalSize = sum([x.size for x in tables])
+    # give weights to each of the tables based on file size
+    totalSize = sum([x.bytes_size for x in tables])
     for table in tables:
         table.weight = float(table.size) / totalSize
     
-    while not done_event.is_set():
-        complete = 0
-        perTable = 1.0 / len(tables) # equally weighting all tables
-        for table in tables:
-            complete += table.percentDone * table.weight
-    
-        if not options.quiet:
-            utils_common.print_progress(complete, padding=2)
-        time.sleep(sleep)
+    lastComplete = None
+    startTime    = time.time()
+    readWrites   = collections.deque(maxlen=5) # (time, read, write)
+    readWrites.append((startTime, 0, 0))
+    readRate     = None
+    writeRate    = None
+    while True:
+        try:
+            if done_event.is_set() or exit_event.is_set():
+                break
+            complete = read = write = 0
+            currentTime = time.time()
+            for table in tables:
+                complete += table.percentDone * table.weight
+                if options.debug:
+                    read     += table.rows_read
+                    write    += table.rows_written
+            readWrites.append((currentTime, read, write))
+            if complete != lastComplete:
+                timeDelta = readWrites[-1][0] - readWrites[0][0]
+                if options.debug and len(readWrites) > 1:
+                    readRate  = max((readWrites[-1][1] - readWrites[0][1])/timeDelta, 0)
+                    writeRate = max((readWrites[-1][2] - readWrites[0][2])/timeDelta, 0)
+                utils_common.print_progress(complete, padding=2, read=readRate, write=writeRate)
+                lastComplete = complete
+            time.sleep(sleep)
+        except KeyboardInterrupt: break
+        except Exception: pass
 
-workers = []
 def import_tables(options, files_info):
-    global workers
-    
-    # continuously update the progress bar
-    progress_bar = None
-    done_event = None
-    if not options.quiet:
-        done_event = multiprocessing.Event()
-        progress_bar = multiprocessing.Process(
-            target=update_progress,
-            name="progress bar",
-            args=(files_info, options, done_event)
-        )
-        progress_bar.daemon = True
-        progress_bar.start()
-    
-    # Spaw a worker (reader + writer in threads in a external process) for each table, options.clients at a time
-    error_queue = SimpleQueue()
-    warning_queue = SimpleQueue()
-    exit_event = multiprocessing.Event()
-    errors = []
     start_time = time.time()
     
-    interrupt_event = threading.Event()
-    signal.signal(signal.SIGINT, lambda a, b: abort_import(os.getpid(), exit_event, interrupt_event))
+    tables = dict(((x.db, x.table), x) for x in files_info) # (db, table) => table
+    
+    work_queue      = SimpleQueue()
+    error_queue     = SimpleQueue()
+    warning_queue   = SimpleQueue()
+    done_event      = multiprocessing.Event()
+    exit_event      = multiprocessing.Event()
+    interrupt_event = multiprocessing.Event()
+    
+    pools = []
+    progressBar = None
+    progressBarSleep = 0.2
+    
+    # setup KeyboardInterupt handler
+    signal.signal(signal.SIGINT, lambda a, b: abort_import(pools, exit_event, interrupt_event))
     
     try:
-        # - start the workers options.clients at a time
+        # - start the progress bar
+        if not options.quiet:
+            progressBar = multiprocessing.Process(
+                target=update_progress,
+                name="progress bar",
+                args=(files_info, options, done_event, exit_event, progressBarSleep)
+            )
+            progressBar.start()
+            pools.append([progressBar])
         
+        # - start the writers
+        writers = []
+        pools.append(writers)
+        for i in range(options.clients):
+            writer = multiprocessing.Process(
+                target=table_writer, name="table writer %d" % i,
+                kwargs={
+                    "tables":tables, "options":options, "work_queue":work_queue,
+                    "error_queue":error_queue, "warning_queue":warning_queue,
+                    "exit_event":exit_event
+                }
+            )
+            writers.append(writer)
+            writer.start()
+        
+        # - read the tables options.clients at a time
+        readers = []
+        pools.append(readers)
         filesLeft = len(files_info)
         fileIter = iter(files_info)
-        while workers or filesLeft:
-            while len(workers) < options.clients and filesLeft:
-                # add a worker
-                file_info = next(fileIter)
-                worker = multiprocessing.Process(
-                    target=table_worker,
-                    name="worker %s.%s" % (file_info.db, file_info.table),
-                    args=(file_info, options, error_queue, warning_queue, exit_event)
+        while filesLeft and not exit_event.is_set():
+            # add a workers to fill up the readers pool
+            while filesLeft and len(readers) < options.clients:
+                table = next(fileIter)
+                reader = multiprocessing.Process(
+                    target=table_reader, name="table reader %s.%s" % (table.db, table.table),
+                    kwargs={
+                        "table":table, "options":options, "work_queue":work_queue,
+                        "error_queue":error_queue, "warning_queue":warning_queue,
+                        "exit_event":exit_event
+                    }
                 )
-                worker.start()
-                workers.append(worker)
+                readers.append(reader)
+                reader.start()
                 filesLeft -= 1
             
             # reap completed tasks
-            for worker in workers[:]:
-                if not worker.is_alive():
-                    workers.remove(worker)
-                if filesLeft and len(workers) == options.clients:
-                    time.sleep(.01)
+            if filesLeft:
+                for reader in readers[:]:
+                    if not reader.is_alive():
+                        readers.remove(reader)
+                    if filesLeft and len(readers) == options.clients:
+                        time.sleep(.05)
         
-        # - wait for the last batch of workers to complete
-        for worker in workers:
-            worker.join()
-            workers.remove(worker)
+        # - wait for the last batch of readers to complete
+        while readers:
+             for reader in readers[:]:
+                if exit_event.is_set():
+                    reader.terminate() # kill it abruptly
+                reader.join(.1)
+                if not reader.is_alive():
+                    readers.remove(reader)
         
+        # - append enough StopIterations to signal all writers
+        if not exit_event.is_set():
+            for _ in range(options.clients):
+                work_queue.put((None, None, StopIteration()))
+        
+        # - wait for all of the writers
+        for writer in writers[:]:
+            while not interrupt_event.is_set():
+                if not writer.is_alive():
+                    writers.remove(writer)
+                    break
+                writer.join()
+            # kill off the remainder
+            if writer in writers:
+                try:
+                    writer.terminate()
+                except Exception: pass
+                
         # - stop the progress bar
-        if progress_bar:
+        if progressBar:
             done_event.set()
-            progress_bar.join()
+            progressBar.join(progressBarSleep * 2)
+            if not interrupt_event.is_set():
+                utils_common.print_progress(1, padding=2)
+            if progressBar.is_alive():
+                progressBar.terminate()
         
         # - drain the error_queue
+        errors = []
         while not error_queue.empty():
             errors.append(error_queue.get())
         
@@ -769,10 +864,10 @@ def import_tables(options, files_info):
             print("\n  %s imported to %s in %.2f secs" % (plural(sum(x.rows_written for x in files_info), "row"), plural(len(files_info), "table"), time.time() - start_time))
     finally:
         signal.signal(signal.SIGINT, signal.SIG_DFL)
-
+    
     if interrupt_event.is_set():
         raise RuntimeError("Interrupted")
-
+    
     if len(errors) != 0:
         for error in errors:
             print("%s" % error.message, file=sys.stderr)
@@ -781,7 +876,7 @@ def import_tables(options, files_info):
             if len(error.file) == 4:
                 print("  In file: %s" % error.file, file=sys.stderr)
         raise RuntimeError("Errors occurred during import")
-
+    
     if not warning_queue.empty():
         while not warning_queue.empty():
             warning = warning_queue.get()
@@ -932,7 +1027,7 @@ def import_file(options):
         tableInfo = utils_common.retryQuery("table info: %s.%s" % (db, table), r.db(db).table(table).info())
     
     # Make this up so we can use the same interface as with an import directory
-    file_info = SourceFile(
+    table = SourceFile(
         path=options.file,
         db=db,
         table=table,
@@ -940,7 +1035,7 @@ def import_file(options):
         primary_key=tableInfo["primary_key"],
     )
     
-    import_tables(options, [file_info])
+    import_tables(options, [table])
 
 def main(argv=None, prog=None):
     if argv is None:
