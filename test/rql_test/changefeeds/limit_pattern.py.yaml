@@ -1,0 +1,68 @@
+desc: Test patterns that are likely to trigger edge cases on limit changefeeds
+table_variable_name: tbl
+tests:
+
+    - py: tbl.insert([{'id': 1, 'v': 1}, {'id': 2, 'v': 2}, {'id': 3, 'v': 3}])
+      ot: partial({'inserted': 3})
+    - py: tbl.index_create('v')
+      ot: partial({'created': 1})
+    - py: tbl.index_wait('v')
+      ot: [partial({'ready': True})]
+
+    - py: asc = tbl.order_by(index="v").pluck('id').limit(1).changes(include_states=True, include_initial=True)
+    - py: fetch(asc, 3, timeout=1)
+      ot: [{'state': 'initializing'}, {'new_val': {'id': 1}}, {'state': 'ready'}]
+
+    - py: desc = tbl.order_by(index=r.desc("v")).pluck('id').limit(1).changes(include_states=True, include_initial=True)
+    - py: fetch(desc, 3, timeout=1)
+      ot: [{'state': 'initializing'}, {'new_val': {'id': 3}}, {'state': 'ready'}]
+
+    # The following tests all make assumptions about the order in which batch inserts are processed.
+    # This is theoretically undefined I think, and might fail especially against debug mode servers.
+
+    # Delete, then add with same value
+    - py: tbl.insert([{'id': 1}, {'id': 1, 'v': 1}], conflict=(lambda: None))
+      ot: partial({'inserted': 1, 'deleted': 1})
+    - py: fetch(asc)
+      ot: [{'new_val': {'id': 2}, 'old_val': {'id': 1}}, {'new_val': {'id': 1}, 'old_val': {'id': 2}}]
+    - py: fetch(desc)
+      ot: []
+
+    # Delete, then add with a different value
+    - py: tbl.insert([{'id': 1}, {'id': 1, 'v': 5}], conflict=(lambda: None))
+      ot: partial({'inserted': 1, 'deleted': 1})
+    - py: fetch(asc)
+      ot: [{'old_val': {'id': 1}, 'new_val': {'id': 2}}]
+    - py: fetch(desc)
+      ot: [{'old_val': {'id': 3}, 'new_val': {'id': 1}}]
+    # ... and back
+    - py: tbl.insert([{'id': 1}, {'id': 1, 'v': 1}], conflict=(lambda: None))
+      ot: partial({'inserted': 1, 'deleted': 1})
+    - py: fetch(asc)
+      ot: [{'old_val': {'id': 2}, 'new_val': {'id': 1}}]
+    - py: fetch(desc)
+      ot: [{'old_val': {'id': 1}, 'new_val': {'id': 3}}]
+
+    # Add, then delete
+    - py: tbl.insert([{'id': 0, 'v': 0}, {'id': 0}, {'id': 5, 'v': 5}, {'id': 5}], conflict=(lambda: None))
+      ot: partial({'inserted': 2, 'deleted': 2})
+    - py: fetch(asc)
+      ot: [{'new_val': {'id': 0}, 'old_val': {'id': 1}}, {'new_val': {'id': 1}, 'old_val': {'id': 0}}]
+    - py: fetch(desc)
+      ot: [{'new_val': {'id': 5}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 5}}]
+
+    # Update, update (will result in delete, add, delete add in the limit changefeed logic)
+    - py: tbl.insert([{'id': 1, 'v': 5}, {'id': 1, 'v': 1}], conflict="replace")
+      ot: partial({'replaced': 2})
+    - py: fetch(asc)
+      ot: [{'new_val': {'id': 2}, 'old_val': {'id': 1}}, {'new_val': {'id': 1}, 'old_val': {'id': 2}}]
+    - py: fetch(desc)
+      ot: [{'new_val': {'id': 1}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 1}}]
+
+    # Update, then delete
+    - py: tbl.insert([{'id': 1, 'v': 5}, {'id': 1, 'v': 0}], conflict=(lambda id, o, n: r.branch(o['v'] == 1, n, None) ))
+      ot: partial({'replaced': 1, 'deleted': 1})
+    - py: fetch(asc)
+      ot: [{'new_val': {'id': 2}, 'old_val': {'id': 1}}]
+    - py: fetch(desc)
+      ot: [{'new_val': {'id': 1}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 1}}]
