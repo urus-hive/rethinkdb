@@ -572,11 +572,6 @@ std::string datum_t::print(reql_version_t reql_version) const {
         if (reql_version < reql_version_t::v2_1) {
             return as_json().Print();
         } else {
-            if (get_type() == datum_t::MINVAL) {
-                return "minval";
-            } else if (get_type() == datum_t::MAXVAL) {
-                return "maxval";
-            }
             rapidjson::StringBuffer buffer;
             rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
             // Change indentation character to tab for compatibility with cJSON
