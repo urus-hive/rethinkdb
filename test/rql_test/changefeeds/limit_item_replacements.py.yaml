@@ -17,19 +17,27 @@ tests:
     - py: fetch(desc, 3, timeout=1)
       ot: [{'state': 'initializing'}, {'new_val': {'id': 3}}, {'state': 'ready'}]
 
+    - py: pasc = tbl.order_by(index="id").pluck('id').limit(1).changes(include_states=True, include_initial=True)
+    - py: fetch(pasc, 3, timeout=1)
+      ot: [{'state': 'initializing'}, {'new_val': {'id': 1}}, {'state': 'ready'}]
+
+    - py: pdesc = tbl.order_by(index=r.desc("id")).pluck('id').limit(1).changes(include_states=True, include_initial=True)
+    - py: fetch(pdesc, 3, timeout=1)
+      ot: [{'state': 'initializing'}, {'new_val': {'id': 3}}, {'state': 'ready'}]
+
     # Update element currently in item_queue so that it moves out of the queue
     - py: tbl.get(1).update({'v': 5})
       ot: partial({'replaced': 1})
-    - py: fetch(asc)
+    - py: fetch(asc, 1)
       ot: [{'old_val': {'id': 1}, 'new_val': {'id': 2}}]
-    - py: fetch(desc)
+    - py: fetch(desc, 1)
       ot: [{'old_val': {'id': 3}, 'new_val': {'id': 1}}]
     # ... and back
     - py: tbl.get(1).update({'v': 1})
       ot: partial({'replaced': 1})
-    - py: fetch(asc)
+    - py: fetch(asc, 1)
       ot: [{'old_val': {'id': 2}, 'new_val': {'id': 1}}]
-    - py: fetch(desc)
+    - py: fetch(desc, 1)
       ot: [{'old_val': {'id': 1}, 'new_val': {'id': 3}}]
 
     # Replace element currently in item_queue by a new document that's too large
@@ -38,5 +46,7 @@ tests:
     # shard that we removed the old document from.
     - py: tbl.insert(r.expr([{'id': 1, 'v': 5}]).add(r.range(10, 100).map(lambda i: {'id': i, 'v': i}).coerce_to('array')), conflict=(lambda: None))
       ot: partial({'deleted': 1, 'inserted': 90})
-    - py: fetch(asc)
+    - py: fetch(asc, 1)
+      ot: [{'old_val': {'id': 1}, 'new_val': {'id': 2}}]
+    - py: fetch(pasc, 1)
       ot: [{'old_val': {'id': 1}, 'new_val': {'id': 2}}]
