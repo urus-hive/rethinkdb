@@ -779,6 +779,11 @@ std::vector<item_t> mangle_sort_truncate_stream(
         // drop the "highest" elements even though we usually use the sorting to put
         // the lowest elements at the back.
         std::sort(vec.begin(), vec.end(), limit_order_t(flip(sorting)));
+        debugf("Sorted items:\n");
+        for (const auto &p : vec) {
+            debugf_print(" second.first: ", p.second.first);
+            debugf_print(" second.second: ", p.second.second);
+        }
     }
     if (vec.size() > n) {
         vec.resize(n);
@@ -896,6 +901,7 @@ void limit_manager_t::add(
     if ((is_primary == is_primary_t::YES && region.inner.contains_key(sk))
         || (is_primary == is_primary_t::NO && spec.range.datumspec.copies(key) != 0)) {
         if (boost::optional<datum_t> d = apply_ops(val, ops, env.get(), key)) {
+            debugf("  Adding key %s\n", key_to_mangled_primary(sk, is_primary).c_str());
             auto pair = added.insert(
                 std::make_pair(
                     key_to_mangled_primary(sk, is_primary),
@@ -912,6 +918,7 @@ void limit_manager_t::del(
     guarantee(spot->write_signal()->is_pulsed());
     std::string key = key_to_mangled_primary(sk, is_primary);
     size_t erased = added.erase(key);
+    debugf("  Deleting key %s, (canceled: %d)\n", key_to_mangled_primary(sk, is_primary).c_str(), (int)erased);
     // Note that we don't actually have to check whether or not the thing we're
     // deleting matches any predicates that might be in the operations, because
     // we already have to handle the case where we're deleting something that
@@ -1016,6 +1023,7 @@ public:
         datum_range_t srange = spec->range.datumspec.covering_range();
         if (start) {
             datum_t dstart = start->second.first;
+            debugf_print("dstart: ", dstart);
             switch (sorting) {
             case sorting_t::ASCENDING:
                 srange = srange.with_left_bound(dstart, key_range_t::bound_t::open);
@@ -1026,6 +1034,7 @@ public:
             case sorting_t::UNORDERED: // fallthru
             default: unreachable();
             }
+            debugf_print("srange: ", srange);
         }
         reql_version_t reql_version =
             ref.sindex_info->mapping_version_info.latest_compatible_reql_version;
@@ -1097,8 +1106,10 @@ std::vector<item_t> limit_manager_t::read_more(
 void limit_manager_t::commit(
     rwlock_in_line_t *spot,
     const boost::variant<primary_ref_t, sindex_ref_t> &sindex_ref) THROWS_NOTHING {
+    debugf("commit\n");
     guarantee(spot->write_signal()->is_pulsed());
     if (added.size() == 0 && deleted.size() == 0) {
+        debugf("commit early exit\n");
         return;
     }
 
@@ -1117,10 +1128,9 @@ void limit_manager_t::commit(
             return true;
         }
         switch (spec.range.sorting) {
-        case sorting_t::ASCENDING:
-            return gt(*active_boundary, val);
+        case sorting_t::ASCENDING: // fallthru
         case sorting_t::DESCENDING:
-            return gt(val, *active_boundary);
+            return gt(*active_boundary, val) || *active_boundary == val;
         case sorting_t::UNORDERED: // fallthru
         default: unreachable();
         }
@@ -1130,18 +1140,22 @@ void limit_manager_t::commit(
     std::set<std::string> real_deleted;
     for (const auto &id : deleted) {
         bool data_deleted = item_queue.del_id(id);
+        debugf("Tried delete\n");
         if (data_deleted) {
+            debugf("Real deleted\n");
             bool inserted = real_deleted.insert(id).second;
             guarantee(inserted);
         }
     }
     deleted.clear();
     for (const auto &pair : added) {
+        debugf("Checking add\n");
         // We only add to the set if we know we beat anything that might be read
         // off of disk below.  This is fine because if the resulting set is
         // still too small, and the things we didn't add happen to beat the
         // other things in the table, we'll read them first.
         if (beats_read_p(pair)) {
+            debugf("Add beats read\n");
             bool inserted = item_queue.insert(pair).second;
             // We can never get two additions for the same key without a deletion
             // in-between.
@@ -1182,19 +1196,25 @@ void limit_manager_t::commit(
         }
         guarantee(s.size() <= spec.limit - item_queue.size());
         for (auto &&pair : s) {
+            debugf_print("pair.first: ", pair.first);
+            debugf_print("pair.second.first: ", pair.second.first);
+            debugf_print("pair.second.second: ", pair.second.second);
             bool ins = item_queue.insert(pair).second;
             guarantee(ins);
-            size_t erased = real_deleted.erase(pair.first);
-            if (erased == 0) {
+            //size_t erased = real_deleted.erase(pair.first);
+            //if (erased == 0) {
                 ins = real_added.insert(pair).second;
                 guarantee(ins);
-            }
+            //} else {
+            //    debugf("Erasing after read\n");
+            //}
         }
     }
     std::set<std::string> remaining_deleted;
     for (auto &&id : real_deleted) {
         auto it = real_added.find_id(id);
         if (it != real_added.end()) {
+            debugf("Pairing with added\n");
             msg_t::limit_change_t msg;
             msg.sub = uuid;
             msg.old_key = id;
@@ -1202,12 +1222,14 @@ void limit_manager_t::commit(
             real_added.erase(it);
             send(msg_t(std::move(msg)));
         } else {
+            debugf("Not pairing with added\n");
             remaining_deleted.insert(std::move(id));
         }
     }
     real_deleted.clear();
 
     for (const auto &id : remaining_deleted) {
+        debugf("Remaining deleted\n");
         msg_t::limit_change_t msg;
         msg.sub = uuid;
         msg.old_key = id;

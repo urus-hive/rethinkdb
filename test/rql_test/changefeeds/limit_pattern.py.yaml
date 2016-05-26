@@ -26,78 +26,29 @@ tests:
       ot: [{'state': 'initializing'}, {'new_val': {'id': 3}}, {'state': 'ready'}]
 
     # The following tests all make assumptions about the order in which batch inserts are processed.
-    # This is theoretically undefined I think. Maybe these tests should be C++ unit tests against the limit_manager_t?
+    # This is theoretically undefined. Maybe these tests should be C++ unit tests against the limit_manager_t?
 
-    # Delete, then add with same value
-    - py: tbl.insert([{'id': 1}, {'id': 1, 'v': 1}], conflict=(lambda: None))
+    # Add, then delete (asc)
+    - py: tbl.insert([{'id': 0, 'v': 0}, {'id': 0}], conflict=(lambda: None))
       ot: partial({'inserted': 1, 'deleted': 1})
-    - py: fetch(asc, 2)
-      ot: [{'new_val': {'id': 2}, 'old_val': {'id': 1}}, {'new_val': {'id': 1}, 'old_val': {'id': 2}}]
-    - py: fetch(desc)
-      ot: []
-    # primary key changefeeds squash results within one transaction
-    - py: fetch(pasc)
-      ot: []
-    - py: fetch(pdesc)
-      ot: []
-
-    # Delete, then add with a different value
-    - py: tbl.insert([{'id': 1}, {'id': 1, 'v': 5}], conflict=(lambda: None))
-      ot: partial({'inserted': 1, 'deleted': 1})
-    - py: fetch(asc, 1)
-      ot: [{'old_val': {'id': 1}, 'new_val': {'id': 2}}]
-    - py: fetch(desc, 1)
-      ot: [{'old_val': {'id': 3}, 'new_val': {'id': 1}}]
-    - py: fetch(pasc)
-      ot: []
-    - py: fetch(pdesc)
-      ot: []
-    # ... and back
-    - py: tbl.insert([{'id': 1}, {'id': 1, 'v': 1}], conflict=(lambda: None))
-      ot: partial({'inserted': 1, 'deleted': 1})
-    - py: fetch(asc, 1)
-      ot: [{'old_val': {'id': 2}, 'new_val': {'id': 1}}]
-    - py: fetch(desc, 1)
-      ot: [{'old_val': {'id': 1}, 'new_val': {'id': 3}}]
-    - py: fetch(pasc)
-      ot: []
-    - py: fetch(pdesc)
-      ot: []
-
-    # Add, then delete
-    - py: tbl.insert([{'id': 0, 'v': 0}, {'id': 0}, {'id': 5, 'v': 5}, {'id': 5}], conflict=(lambda: None))
-      ot: partial({'inserted': 2, 'deleted': 2})
     - py: fetch(asc, 2)
       ot: [{'new_val': {'id': 0}, 'old_val': {'id': 1}}, {'new_val': {'id': 1}, 'old_val': {'id': 0}}]
-    - py: fetch(desc, 2)
-      ot: [{'new_val': {'id': 5}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 5}}]
-    - py: fetch(pasc)
+    - py: fetch(desc)
       ot: []
-    - py: fetch(pdesc)
-      # TODO! Why are we getting these?
-      ot: [{'new_val': {'id': 5}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 5}}]
-
-    # Update, update (will result in delete, add, delete add in the limit changefeed logic)
-    - py: tbl.insert([{'id': 1, 'v': 5}, {'id': 1, 'v': 1}], conflict="replace")
-      ot: partial({'replaced': 2})
-    - py: fetch(asc, 2)
-      ot: [{'new_val': {'id': 2}, 'old_val': {'id': 1}}, {'new_val': {'id': 1}, 'old_val': {'id': 2}}]
-    - py: fetch(desc, 2)
-      ot: [{'new_val': {'id': 1}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 1}}]
     - py: fetch(pasc)
       ot: []
     - py: fetch(pdesc)
       ot: []
 
-    # Update, then delete
-    - py: tbl.insert([{'id': 1, 'v': 5}, {'id': 1, 'v': 0}], conflict=(lambda id, o, n: r.branch(o['v'] == 1, n, None) ))
-      ot: partial({'replaced': 1, 'deleted': 1})
-    - py: fetch(asc, 1)
-      ot: [{'new_val': {'id': 2}, 'old_val': {'id': 1}}]
+    # Add, then delete (desc)
+    - py: tbl.insert([{'id': 5, 'v': 5}, {'id': 5}], conflict=(lambda: None))
+      ot: partial({'inserted': 1, 'deleted': 1})
+    - py: fetch(asc)
+      ot: []
     - py: fetch(desc, 2)
-      ot: [{'new_val': {'id': 1}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 1}}]
-    - py: fetch(pasc, 1)
-      ot: [{'new_val': {'id': 2}, 'old_val': {'id': 1}}]
+      ot: [{'new_val': {'id': 5}, 'old_val': {'id': 3}}, {'new_val': {'id': 3}, 'old_val': {'id': 5}}]
+    - py: fetch(pasc)
+      ot: []
     - py: fetch(pdesc)
       ot: []
 
