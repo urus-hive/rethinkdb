@@ -929,15 +929,15 @@ public:
                   const key_range_t *_pk_range,
                   const keyspec_t::limit_t *_spec,
                   sorting_t _sorting,
-                  boost::optional<queue_val_t> _start,
-                  size_t _n)
+                  boost::optional<item_t> _start,
+                  const item_queue_t *_item_queue)
         : env(_env),
           ops(_ops),
           pk_range(_pk_range),
           spec(_spec),
           sorting(_sorting),
           start(std::move(_start)),
-          n(_n) { }
+          item_queue(_item_queue) { }
 
     std::vector<item_t> operator()(const primary_ref_t &ref) {
         rget_read_response_t resp;
@@ -960,6 +960,7 @@ public:
         case sorting_t::UNORDERED: // fallthru
         default: unreachable();
         }
+        size_t n = spec->limit - item_queue->size();
         rdb_rget_slice(
             ref.btree,
             region_t(),
@@ -1014,17 +1015,26 @@ public:
                 [](const datum_range_t &) { return true; },
                 [](const std::map<datum_t, uint64_t> &) { return false; }));
         datum_range_t srange = spec->range.datumspec.covering_range();
+        size_t n = spec->limit - item_queue->size();
         if (start) {
             datum_t dstart = start->second.first;
             switch (sorting) {
             case sorting_t::ASCENDING:
-                srange = srange.with_left_bound(dstart, key_range_t::bound_t::open);
+                srange = srange.with_left_bound(dstart, key_range_t::bound_t::closed);
                 break;
             case sorting_t::DESCENDING:
-                srange = srange.with_right_bound(dstart, key_range_t::bound_t::open);
+                srange = srange.with_right_bound(dstart, key_range_t::bound_t::closed);
                 break;
             case sorting_t::UNORDERED: // fallthru
             default: unreachable();
+            }
+
+            // Because we're using closed bounds, we have to make sure to read enough.
+            for (const auto &pair : *item_queue) {
+                if (pair->second.first != dstart) {
+                    break;
+                }
+                n += 1;
             }
         }
         reql_version_t reql_version =
@@ -1081,16 +1091,16 @@ private:
     const key_range_t *pk_range;
     const keyspec_t::limit_t *spec;
     sorting_t sorting;
-    boost::optional<queue_val_t> start;
-    size_t n;
+    boost::optional<item_t> start;
+    const item_queue_t *item_queue;
 };
 
 std::vector<item_t> limit_manager_t::read_more(
     const boost::variant<primary_ref_t, sindex_ref_t> &ref,
-    sorting_t sorting,
-    const boost::optional<queue_val_t> &start,
-    size_t n) {
-    ref_visitor_t visitor(env.get(), &ops, &region.inner, &spec, sorting, start, n);
+    const boost::optional<item_t> &start) {
+    guarantee(item_queue.size() < spec.limit);
+    ref_visitor_t visitor(
+        env.get(), &ops, &region.inner, &spec, spec.range.sorting, start, &item_queue);
     return boost::apply_visitor(visitor, ref);
 }
 
@@ -1103,28 +1113,14 @@ void limit_manager_t::commit(
     }
 
     // Before we delete anything, we get the boundary between the active set and
-    // the data that didn't make it into the set.  Anything strictly smaller
-    // than that according to our ordering is guaranteed to be strictly smaller
-    // than anything we will load off of disk with our generated read.
-    boost::optional<queue_val_t> active_boundary;
+    // the data that didn't make it into the set.  Anything <= that according to
+    // our ordering is guaranteed to be strictly smaller than anything we will
+    // load off of disk with our generated read.
+    boost::optional<item_t> active_boundary;
     auto item_queue_it = item_queue.begin();
     if (item_queue_it != item_queue.end()) {
         active_boundary = **item_queue_it;
     }
-    auto beats_read_p = [&active_boundary, this](queue_val_t val) {
-        if (!active_boundary) {
-            // Empty set => nothing on disk.
-            return true;
-        }
-        switch (spec.range.sorting) {
-        case sorting_t::ASCENDING:
-            return gt(*active_boundary, val);
-        case sorting_t::DESCENDING:
-            return gt(val, *active_boundary);
-        case sorting_t::UNORDERED: // fallthru
-        default: unreachable();
-        }
-    };
 
     item_queue_t real_added(gt);
     std::set<std::string> real_deleted;
@@ -1141,7 +1137,7 @@ void limit_manager_t::commit(
         // off of disk below.  This is fine because if the resulting set is
         // still too small, and the things we didn't add happen to beat the
         // other things in the table, we'll read them first.
-        if (beats_read_p(pair)) {
+        if (!(active_boundary && gt(item_t(pair), *active_boundary))) {
             bool inserted = item_queue.insert(pair).second;
             // We can never get two additions for the same key without a deletion
             // in-between.
@@ -1167,10 +1163,7 @@ void limit_manager_t::commit(
         std::vector<item_t> s;
         boost::optional<exc_t> exc;
         try {
-            s = read_more(sindex_ref,
-                          spec.range.sorting,
-                          active_boundary,
-                          spec.limit - item_queue.size());
+            s = read_more(sindex_ref, active_boundary);
         } catch (const exc_t &e) {
             exc = e;
         }
@@ -1180,14 +1173,24 @@ void limit_manager_t::commit(
             abort(*exc);
             return;
         }
-        guarantee(s.size() <= spec.limit - item_queue.size());
         for (auto &&pair : s) {
-            bool ins = item_queue.insert(pair).second;
-            guarantee(ins);
-            size_t erased = real_deleted.erase(pair.first);
-            if (erased == 0) {
-                ins = real_added.insert(pair).second;
-                guarantee(ins);
+            bool inserted = item_queue.insert(pair).second;
+            // Reading duplicates from disk is fine.
+            if (inserted) {
+                bool added_insert = real_added.insert(pair).second;
+                guarantee(added_insert);
+            }
+        }
+        // We need to truncate again because `read_more` may read too much in
+        // the secondary index case.
+        std::vector<std::string> read_trunc = item_queue.truncate_top(spec.limit);
+        for (auto &&id : read_trunc) {
+            auto it = real_added.find_id(id);
+            if (it != real_added.end()) {
+                real_added.erase(it);
+            } else {
+                bool inserted = real_deleted.insert(std::move(id)).second;
+                guarantee(inserted);
             }
         }
     }

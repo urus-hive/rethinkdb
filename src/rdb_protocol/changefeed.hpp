@@ -303,13 +303,13 @@ public:
         return std::make_pair(it, p.second);
     }
 
-    size_t size() {
+    size_t size() const {
         guarantee(data.size() == index.size());
         return data.size();
     }
 
-    iterator begin() { return index.begin(); }
-    iterator end() { return index.end(); }
+    iterator begin() const { return index.begin(); }
+    iterator end() const { return index.end(); }
     // This is sometimes called after `**raw_it` has been invalidated, so we
     // can't just dispatch to the `erase(diterator)` implementation above.
     void erase(const iterator &raw_it) {
@@ -383,8 +383,6 @@ struct sindex_ref_t {
     const sindex_disk_info_t *sindex_info;
 };
 
-typedef std::pair<std::string, std::pair<datum_t, datum_t> > queue_val_t;
-
 class server_t;
 class limit_manager_t {
 public:
@@ -427,9 +425,7 @@ private:
     // Can throw `exc_t` exceptions if an error occurs while reading from disk.
     std::vector<item_t> read_more(
         const boost::variant<primary_ref_t, sindex_ref_t> &ref,
-        sorting_t sorting,
-        const boost::optional<queue_val_t> &start,
-        size_t n);
+        const boost::optional<item_t> &start);
     void send(msg_t &&msg);
 
     scoped_ptr_t<env_t> env;
