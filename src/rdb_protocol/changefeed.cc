@@ -1132,6 +1132,7 @@ void limit_manager_t::commit(
         }
     }
     deleted.clear();
+    bool added_on_disk = false;
     for (const auto &pair : added) {
         // We only add to the set if we know we beat anything that might be read
         // off of disk below.  This is fine because if the resulting set is
@@ -1144,6 +1145,8 @@ void limit_manager_t::commit(
             guarantee(inserted);
             inserted = real_added.insert(pair).second;
             guarantee(inserted);
+        } else {
+            added_on_disk = true;
         }
     }
     added.clear();
@@ -1159,7 +1162,8 @@ void limit_manager_t::commit(
         }
     }
 
-    if (item_queue.size() < spec.limit && real_deleted.size() != 0) {
+    bool anything_on_disk = real_deleted.size() != 0 || added_on_disk;
+    if (item_queue.size() < spec.limit && anything_on_disk) {
         std::vector<item_t> s;
         boost::optional<exc_t> exc;
         try {
