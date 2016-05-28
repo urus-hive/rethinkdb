@@ -1114,8 +1114,8 @@ void limit_manager_t::commit(
 
     // Before we delete anything, we get the boundary between the active set and
     // the data that didn't make it into the set.  Anything <= that according to
-    // our ordering is guaranteed to be strictly smaller than anything we will
-    // load off of disk with our generated read.
+    // our ordering could never be kicked out of the set because of a read from
+    // disk.
     boost::optional<item_t> active_boundary;
     auto item_queue_it = item_queue.begin();
     if (item_queue_it != item_queue.end()) {

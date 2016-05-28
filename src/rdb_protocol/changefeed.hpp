@@ -277,6 +277,10 @@ public:
     typedef typename
     std::set<diterator, std::function<bool(const diterator &,
                                            const diterator &)> >::iterator iterator;
+    typedef typename
+    std::set<diterator, std::function<bool(const diterator &,
+                                           const diterator &)> >::const_iterator
+    const_iterator;
 
     explicit index_queue_t(Gt gt) : index(gt) { }
 
@@ -308,8 +312,10 @@ public:
         return data.size();
     }
 
-    iterator begin() const { return index.begin(); }
-    iterator end() const { return index.end(); }
+    iterator begin() { return index.begin(); }
+    iterator end() { return index.end(); }
+    const_iterator begin() const { return index.begin(); }
+    const_iterator end() const { return index.end(); }
     // This is sometimes called after `**raw_it` has been invalidated, so we
     // can't just dispatch to the `erase(diterator)` implementation above.
     void erase(const iterator &raw_it) {
