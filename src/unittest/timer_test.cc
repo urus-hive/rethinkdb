@@ -48,7 +48,7 @@ TPTEST(TimerTest, TestApproximateWaitTimes) {
         mse += mse_each[i] / repeat;
     }
     mse /= simultaneous;
-    EXPECT_LT(sqrt(mse) / MILLION, max_average_error_ms)
+    EXPECT_LT(sqrt(static_cast<double>(mse)) / MILLION, max_average_error_ms)
         << "Average timer error too high";
 }
 
