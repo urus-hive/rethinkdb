@@ -123,8 +123,10 @@ void add_to_timespec(timespec *ts, int32_t nanoseconds) {
 }
 
 timespec subtract_timespecs(const timespec &t1, const timespec &t2) {
-    guarantee(t1.tv_nsec >= 0 && t1.tv_nsec < BILLION);
-    guarantee(t2.tv_nsec >= 0 && t2.tv_nsec < BILLION);
+    guarantee(t1.tv_nsec >= 0);
+    guarantee(t1.tv_nsec < BILLION);
+    guarantee(t2.tv_nsec >= 0);
+    guarantee(t2.tv_nsec < BILLION);
     timespec res;
     res.tv_sec = t1.tv_sec - t2.tv_sec;
     if (t2.tv_nsec > t1.tv_nsec) {
@@ -138,8 +140,10 @@ timespec subtract_timespecs(const timespec &t1, const timespec &t2) {
 }
 
 bool operator<(const struct timespec &t1, const struct timespec &t2) {
-    guarantee(t1.tv_nsec >= 0 && t1.tv_nsec < BILLION);
-    guarantee(t2.tv_nsec >= 0 && t2.tv_nsec < BILLION);
+    guarantee(t1.tv_nsec >= 0);
+    guarantee(t1.tv_nsec < BILLION);
+    guarantee(t2.tv_nsec >= 0);
+    guarantee(t2.tv_nsec < BILLION);
     return t1.tv_sec < t2.tv_sec || (t1.tv_sec == t2.tv_sec && t1.tv_nsec < t2.tv_nsec);
 }
 
@@ -148,8 +152,10 @@ bool operator>(const struct timespec &t1, const struct timespec &t2) {
 }
 
 bool operator<=(const struct timespec &t1, const struct timespec &t2) {
-    guarantee(t1.tv_nsec >= 0 && t1.tv_nsec < BILLION);
-    guarantee(t2.tv_nsec >= 0 && t2.tv_nsec < BILLION);
+    guarantee(t1.tv_nsec >= 0);
+    guarantee(t1.tv_nsec < BILLION);
+    guarantee(t2.tv_nsec >= 0);
+    guarantee(t2.tv_nsec < BILLION);
     return t1.tv_sec < t2.tv_sec || (t1.tv_sec == t2.tv_sec && t1.tv_nsec <= t2.tv_nsec);
 }
 
