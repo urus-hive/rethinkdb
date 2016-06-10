@@ -148,8 +148,8 @@ private:
                    strprintf("The conflict function passed to `insert` must "
                              "be deterministic."));
             // Check correct arity on function
-            rcheck((*conflict_func)->arity().get() == 0 ||
-                   (*conflict_func)->arity().get() == 3,
+            boost::optional<size_t> arity = (*conflict_func)->arity();
+            rcheck(static_cast<bool>(arity) && (arity.get() == 0 || arity.get() == 3),
                    base_exc_t::LOGIC,
                    strprintf("The conflict function passed to `insert` should "
                              "expect 3 arguments."));
