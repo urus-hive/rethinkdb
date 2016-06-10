@@ -4,7 +4,7 @@
 
 from __future__ import print_function
 
-import datetime, os, random, re, socket, sys, tempfile, threading, time, traceback, unittest
+import datetime, os, random, re, socket, sys, tempfile, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir, os.pardir, "common"))
 import driver, rdb_unittest, utils
