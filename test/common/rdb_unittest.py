@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Copyright 2015-2016 RethinkDB, all rights reserved.
 
-import itertools, os, random, re, shutil, sys, unittest, warnings
+import itertools, os, random, re, shutil, sys, traceback, unittest, warnings
 
 import driver, utils
 
