@@ -302,7 +302,7 @@ class SourceFile(object):
         # - add read percentage
         if self._bytes_size.value <= 0 or self._bytes_size.value <= self._bytes_processed.value:
             completed += 1.0
-        elif self._bytes_processed < 0 and self._total_rows.value >= 0:
+        elif self.__bytes_read.value < 0 and self.__total_rows.value >= 0:
             # done by rows read
             if self._rows_read > 0:
                 completed += float(self._rows_read) / float(self._total_rows.value)
