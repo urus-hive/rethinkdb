@@ -8,6 +8,18 @@ import codecs, collections, csv, ctypes, datetime, json, multiprocessing
 import optparse, os, re, signal, sys, threading, time, traceback
 
 try:
+    xrange
+except NameError:
+    xrange = range
+try:
+    from Queue import Empty, Full
+except ImportError:
+    from queue import Empty, Full
+try:
+    from multiprocessing import Queue
+except ImportError:
+    from multiprocessing.queues import Queue
+try:
     from multiprocessing import SimpleQueue
 except ImportError:
     from multiprocessing.queues import SimpleQueue
@@ -17,7 +29,7 @@ except ImportError:
 PY3 = sys.version > "3"
 
 #json parameters
-json_read_chunk_size = 32 * 1024
+json_read_chunk_size = 128 * 1024
 json_max_buffer_size = 128 * 1024 * 1024
 max_nesting_depth = 100
 default_batch_size = 200
@@ -28,74 +40,107 @@ r = utils_common.r
 Error = collections.namedtuple("Error", ["message", "traceback", "file"])
 
 class SourceFile(object):
-    path           = None
+    format         = None # set by subclasses
+    
+    name           = None
+    
     db             = None
     table          = None
-    format         = None
     primary_key    = None
     indexes        = None
     
     start_time     = None
     end_time       = None
     
-    __bytes_size   = None
-    __bytes_read   = None # -1 until started
+    _source_file   = None # open filehandle for the source
     
-    __total_rows   = None # -1 until known
-    __rows_read    = None
-    __rows_written = None
+    # - internal synchronization variables
     
-    def __init__(self, path, db, table, format=None, primary_key=None, indexes=None):
-        self.path           = os.path.realpath(path)
-        self.db             = db
-        self.table          = table
-        self.format         = format or 'json'
-        self.primary_key    = primary_key or 'id'
-        self.indexes        = indexes or []
+    _bytes_size    = None
+    _bytes_read    = None # -1 until started
+    
+    _total_rows    = None # -1 until known
+    _rows_read     = None
+    _rows_written  = None
+    
+    def __init__(self, source, db, table, primary_key=None, indexes=None):
+        assert self.format is not None, 'Subclass %s must have a format' % self.__class__.__name
         
-        self.__bytes_size   = multiprocessing.Value(ctypes.c_longlong, os.path.getsize(self.path))
-        self.__bytes_read   = multiprocessing.Value(ctypes.c_longlong, -1)
+        # reporting information
+        self._bytes_size   = multiprocessing.Value(ctypes.c_longlong, -1)
+        self._bytes_read   = multiprocessing.Value(ctypes.c_longlong, -1)
         
-        self.__total_rows   = multiprocessing.Value(ctypes.c_longlong, -1)
-        self.__rows_read    = multiprocessing.Value(ctypes.c_longlong, 0)
-        self.__rows_written = multiprocessing.Value(ctypes.c_longlong, 0)
+        self._total_rows   = multiprocessing.Value(ctypes.c_longlong, -1)
+        self._rows_read    = multiprocessing.Value(ctypes.c_longlong, 0)
+        self._rows_written = multiprocessing.Value(ctypes.c_longlong, 0)
+        
+        # source
+        sourceLength = 0
+        if hasattr(source, 'read'):
+            self._source_file = source
+        else:
+            try:
+                self._source_file = open(source, "r", encoding="utf-8", newline="") if PY3 else open(source, "r")
+            except IOError as e:
+                raise ValueError('Unable to open source file "%s": %s' % (str(source), str(e)))
+        
+        if hasattr(self._source_file, 'name') and self._source_file.name and os.path.isfile(self._source_file.name):
+            self._bytes_size.value = os.path.getsize(source)
+            if self._bytes_size.value == 0:
+                raise ValueError('Source is zero-length: %s' % source)
+        
+        # table info
+        self.db            = db
+        self.table         = table
+        self.primary_key   = str(primary_key) if primary_key else 'id'
+        self.indexes       = indexes or []
+        
+        # name
+        if hasattr(self._source_file, 'name') and self._source_file.name:
+            self.name = os.path.basename(self._source_file.name)
+        else:
+            self.name = '%s.%s' % (self.db, self.table)
+        
+    def get_line(self):
+        '''Returns a single line from the file, assumes we have the _lock'''
+        raise NotImplementedError('This needs to be implemented on the %s subclass' % self.format)
     
     # - bytes
     @property
     def bytes_size(self):
-        return self.__bytes_size.value
+        return self._bytes_size.value
     @bytes_size.setter
     def bytes_size(self, value):
-        self.__bytes_size.value = value
+        self._bytes_size.value = value
     
     @property
     def bytes_read(self):
-        return self.__bytes_read.value
+        return self._bytes_read.value
     @bytes_read.setter
     def bytes_read(self, value):
-        self.__bytes_read.value = value
+        self._bytes_read.value = value
     
     # - rows
     @property
     def total_rows(self):
-        return self.__total_rows.value
+        return self._total_rows.value
     @total_rows.setter
     def total_rows(self, value):
-        self.__total_rows.value = value
+        self._total_rows.value = value
     
     @property
     def rows_read(self):
-        return self.__rows_read.value
+        return self._rows_read.value
     @rows_read.setter
     def rows_read(self, value):
-        self.__rows_read.value = value
+        self._rows_read.value = value
     
     @property
     def rows_written(self):
-        return self.__rows_written.value
+        return self._rows_written.value
     def add_rows_written(self, increment): # we have multiple writers to coordinate
-        with self.__rows_written.get_lock():
-            self.__rows_written.value += increment
+        with self._rows_written.get_lock():
+            self._rows_written.value += increment
     
     # - percent done
     @property
@@ -105,34 +150,271 @@ class SourceFile(object):
         completed = 0.0 # of 2.0
         
         # - add read percentage
-        if self.__bytes_size.value <= 0 or self.__bytes_size.value <= self.__bytes_read.value:
+        if self._bytes_size.value <= 0 or self._bytes_size.value <= self._bytes_read.value:
             completed += 1.0
-        elif self.__bytes_read.value < 0 and self.__total_rows.value >= 0:
+        elif self._bytes_read.value < 0 and self._total_rows.value >= 0:
             # done by rows read
-            if self.__rows_read > 0:
-                completed += float(self.__rows_read) / float(self.__total_rows.value)
+            if self._rows_read > 0:
+                completed += float(self._rows_read) / float(self._total_rows.value)
         else:
             # done by bytes read
-            if self.__bytes_read.value > 0:
-                completed += float(self.__bytes_read.value) / float(self.__bytes_size.value)
+            if self._bytes_read.value > 0:
+                completed += float(self._bytes_read.value) / float(self._bytes_size.value)
         read = completed
         
         # - add written percentage
-        if self.__rows_read.value or self.__rows_written.value:
-            totalRows = float(self.__total_rows.value)
+        if self._rows_read.value or self._rows_written.value:
+            totalRows = float(self._total_rows.value)
             if totalRows == 0:
                 completed += 1.0
             elif totalRows < 0:
                 # a guesstimate
-                perRowSize = float(self.__bytes_read.value) / float(self.__rows_read.value)
-                totalRows = float(self.__rows_read.value) + (float(self.__bytes_size.value - self.__bytes_read.value) / perRowSize)
-                completed += float(self.__rows_written.value) / totalRows
+                perRowSize = float(self._bytes_read.value) / float(self._rows_read.value)
+                totalRows = float(self._rows_read.value) + (float(self._bytes_size.value - self._bytes_read.value) / perRowSize)
+                completed += float(self._rows_written.value) / totalRows
             else:
                 # accurate count
-                completed += float(self.__rows_written.value) / totalRows
+                completed += float(self._rows_written.value) / totalRows
         
         # - return the value
         return completed * 0.5
+    
+    def setup_table(self, options):
+        '''Ensure that the db, table, and indexes exist and are correct'''
+        
+        # - ensure the db exists
+        utils_common.retryQuery("ensure db: %s" % self.db, r.expr([self.db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
+        
+        # - ensure the table exists and is ready
+        utils_common.retryQuery(
+            "create table: %s.%s" % (self.db, self.table),
+            r.expr([self.table]).set_difference(r.db(self.db).table_list()).for_each(r.db(self.db).table_create(r.row, **options.create_args))
+        )
+        utils_common.retryQuery("wait for %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).wait(timeout=30))
+        
+        # - ensure that the primary key on the table is correct
+        primaryKey = utils_common.retryQuery(
+            "primary key %s.%s" % (self.db, self.table),
+            r.db(self.db).table(self.table).info()["primary_key"],
+        )
+        if primaryKey != self.primary_key:
+            raise RuntimeError("Error: table %s.%s primary key was `%s` rather than the expected: %s" % (self.db, table.table, primaryKey, self.primary_key))
+        
+        # - recreate secondary indexes - droping existing on the assumption they are wrong
+        if options.sindexes:
+            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).index_list())
+            try:
+                created_indexes = []
+                for index in self.indexes:
+                    if index["index"] in existing_indexes: # drop existing versions
+                        utils_common.retryQuery(
+                            "drop index: %s.%s:%s" % (self.db, self.table, index["index"]),
+                            r.db(self.db).table(self.table).index_drop(index["index"])
+                        )
+                    utils_common.retryQuery(
+                        "create index: %s.%s:%s" % (self.db, self.table, index["index"]),
+                        r.db(self.db).table(self.table).index_create(index["index"], index["function"])
+                    )
+                    created_indexes.append(index["index"])
+                
+                # wait for all of the created indexes to build
+                utils_common.retryQuery(
+                    "waiting for indexes on %s.%s" % (self.db, self.table),
+                    r.db(self.db).table(self.table).index_wait(r.args(created_indexes))
+                )
+            except RuntimeError as e:
+                ex_type, ex_class, tb = sys.exc_info()
+                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), self._source_file.name))
+    
+    def batches(self, batch_size=None):
+        raise NotImplementedError("Subclasses need to impliment this")
+    
+    def read_to_queue(self, work_queue, exit_event, error_queue, timing_queue, fields=None, ignore_signals=True, batch_size=None):
+        if ignore_signals: # ToDo: work out when we are in a worker process automatically
+            signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should ignore these
+                
+        if batch_size is None:
+            batch_size = default_batch_size
+        
+        self.start_time = time.time()
+        try:
+            timePoint = time.time()
+            for batch in self.batches():
+                timing_queue.put(('reader_work', time.time() - timePoint))
+                timePoint = time.time()
+                
+                # apply the fields filter
+                if fields:
+                    for row in batch:
+                        for key in (x for x in row.keys() if x not in fields):
+                            del row[key]
+                
+                while not exit_event.is_set():
+                    try:
+                        work_queue.put((self.db, self.table, batch), timeout=0.1)
+                        self._rows_read.value += len(batch)
+                        break
+                    except Full:
+                        pass
+                timing_queue.put(('reader_wait', time.time() - timePoint))
+                timePoint = time.time()
+        
+        # - report relevent errors
+        except Exception as e:
+            error_queue.put(Error(str(e), traceback.format_exc(), self.name))
+            exit_event.set()
+            raise
+        finally:
+            self.end_time = time.time()
+
+class NeedMoreData(Exception):
+    pass
+
+class JsonSourceFile(SourceFile):
+    format       = 'json'
+    
+    decoder      = json.JSONDecoder()
+    json_array   = None
+    found_first  = False
+    
+    _buffer_size = json_read_chunk_size
+    _buffer_str  = None
+    _buffer_pos  = None
+    _buffer_end  = None
+    
+    def fill_buffer(self):
+        if self._buffer_str is None:
+            self._buffer_str = ''
+            self._buffer_pos = 0
+            self._buffer_end = 0
+        elif self._buffer_pos == 0:
+            # double the buffer under the assumption that the documents are too large to fit
+            if self._buffer_size == json_max_buffer_size:
+                raise Exception("Error: JSON max buffer size exceeded on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (self.name, self.bytes_processed))
+            self._buffer_size = min(self._buffer_size * 2, json_max_buffer_size)
+        
+        # add more data
+        readTarget = self._buffer_size - self._buffer_end + self._buffer_pos
+        assert readTarget > 0
+        
+        newChunk = self._source_file.read(readTarget)
+        if len(newChunk) == 0:
+            raise StopIteration() # file ended
+        self._buffer_str = self._buffer_str[self._buffer_pos:] + newChunk
+        self._bytes_read.value += len(newChunk)
+        
+        # reset markers
+        self._buffer_pos = 0
+        self._buffer_end = len(self._buffer_str) - 1
+    
+    def get_line(self):
+        '''Return a line from the current _buffer_str, or raise NeedMoreData trying'''
+        
+        # advance over any whitespace
+        self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, self._buffer_pos).end()
+        if self._buffer_pos >= self._buffer_end:
+            raise NeedMoreData()
+        
+        # read over a comma if we are not the first item in a json_array
+        if self.json_array and self.found_first and self._buffer_str[self._buffer_pos] == ",":
+            self._buffer_pos += 1
+            if self._buffer_pos >= self._buffer_end:
+                raise NeedMoreData()
+        
+        # advance over any post-comma whitespace
+        self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, self._buffer_pos).end()
+        if self._buffer_pos >= self._buffer_end:
+            raise NeedMoreData()
+        
+        # parse and return an object
+        try:
+            row, self._buffer_pos = self.decoder.raw_decode(self._buffer_str, idx=self._buffer_pos)
+            self.found_first = True
+            return row
+        except (ValueError, IndexError) as e:
+            raise NeedMoreData()
+        
+    def batches(self, batch_size=None):
+        
+        if batch_size is None:
+            batch_size = default_batch_size
+        else:
+            batch_size = int(batch_size)
+        assert batch_size > 0
+        
+        # - move to the first record
+        
+        # advance thorugh any leading whitespace
+        while True:
+            self.fill_buffer()
+            self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, 0).end()
+            if self._buffer_pos == 0:
+                break
+        
+        # check the first character
+        try:
+            if self._buffer_str[0] == "[":
+                self.json_array = True
+                self._buffer_pos = 1
+            elif self._buffer_str[0] == "{":
+                self.json_array = False
+            else:
+                raise ValueError("Error: JSON format not recognized - file does not begin with an object or array")
+        except IndexError:
+            raise ValueError("Error: JSON file was empty of content") 
+        
+        batch = []
+        try:
+            # - yield batches
+            
+            needMoreData = False
+            while True:
+                if needMoreData:
+                    self.fill_buffer()
+                    needMoreData = False
+                
+                while len(batch) < batch_size:
+                    try:
+                        row = self.get_line()
+                        # ToDo: validate the line
+                        batch.append(row)
+                    except NeedMoreData:
+                        needMoreData = True
+                        break
+                    except Exception:
+                        print(self._buffer_pos, self._buffer_str)
+                        raise
+                else:
+                    yield batch
+                    batch = []
+        
+        except StopIteration as e:
+            # yield any final batch
+            if batch:
+                yield batch
+            
+            # - check the end of the file
+            # note: fill_buffer should have gaurenteed that we have only the data in the end
+            
+            # advance thorugh any leading whitespace
+            self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, self._buffer_pos).end()
+            
+            # check the end of the array if we have it
+            if self.json_array:
+                if self._buffer_str[self._buffer_pos] != "]":
+                    snippit = self._buffer_str[self._buffer_pos:]
+                    extra = '' if len(snippit) <= 100 else ' and %d more characters' %  (len(snippit) - 100)
+                    raise ValueError("Error: JSON array did not end cleanly, rather with: <<%s>>%s" % (snippit[:100], extra))
+                self._buffer_pos += 1
+            
+            # advance thorugh any trailing whitespace
+            self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, self._buffer_pos).end()
+            snippit = self._buffer_str[self._buffer_pos:]
+            if len(snippit) > 0:
+                extra = '' if len(snippit) <= 100 else ' and %d more characters' %  (len(snippit) - 100)
+                raise ValueError("Error: extra data after JSON data: <<%s>>%s" % (snippit[:100], extra))
+            
+            raise e
 
 usage = """rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
       [--force] [-i (DB | DB.TABLE)] [--clients NUM]
@@ -174,7 +456,7 @@ def parse_options(argv, prog=None):
     parser.add_option("--force",             dest="force",      action="store_true",  default=False,  help="import even if a table already exists, overwriting duplicate primary keys")
     
     parser.add_option("--writers-per-table", dest="writers",    metavar="WRITERS",    default=multiprocessing.cpu_count(), help=optparse.SUPPRESS_HELP, type="pos_int")
-    parser.add_option("--batch-size",        dest="batch_size", metavar="BATCH",      default=200,                         help=optparse.SUPPRESS_HELP, type="pos_int")
+    parser.add_option("--batch-size",        dest="batch_size", metavar="BATCH",      default=default_batch_size,          help=optparse.SUPPRESS_HELP, type="pos_int")
     
     # Replication settings
     replicationOptionsGroup = optparse.OptionGroup(parser, "Replication Options")
@@ -356,15 +638,21 @@ def parse_options(argv, prog=None):
     return options
 
 # This is run for each client requested, and accepts tasks from the reader processes
-def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_event):
-    signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should not get these
+def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_event, timing_queue):
+    signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should ignore these
     db = table = batch = None
     
     try:
         conflict_action = "replace" if options.force else "error"
+        timePoint = time.time()
         while not exit_event.is_set():
             # get a batch
-            db, table, batch = work_queue.get()
+            try:
+                db, table, batch = work_queue.get(timeout=0.1)
+            except Empty:
+                continue
+            timing_queue.put(('writer_wait', time.time() - timePoint))
+            timePoint = time.time()
             
             # shut down when appropriate
             if isinstance(batch, StopIteration):
@@ -419,117 +707,12 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
                     if res["inserted"] + res["replaced"] + res["unchanged"] != 1:
                         raise RuntimeError("The inserted/replaced/unchanged number was not 1 when inserting on '%s.%s': %s" % (db, table, res))
                     table_info.add_rows_written(1)
+            timing_queue.put(('writer_work', time.time() - timePoint))
+            timePoint = time.time()
             
     except Exception as e:
         error_queue.put(Error(str(e), traceback.format_exc(), "%s.%s" % (db , table)))
         exit_event.set()
-
-def json_reader(table, options, exit_event):
-    decoder   = json.JSONDecoder()
-    startTime = time.time()
-    table.bytes_read = 0
-    try:
-        with open(table.path, "r") as file_in:
-            offset      = 0
-            foundStart  = False
-            foundComma  = True
-            readMore    = True
-            json_array  = False
-            json_data   = ''
-            batch       = []
-            while True:
-                if exit_event.is_set():
-                    return
-                
-                if readMore:
-                    # Read the data in chunks, since the json module would just read the whole thing at once
-                    chunk = file_in.read(min(json_read_chunk_size, json_max_buffer_size - len(json_data)))
-                    if len(chunk) == 0:
-                        break # end of file
-                    dataLength = len(json_data) + len(chunk) - offset
-                    if dataLength >= json_max_buffer_size:
-                        raise Exception("Error: JSON max buffer size exceeded on file %s (from position %d). Use '--max-document-size' to extend your buffer." % (table.path, file_in.tell() - len(json_data)))
-                    
-                    json_data = json_data[offset:] + chunk
-                    
-                    # reset offset
-                    offset = 0
-                    readMore = False
-                
-                # read past leading whitespace
-                offset = json.decoder.WHITESPACE.match(json_data, offset).end()
-                if len(json_data) == 0:
-                    continue
-                
-                # check if we are in a newline-delimited or standard json array document
-                if not foundStart:
-                    if len(json_data) < 2:
-                        continue # go back and read more
-                    if json_data[offset] == "[": # read as a standard json array of dicts
-                        foundStart = True
-                        json_array = True
-                        offset += 1
-                    elif json_data[offset] == "{": # read as a newline-terminates list of dicts
-                        foundStart = True
-                    else:
-                        raise RuntimeError("Error: JSON format not recognized - file does not begin with an object or array")
-                
-                # look for the end of the outer array or intermediate ',' character
-                elif json_array:
-                    if len(json_data) <= offset:
-                        readMore = True
-                        continue
-                    elif json_data[offset] == "]":
-                        json_data = json_data[offset + 1:] if len(json_data) > offset else ''
-                        break
-                    elif not foundComma:
-                        if json_data[offset] == ",":
-                            foundComma = True
-                            offset += 1
-                            offset = json.decoder.WHITESPACE.match(json_data, offset).end() # Read past the comma and any additional whitespace
-                        else:
-                            raise ValueError("Error: JSON format not recognized - expected ',' or ']' after object at byte %d in %s.%s file but found: %s" % (offset + file_in.tell() - len(json_data), table.db, table.table, json_data[offset]))
-                
-                # read a row
-                try:
-                    row, offset = decoder.raw_decode(json_data, idx=offset)
-                    foundComma = False
-                    
-                     # Ensure the row looks good
-                    if not isinstance(row, dict):
-                        error_queue.put(Error('Error importing row on table %s.%s:\n%s' % (table.db, table.table, str(row)), None, table.path))
-                        continue # this is not fatal
-                            
-                    # apply the fields filter
-                    if options.fields:
-                        for key in (x for x in row.keys() if x not in options.fields):
-                            del row[key]
-                    
-                    batch.append(row)
-                    if len(batch) >= options.batch_size:
-                        table.rows_read += len(batch)
-                        table.bytes_read = file_in.tell() - len(json_data) + offset
-                        yield batch
-                        batch = []
-                except (ValueError, IndexError):
-                    readMore = True # did not find a complete JSON object in the buffer, read more
-            
-            # - yield the final batch, if any
-            if batch:
-                table.rows_read += len(batch)
-                yield batch
-            
-            # - make sure only remaining data is whitespace
-            json_data = json_data[offset:]
-            while len(json_data) > 0:
-                offset = json.decoder.WHITESPACE.match(json_data, 0).end()
-                if offset != len(json_data):
-                    displayString = json_data[:40] + ('...' if len(json_data) > 40 else '')
-                    raise RuntimeError("Error: JSON format not recognized - extra characters found after end of data in %s.%s (position %d): %s" % (table.db, table.table, file_in.tell() + offset - len(json_data), displayString))
-                json_data = file_in.read(json_read_chunk_size)
-    finally:
-        table.bytes_read = table.bytes_size
-        table.total_rows = table.rows_read
 
 # Wrapper classes for the handling of unicode csv files
 # Taken from https://docs.python.org/2/library/csv.html
@@ -620,79 +803,6 @@ def csv_reader(table, options, exit_event):
             table.rows_read += len(batch)
             yield batch
 
-def table_reader(table, options, work_queue, error_queue, warning_queue, exit_event):
-    '''Sets up and reads a table from a file'''
-    signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should not get these
-    table.start_time = time.time()
-    try:
-        # - ensure the db exists
-        utils_common.retryQuery("ensure db: %s" % table.db, r.expr([table.db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
-        
-        # - ensure the table exists and is ready
-        utils_common.retryQuery(
-            "create table: %s.%s" % (table.db, table.table),
-            r.expr([table.table]).set_difference(r.db(table.db).table_list()).for_each(r.db(table.db).table_create(r.row, **options.create_args))
-        )
-        utils_common.retryQuery("wait for %s.%s" % (table.db, table.table), r.db(table.db).table(table.table).wait(timeout=30))
-        
-        # - ensure that the primary key on the table is correct
-        primaryKey = utils_common.retryQuery(
-            "primary key %s.%s" % (table.db, table.table),
-            r.db(table.db).table(table.table).info()["primary_key"],
-        )
-        if primaryKey != table.primary_key:
-            raise RuntimeError("Error: table %s.%s primary key was `%s` rather than the expected: %s" % (table.db, table.table, primaryKey, table.primary_key))
-        
-        # - recreate secondary indexes - droping existing on the assumption they are wrong
-        if options.sindexes:
-            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (table.db, table.table), r.db(table.db).table(table.table).index_list())
-            try:
-                created_indexes = []
-                for index in table.indexes:
-                    if index["index"] in existing_indexes: # drop existing versions
-                        utils_common.retryQuery(
-                            "drop index: %s.%s:%s" % (table.db, table.table, index["index"]),
-                            r.db(table.db).table(table.table).index_drop(index["index"])
-                        )
-                    utils_common.retryQuery(
-                        "create index: %s.%s:%s" % (table.db, table.table, index["index"]),
-                        r.db(table.db).table(table.table).index_create(index["index"], index["function"])
-                    )
-                    created_indexes.append(index["index"])
-                
-                # wait for all of the created indexes to build
-                utils_common.retryQuery(
-                    "waiting for indexes on %s.%s" % (table.db, table.table),
-                    r.db(table.db).table(table.table).index_wait(r.args(created_indexes))
-                )
-            except RuntimeError as e:
-                ex_type, ex_class, tb = sys.exc_info()
-                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), table.path))
-        
-        # - setup the data source
-        
-        source = None
-        if table.format == "json":
-            source = json_reader(table, options, exit_event)
-        elif table.format == "csv":
-            source = csv_reader(table, options, exit_event)
-        else:
-            raise RuntimeError("Error: Unknown file format specified: %s" % table.format)
-        
-        # - put baches into the work_queue
-        for batch in source:
-            if exit_event.is_set():
-                break
-            work_queue.put((table.db, table.table, batch))
-    
-    # -- report relevent errors
-    except Exception as e:
-        error_queue.put(Error(str(e), traceback.format_exc(), table.path))
-        exit_event.set()
-        raise
-    finally:
-        table.end_time = time.time()
-
 def abort_import(pools, exit_event, interrupt_event):
     if interrupt_event.is_set():
         # second time
@@ -753,12 +863,15 @@ def import_tables(options, files_info):
     
     tables = dict(((x.db, x.table), x) for x in files_info) # (db, table) => table
     
-    work_queue      = SimpleQueue()
+    work_queue      = Queue(options.clients * 3)
     error_queue     = SimpleQueue()
     warning_queue   = SimpleQueue()
     done_event      = multiprocessing.Event()
     exit_event      = multiprocessing.Event()
     interrupt_event = multiprocessing.Event()
+    
+    timing_queue    = SimpleQueue()
+    timingSums      = {}
     
     pools = []
     progressBar = None
@@ -785,8 +898,8 @@ def import_tables(options, files_info):
             writer = multiprocessing.Process(
                 target=table_writer, name="table writer %d" % i,
                 kwargs={
-                    "tables":tables, "options":options, "work_queue":work_queue,
-                    "error_queue":error_queue, "warning_queue":warning_queue,
+                    "tables":tables, "options":options,
+                    "work_queue":work_queue, "error_queue":error_queue, "warning_queue":warning_queue, "timing_queue":timing_queue,
                     "exit_event":exit_event
                 }
             )
@@ -803,16 +916,24 @@ def import_tables(options, files_info):
             while filesLeft and len(readers) < options.clients:
                 table = next(fileIter)
                 reader = multiprocessing.Process(
-                    target=table_reader, name="table reader %s.%s" % (table.db, table.table),
+                    target=table.read_to_queue, name="table reader %s.%s" % (table.db, table.table),
                     kwargs={
-                        "table":table, "options":options, "work_queue":work_queue,
-                        "error_queue":error_queue, "warning_queue":warning_queue,
+                        "fields":options.fields, "batch_size":options.batch_size,
+                        "work_queue":work_queue, "error_queue":error_queue, "timing_queue":timing_queue,
                         "exit_event":exit_event
                     }
                 )
                 readers.append(reader)
                 reader.start()
                 filesLeft -= 1
+            
+            # drain the timing queue
+            while not timing_queue.empty():
+                key, value = timing_queue.get()
+                if not key in timingSums:
+                    timingSums[key] = value
+                else:
+                    timingSums[key] += value
             
             # reap completed tasks
             if filesLeft:
@@ -824,7 +945,16 @@ def import_tables(options, files_info):
         
         # - wait for the last batch of readers to complete
         while readers:
-             for reader in readers[:]:
+            # drain the timing queue
+            while not timing_queue.empty():
+                key, value = timing_queue.get()
+                if not key in timingSums:
+                    timingSums[key] = value
+                else:
+                    timingSums[key] += value
+            
+            # watch the readers
+            for reader in readers[:]:
                 if exit_event.is_set():
                     reader.terminate() # kill it abruptly
                 reader.join(.1)
@@ -832,9 +962,14 @@ def import_tables(options, files_info):
                     readers.remove(reader)
         
         # - append enough StopIterations to signal all writers
-        if not exit_event.is_set():
-            for _ in writers:
-                work_queue.put((None, None, StopIteration()))
+        for _ in writers:
+            while True:
+                if exit_event.is_set():
+                    break
+                try:
+                    work_queue.put((None, None, StopIteration()), timeout=0.1)
+                    break
+                except Empty: pass
         
         # - wait for all of the writers
         for writer in writers[:]:
@@ -863,14 +998,24 @@ def import_tables(options, files_info):
         while not error_queue.empty():
             errors.append(error_queue.get())
         
-        # - If we were successful, make sure 100% progress is reported
-        if len(errors) == 0 and not interrupt_event.is_set() and not options.quiet:
-            utils_common.print_progress(1.0, indent=2)
-        
-        plural = lambda num, text: "%d %s%s" % (num, text, "" if num == 1 else "s")
+        # - final reporting
         if not options.quiet:
-            # Continue past the progress output line
-            print("\n  %s imported to %s in %.2f secs" % (plural(sum(x.rows_written for x in files_info), "row"), plural(len(files_info), "table"), time.time() - start_time))
+            # if successful, make sure 100% progress is reported
+            if len(errors) == 0 and not interrupt_event.is_set():
+                utils_common.print_progress(1.0, indent=2)
+            
+            # advance past the progress bar
+            print('')
+            
+            # report statistics
+            plural = lambda num, text: "%d %s%s" % (num, text, "" if num == 1 else "s")
+            print("  %s imported to %s in %.2f secs" % (plural(sum(x.rows_written for x in files_info), "row"), plural(len(files_info), "table"), time.time() - start_time))
+            
+            # report debug statistics
+            if options.debug:
+                print('Debug timing:')
+                for key, value in sorted(timingSums.items(), key=lambda x: x[0]):
+                    print('  %s: %.2f' % (key, value))
     finally:
         signal.signal(signal.SIGINT, signal.SIG_DFL)
     
@@ -961,10 +1106,11 @@ def import_directory(options):
                     except OSError:
                         files_ignored.append(os.path.join(root, f))
                     
-                    files_info[(db, table)] = SourceFile(
-                        path=path,
+                    tableType = JsonSourceFile # ToDo check the type
+                    
+                    files_info[(db, table)] = tableType(
+                        source=path,
                         db=db, table=table,
-                        format=ext.lstrip("."),
                         primary_key=primary_key,
                         indexes=indexes
                     )
