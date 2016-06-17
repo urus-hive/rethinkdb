@@ -16,10 +16,13 @@ try:
 except NameError:
     unicode = str
 try:
-    from multiprocessing import SimpleQueue
+    from Queue import Empty, Full
 except ImportError:
-    from multiprocessing.queues import SimpleQueue
-
+    from queue import Empty, Full
+try:
+    from multiprocessing import Queue, SimpleQueue
+except ImportError:
+    from multiprocessing.queues import Queue, SimpleQueue
 
 info = "'rethinkdb export` exports data from a RethinkDB cluster into a directory"
 usage = "\
@@ -235,7 +238,10 @@ def read_table_into_queue(progress, conn, db, table, pkey, task_queue, progress_
         for row in cursor:
             if exit_event.is_set():
                 break
-            task_queue.put([row])
+            try:
+                task_queue.put([row], timeout=0.1)
+            except Full:
+                continue
 
             # Set progress so we can continue from this point if a connection error occurs
             progress[0] = row[pkey]
@@ -351,7 +357,7 @@ def export_table(host, port, db, table, directory, fields, delimiter, format,
         
         # -- start the writer
         
-        task_queue = SimpleQueue()
+        task_queue = Queue(20)
         writer = None
         if format == "json":
             filename = directory + "/%s/%s.json" % (db, table)
