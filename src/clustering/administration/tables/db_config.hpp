@@ -27,6 +27,7 @@ class db_config_artificial_table_backend_t :
 {
 public:
     db_config_artificial_table_backend_t(
+            name_resolver_t const &name_resolver,
             boost::shared_ptr< semilattice_readwrite_view_t<
             databases_semilattice_metadata_t> > _database_sl_view,
             real_reql_cluster_interface_t *_reql_cluster_interface);

@@ -61,13 +61,11 @@ public:
             namespace_id_t _uuid,
             namespace_interface_access_t _namespace_access,
             const std::string &_pkey,
-            ql::changefeed::client_t *_changefeed_client,
-            table_meta_client_t *table_meta_client) :
+            ql::changefeed::client_t *_changefeed_client) :
         uuid(_uuid),
         namespace_access(_namespace_access),
         pkey(_pkey),
-        changefeed_client(_changefeed_client),
-        m_table_meta_client(table_meta_client) { }
+        changefeed_client(_changefeed_client) { }
 
     namespace_id_t get_id() const;
     const std::string &get_pkey() const;
@@ -147,7 +145,6 @@ private:
     namespace_interface_access_t namespace_access;
     std::string pkey;
     ql::changefeed::client_t *changefeed_client;
-    table_meta_client_t *m_table_meta_client;
 };
 
 #endif /* RDB_PROTOCOL_REAL_TABLE_HPP_ */

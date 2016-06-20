@@ -22,6 +22,7 @@ class table_status_artificial_table_backend_t :
 {
 public:
     table_status_artificial_table_backend_t(
+            name_resolver_t const &name_resolver,
             boost::shared_ptr<semilattice_readwrite_view_t<
                 cluster_semilattice_metadata_t> > _semilattice_view,
             server_config_client_t *server_config_client,

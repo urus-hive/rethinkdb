@@ -14,19 +14,14 @@ const uuid_u artificial_reql_cluster_interface_t::base_database_id =
 
 artificial_reql_cluster_interface_t::artificial_reql_cluster_interface_t(
         name_string_t database_name,
-        const std::map<name_string_t,
-                std::pair<artificial_table_backend_t *, artificial_table_backend_t *>
-            > &tables,
-        boost::shared_ptr<semilattice_readwrite_view_t<
-            auth_semilattice_metadata_t> > auth_semilattice_view,
-        rdb_context_t *rdb_context,
-        reql_cluster_interface_t *next) :
+        boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
+            auth_semilattice_view,
+        rdb_context_t *rdb_context) :
     m_database_name(database_name),
     m_database_id(uuid_u::from_hash(base_database_id, database_name.str())),
-    m_tables(tables),
     m_auth_semilattice_view(auth_semilattice_view),
     m_rdb_context(rdb_context),
-    m_next(next) {
+    m_next(nullptr) {
 }
 
 bool artificial_reql_cluster_interface_t::db_create(
@@ -41,7 +36,8 @@ bool artificial_reql_cluster_interface_t::db_create(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->db_create(user_context, name, interruptor, result_out, error_out);
+    return m_next != nullptr && m_next->db_create(
+        user_context, name, interruptor, result_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::db_drop(
@@ -57,13 +53,14 @@ bool artificial_reql_cluster_interface_t::db_drop(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->db_drop(user_context, name, interruptor, result_out, error_out);
+    return m_next != nullptr && m_next->db_drop(
+        user_context, name, interruptor, result_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::db_list(
         signal_t *interruptor,
         std::set<name_string_t> *names_out, admin_err_t *error_out) {
-    if (!m_next->db_list(interruptor, names_out, error_out)) {
+    if (m_next == nullptr || !m_next->db_list(interruptor, names_out, error_out)) {
         return false;
     }
     guarantee(names_out->count(m_database_name) == 0);
@@ -80,7 +77,7 @@ bool artificial_reql_cluster_interface_t::db_find(
         *db_out = make_counted<const ql::db_t>(m_database_id, m_database_name);
         return true;
     }
-    return m_next->db_find(name, interruptor, db_out, error_out);
+    return m_next != nullptr && m_next->db_find(name, interruptor, db_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::db_config(
@@ -97,7 +94,8 @@ bool artificial_reql_cluster_interface_t::db_config(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->db_config(user_context, db, bt, env, selection_out, error_out);
+    return m_next != nullptr && m_next->db_config(
+        user_context, db, bt, env, selection_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::table_create(
@@ -117,7 +115,7 @@ bool artificial_reql_cluster_interface_t::table_create(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_create(
+    return m_next != nullptr && m_next->table_create(
         user_context,
         name,
         db,
@@ -143,14 +141,15 @@ bool artificial_reql_cluster_interface_t::table_drop(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_drop(user_context, name, db, interruptor, result_out, error_out);
+    return m_next != nullptr && m_next->table_drop(
+        user_context, name, db, interruptor, result_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::table_list(counted_t<const ql::db_t> db,
         signal_t *interruptor,
         std::set<name_string_t> *names_out, admin_err_t *error_out) {
     if (db->name == m_database_name) {
-        for (auto it = m_tables.begin(); it != m_tables.end(); ++it) {
+        for (auto it = m_table_backends.begin(); it != m_table_backends.end(); ++it) {
             if (it->first.str()[0] == '_') {
                 /* If a table's name starts with `_`, don't show it to the user unless
                 they explicitly request it. */
@@ -160,7 +159,8 @@ bool artificial_reql_cluster_interface_t::table_list(counted_t<const ql::db_t> d
         }
         return true;
     }
-    return m_next->table_list(db, interruptor, names_out, error_out);
+    return m_next != nullptr && m_next->table_list(
+        db, interruptor, names_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::table_find(
@@ -171,8 +171,8 @@ bool artificial_reql_cluster_interface_t::table_find(
         counted_t<base_table_t> *table_out,
         admin_err_t *error_out) {
     if (db->name == m_database_name) {
-        auto it = m_tables.find(name);
-        if (it != m_tables.end()) {
+        auto it = m_table_backends.find(name);
+        if (it != m_table_backends.end()) {
             artificial_table_backend_t *backend;
             if (!static_cast<bool>(identifier_format) ||
                     *identifier_format == admin_identifier_format_t::name) {
@@ -190,8 +190,8 @@ bool artificial_reql_cluster_interface_t::table_find(
             return false;
         }
     }
-    return m_next->table_find(name, db, identifier_format,
-        interruptor, table_out, error_out);
+    return m_next != nullptr && m_next->table_find(
+        name, db, identifier_format, interruptor, table_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::table_estimate_doc_counts(
@@ -202,8 +202,8 @@ bool artificial_reql_cluster_interface_t::table_estimate_doc_counts(
         std::vector<int64_t> *doc_counts_out,
         admin_err_t *error_out) {
     if (db->name == m_database_name) {
-        auto it = m_tables.find(name);
-        if (it != m_tables.end()) {
+        auto it = m_table_backends.find(name);
+        if (it != m_table_backends.end()) {
             counted_t<ql::datum_stream_t> docs;
             /* We arbitrarily choose to read from the UUID version of the system table
             rather than the name version. */
@@ -237,7 +237,7 @@ bool artificial_reql_cluster_interface_t::table_estimate_doc_counts(
             return false;
         }
     } else {
-        return m_next->table_estimate_doc_counts(
+        return m_next != nullptr && m_next->table_estimate_doc_counts(
             user_context, db, name, env, doc_counts_out, error_out);
     }
 }
@@ -256,7 +256,7 @@ bool artificial_reql_cluster_interface_t::table_config(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_config(
+    return m_next != nullptr && m_next->table_config(
         user_context, db, name, bt, env, selection_out, error_out);
 }
 
@@ -271,7 +271,8 @@ bool artificial_reql_cluster_interface_t::table_status(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_status(db, name, bt, env, selection_out, error_out);
+    return m_next != nullptr && m_next->table_status(
+        db, name, bt, env, selection_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::table_wait(
@@ -286,7 +287,8 @@ bool artificial_reql_cluster_interface_t::table_wait(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_wait(db, name, readiness, interruptor, result_out, error_out);
+    return m_next != nullptr && m_next->table_wait(
+        db, name, readiness, interruptor, result_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::db_wait(
@@ -301,7 +303,8 @@ bool artificial_reql_cluster_interface_t::db_wait(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->db_wait(db, readiness, interruptor, result_out, error_out);
+    return m_next != nullptr && m_next->db_wait(
+        db, readiness, interruptor, result_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::table_reconfigure(
@@ -320,7 +323,7 @@ bool artificial_reql_cluster_interface_t::table_reconfigure(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_reconfigure(
+    return m_next != nullptr && m_next->table_reconfigure(
         user_context, db, name, params, dry_run, interruptor, result_out, error_out);
 }
 
@@ -339,7 +342,7 @@ bool artificial_reql_cluster_interface_t::db_reconfigure(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->db_reconfigure(
+    return m_next != nullptr && m_next->db_reconfigure(
         user_context, db, params, dry_run, interruptor, result_out, error_out);
 }
 
@@ -359,7 +362,7 @@ bool artificial_reql_cluster_interface_t::table_emergency_repair(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_emergency_repair(
+    return m_next != nullptr && m_next->table_emergency_repair(
         user_context, db, name, mode, dry_run, interruptor, result_out, error_out);
 }
 
@@ -377,7 +380,7 @@ bool artificial_reql_cluster_interface_t::table_rebalance(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->table_rebalance(
+    return m_next != nullptr && m_next->table_rebalance(
         user_context, db, name, interruptor, result_out, error_out);
 }
 
@@ -394,7 +397,8 @@ bool artificial_reql_cluster_interface_t::db_rebalance(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->db_rebalance(user_context, db, interruptor, result_out, error_out);
+    return m_next != nullptr && m_next->db_rebalance(
+        user_context, db, interruptor, result_out, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::grant_global(
@@ -404,7 +408,7 @@ bool artificial_reql_cluster_interface_t::grant_global(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    return m_next->grant_global(
+    return m_next != nullptr && m_next->grant_global(
         user_context,
         std::move(username),
         std::move(permissions),
@@ -435,7 +439,7 @@ bool artificial_reql_cluster_interface_t::grant_database(
             result_out,
             error_out);
     }
-    return m_next->grant_database(
+    return m_next != nullptr && m_next->grant_database(
         user_context,
         database_id,
         std::move(username),
@@ -468,7 +472,7 @@ bool artificial_reql_cluster_interface_t::grant_table(
             result_out,
             error_out);
     }
-    return m_next->grant_table(
+    return m_next != nullptr && m_next->grant_table(
         user_context,
         database_id,
         table_id,
@@ -494,7 +498,7 @@ bool artificial_reql_cluster_interface_t::sindex_create(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->sindex_create(
+    return m_next != nullptr && m_next->sindex_create(
         user_context, db, table, name, config, interruptor, error_out);
 }
 
@@ -512,7 +516,8 @@ bool artificial_reql_cluster_interface_t::sindex_drop(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->sindex_drop(user_context, db, table, name, interruptor, error_out);
+    return m_next != nullptr && m_next->sindex_drop(
+        user_context, db, table, name, interruptor, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::sindex_rename(
@@ -531,7 +536,7 @@ bool artificial_reql_cluster_interface_t::sindex_rename(
             query_state_t::FAILED};
         return false;
     }
-    return m_next->sindex_rename(
+    return m_next != nullptr && m_next->sindex_rename(
         user_context, db, table, name, new_name, overwrite, interruptor, error_out);
 }
 
@@ -546,164 +551,252 @@ bool artificial_reql_cluster_interface_t::sindex_list(
         configs_and_statuses_out->clear();
         return true;
     }
-    return m_next->sindex_list(
+    return m_next != nullptr && m_next->sindex_list(
         db, table, interruptor, error_out, configs_and_statuses_out);
 }
 
-admin_artificial_tables_t::admin_artificial_tables_t(
-        real_reql_cluster_interface_t *_next_reql_cluster_interface,
-        boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t> >
-            auth_semilattice_view,
-        boost::shared_ptr<semilattice_readwrite_view_t<
-            cluster_semilattice_metadata_t> > _semilattice_view,
-        boost::shared_ptr<semilattice_readwrite_view_t<
-            heartbeat_semilattice_metadata_t> > _heartbeat_view,
-        rdb_context_t *rdb_context,
-        clone_ptr_t< watchable_t< change_tracking_map_t<peer_id_t,
-            cluster_directory_metadata_t> > > _directory_view,
-        watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory_map_view,
-        table_meta_client_t *_table_meta_client,
-        server_config_client_t *_server_config_client,
-        namespace_repo_t *_namespace_repo,
-        mailbox_manager_t *_mailbox_manager) {
-    std::map<name_string_t,
-        std::pair<artificial_table_backend_t *, artificial_table_backend_t *> > backends;
-
-    for (int i = 0; i < 2; ++i) {
-        permissions_backend[i].init(new auth::permissions_artificial_table_backend_t(
-            auth_semilattice_view,
-            _semilattice_view,
-            _table_meta_client,
-            static_cast<admin_identifier_format_t>(i)));
-    }
-    backends[name_string_t::guarantee_valid("permissions")] =
-        std::make_pair(permissions_backend[0].get(), permissions_backend[1].get());
-
-    users_backend.init(new auth::users_artificial_table_backend_t(
-        auth_semilattice_view,
-        _semilattice_view));
-    backends[name_string_t::guarantee_valid("users")] =
-        std::make_pair(users_backend.get(), users_backend.get());
-
-    cluster_config_backend.init(new cluster_config_artificial_table_backend_t(
-        _heartbeat_view));
-    backends[name_string_t::guarantee_valid("cluster_config")] =
-        std::make_pair(cluster_config_backend.get(), cluster_config_backend.get());
-
-    db_config_backend.init(new db_config_artificial_table_backend_t(
-        metadata_field(&cluster_semilattice_metadata_t::databases,
-                       _semilattice_view),
-        _next_reql_cluster_interface));
-
-    backends[name_string_t::guarantee_valid("db_config")] =
-        std::make_pair(db_config_backend.get(), db_config_backend.get());
-
-    for (int i = 0; i < 2; ++i) {
-        issues_backend[i].init(new issues_artificial_table_backend_t(
-            _mailbox_manager,
-            _semilattice_view,
-            _directory_map_view,
-            _server_config_client,
-            _table_meta_client,
-            _namespace_repo,
-            static_cast<admin_identifier_format_t>(i)));
-    }
-    backends[name_string_t::guarantee_valid("current_issues")] =
-        std::make_pair(issues_backend[0].get(), issues_backend[1].get());
-
-    for (int i = 0; i < 2; ++i) {
-        logs_backend[i].init(new logs_artificial_table_backend_t(
-            _mailbox_manager,
-            _directory_map_view,
-            _server_config_client,
-            static_cast<admin_identifier_format_t>(i)));
-    }
-    backends[name_string_t::guarantee_valid("logs")] =
-        std::make_pair(logs_backend[0].get(), logs_backend[1].get());
-
-    server_config_backend.init(new server_config_artificial_table_backend_t(
-        _directory_map_view,
-        _server_config_client));
-    backends[name_string_t::guarantee_valid("server_config")] =
-        std::make_pair(server_config_backend.get(), server_config_backend.get());
-
-    for (int i = 0; i < 2; ++i) {
-        server_status_backend[i].init(new server_status_artificial_table_backend_t(
-            _directory_map_view,
-            _server_config_client,
-            static_cast<admin_identifier_format_t>(i)));
-    }
-    backends[name_string_t::guarantee_valid("server_status")] =
-        std::make_pair(server_status_backend[0].get(), server_status_backend[1].get());
-
-    for (int i = 0; i < 2; ++i) {
-        stats_backend[i].init(new stats_artificial_table_backend_t(
-            _directory_view, _semilattice_view, _server_config_client,
-            _table_meta_client, _mailbox_manager,
-            static_cast<admin_identifier_format_t>(i)));
-    }
-    backends[name_string_t::guarantee_valid("stats")] =
-        std::make_pair(stats_backend[0].get(), stats_backend[1].get());
-
-    for (int i = 0; i < 2; ++i) {
-        table_config_backend[i].init(new table_config_artificial_table_backend_t(
-            _semilattice_view,
-            _next_reql_cluster_interface,
-            static_cast<admin_identifier_format_t>(i),
-            _server_config_client,
-            _table_meta_client));
-    }
-    backends[name_string_t::guarantee_valid("table_config")] =
-        std::make_pair(table_config_backend[0].get(), table_config_backend[1].get());
-
-    for (int i = 0; i < 2; ++i) {
-        table_status_backend[i].init(new table_status_artificial_table_backend_t(
-            _semilattice_view,
-            _server_config_client,
-            _table_meta_client,
-            _namespace_repo,
-            static_cast<admin_identifier_format_t>(i)));
-    }
-    backends[name_string_t::guarantee_valid("table_status")] =
-        std::make_pair(table_status_backend[0].get(), table_status_backend[1].get());
-
-    for (int i = 0; i < 2; ++i) {
-        jobs_backend[i].init(new jobs_artificial_table_backend_t(
-            _mailbox_manager,
-            _semilattice_view,
-            _directory_view,
-            _server_config_client,
-            _table_meta_client,
-            static_cast<admin_identifier_format_t>(i)));
-    }
-    backends[name_string_t::guarantee_valid("jobs")] =
-        std::make_pair(jobs_backend[0].get(), jobs_backend[1].get());
-
-    debug_scratch_backend.init(
-        new in_memory_artificial_table_backend_t(
-            name_string_t::guarantee_valid("_debug_scratch")));
-    backends[name_string_t::guarantee_valid("_debug_scratch")] =
-        std::make_pair(debug_scratch_backend.get(), debug_scratch_backend.get());
-
-    debug_stats_backend.init(new debug_stats_artificial_table_backend_t(
-        _directory_map_view,
-        _server_config_client,
-        _mailbox_manager));
-    backends[name_string_t::guarantee_valid("_debug_stats")] =
-        std::make_pair(debug_stats_backend.get(), debug_stats_backend.get());
-
-    debug_table_status_backend.init(new debug_table_status_artificial_table_backend_t(
-        _semilattice_view,
-        _table_meta_client));
-    backends[name_string_t::guarantee_valid("_debug_table_status")] =
-        std::make_pair(debug_table_status_backend.get(),
-                       debug_table_status_backend.get());
-
-    reql_cluster_interface.init(new artificial_reql_cluster_interface_t(
-        name_string_t::guarantee_valid("rethinkdb"),
-        backends,
-        auth_semilattice_view,
-        rdb_context,
-        _next_reql_cluster_interface));
+database_id_t artificial_reql_cluster_interface_t::get_database_id() const {
+    return m_database_id;
 }
 
+name_string_t artificial_reql_cluster_interface_t::get_database_name() const {
+    return m_database_name;
+}
+
+void artificial_reql_cluster_interface_t::set_next_reql_cluster_interface(
+        reql_cluster_interface_t *next) {
+    m_next = next;
+}
+
+artificial_table_backend_t *artificial_reql_cluster_interface_t::get_table_backend(
+        name_string_t const &table_name,
+        admin_identifier_format_t admin_identifier_format) const {
+    auto table_backend = m_table_backends.find(table_name);
+    if (table_backend != m_table_backends.end()) {
+        switch (admin_identifier_format) {
+            case admin_identifier_format_t::name:
+                return table_backend->second.first;
+                break;
+            case admin_identifier_format_t::uuid:
+                return table_backend->second.second;
+                break;
+        }
+    } else {
+        return nullptr;
+    }
+}
+
+artificial_reql_cluster_interface_t::table_backends_map_t *
+artificial_reql_cluster_interface_t::get_table_backends_map() {
+    return &m_table_backends;
+}
+
+artificial_reql_cluster_interface_t::table_backends_map_t const &
+artificial_reql_cluster_interface_t::get_table_backends_map() const {
+    return m_table_backends;
+}
+
+artificial_reql_cluster_backends_t::artificial_reql_cluster_backends_t(
+        artificial_reql_cluster_interface_t *artificial_reql_cluster_interface,
+        real_reql_cluster_interface_t *real_reql_cluster_interface,
+        boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
+            auth_semilattice_view,
+        boost::shared_ptr<semilattice_readwrite_view_t<cluster_semilattice_metadata_t>>
+            cluster_semilattice_view,
+        boost::shared_ptr<semilattice_readwrite_view_t<heartbeat_semilattice_metadata_t>>
+            heartbeat_semilattice_view,
+        clone_ptr_t<watchable_t<change_tracking_map_t<
+            peer_id_t, cluster_directory_metadata_t>>> directory_view,
+        watchable_map_t<peer_id_t, cluster_directory_metadata_t> *directory_map_view,
+        table_meta_client_t *table_meta_client,
+        server_config_client_t *server_config_client,
+        mailbox_manager_t *mailbox_manager,
+        name_resolver_t const &name_resolver) {
+    for (int format = 0; format < 2; ++format) {
+        permissions_backend[format].reset(
+            new auth::permissions_artificial_table_backend_t(
+                name_resolver,
+                auth_semilattice_view,
+                cluster_semilattice_view,
+                static_cast<admin_identifier_format_t>(format)));
+    }
+    permissions_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("permissions"),
+        std::make_pair(permissions_backend[0].get(), permissions_backend[1].get()));
+
+    users_backend.reset(
+        new auth::users_artificial_table_backend_t(
+            name_resolver,
+            auth_semilattice_view,
+            cluster_semilattice_view));
+    users_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("users"),
+        std::make_pair(users_backend.get(), users_backend.get()));
+
+    cluster_config_backend.reset(
+        new cluster_config_artificial_table_backend_t(
+            name_resolver, heartbeat_semilattice_view));
+    cluster_config_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("cluster_config"),
+        std::make_pair(cluster_config_backend.get(), cluster_config_backend.get()));
+
+    db_config_backend.reset(
+        new db_config_artificial_table_backend_t(
+            name_resolver,
+            metadata_field(
+                &cluster_semilattice_metadata_t::databases,
+                cluster_semilattice_view),
+            real_reql_cluster_interface));
+    db_config_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("db_config"),
+        std::make_pair(db_config_backend.get(), db_config_backend.get()));
+
+    for (int format = 0; format < 2; ++format) {
+        issues_backend[format].reset(
+            new issues_artificial_table_backend_t(
+                name_resolver,
+                mailbox_manager,
+                cluster_semilattice_view,
+                directory_map_view,
+                server_config_client,
+                table_meta_client,
+                real_reql_cluster_interface->get_namespace_repo(),
+                static_cast<admin_identifier_format_t>(format)));
+    }
+    issues_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("current_issues"),
+        std::make_pair(issues_backend[0].get(), issues_backend[1].get()));
+
+    for (int format = 0; format < 2; ++format) {
+        logs_backend[format].reset(
+            new logs_artificial_table_backend_t(
+                name_resolver,
+                mailbox_manager,
+                directory_map_view,
+                server_config_client,
+                static_cast<admin_identifier_format_t>(format)));
+    }
+    logs_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("logs"),
+        std::make_pair(logs_backend[0].get(), logs_backend[1].get()));
+
+    server_config_backend.reset(
+        new server_config_artificial_table_backend_t(
+            name_resolver,
+            directory_map_view,
+            server_config_client));
+    server_config_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("server_config"),
+        std::make_pair(server_config_backend.get(), server_config_backend.get()));
+
+    for (int format = 0; format < 2; ++format) {
+        server_status_backend[format].reset(
+            new server_status_artificial_table_backend_t(
+                name_resolver,
+                directory_map_view,
+                server_config_client,
+                static_cast<admin_identifier_format_t>(format)));
+    }
+    server_status_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("server_status"),
+        std::make_pair(server_status_backend[0].get(), server_status_backend[1].get()));
+
+    for (int format = 0; format < 2; ++format) {
+        stats_backend[format].reset(
+            new stats_artificial_table_backend_t(
+                name_resolver,
+                directory_view,
+                cluster_semilattice_view,
+                server_config_client,
+                table_meta_client,
+                mailbox_manager,
+                static_cast<admin_identifier_format_t>(format)));
+    }
+    stats_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("stats"),
+        std::make_pair(stats_backend[0].get(), stats_backend[1].get()));
+
+    for (int format = 0; format < 2; ++format) {
+        table_config_backend[format].reset(
+            new table_config_artificial_table_backend_t(
+                name_resolver,
+                cluster_semilattice_view,
+                real_reql_cluster_interface,
+                static_cast<admin_identifier_format_t>(format),
+                server_config_client,
+                table_meta_client));
+    }
+    table_config_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("table_config"),
+        std::make_pair(table_config_backend[0].get(), table_config_backend[1].get()));
+
+    for (int format = 0; format < 2; ++format) {
+        table_status_backend[format].reset(
+            new table_status_artificial_table_backend_t(
+                name_resolver,
+                cluster_semilattice_view,
+                server_config_client,
+                table_meta_client,
+                real_reql_cluster_interface->get_namespace_repo(),
+                static_cast<admin_identifier_format_t>(format)));
+    }
+    table_status_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("table_status"),
+        std::make_pair(table_status_backend[0].get(), table_status_backend[1].get()));
+
+    for (int format = 0; format < 2; ++format) {
+        jobs_backend[format].reset(
+            new jobs_artificial_table_backend_t(
+                name_resolver,
+                mailbox_manager,
+                cluster_semilattice_view,
+                directory_view,
+                server_config_client,
+                table_meta_client,
+                static_cast<admin_identifier_format_t>(format)));
+    }
+    jobs_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("jobs"),
+        std::make_pair(jobs_backend[0].get(), jobs_backend[1].get()));
+
+    debug_scratch_backend.reset(
+        new in_memory_artificial_table_backend_t(
+            name_string_t::guarantee_valid("_debug_scratch"), name_resolver));
+    debug_scratch_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("_debug_scratch"),
+        std::make_pair(debug_scratch_backend.get(), debug_scratch_backend.get()));
+
+    debug_stats_backend.reset(
+        new debug_stats_artificial_table_backend_t(
+            name_resolver,
+            directory_map_view,
+            server_config_client,
+            mailbox_manager));
+    debug_stats_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("_debug_stats"),
+        std::make_pair(debug_stats_backend.get(), debug_stats_backend.get()));
+
+    debug_table_status_backend.reset(
+        new debug_table_status_artificial_table_backend_t(
+            name_resolver,
+            cluster_semilattice_view,
+            table_meta_client));
+    debug_table_status_sentry = backend_sentry_t(
+        artificial_reql_cluster_interface->get_table_backends_map(),
+        name_string_t::guarantee_valid("_debug_table_status"),
+        std::make_pair(debug_table_status_backend.get(), debug_table_status_backend.get()));
+}

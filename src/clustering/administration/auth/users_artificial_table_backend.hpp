@@ -11,6 +11,7 @@ class users_artificial_table_backend_t :
 {
 public:
     users_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
             auth_semilattice_view,
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t>>

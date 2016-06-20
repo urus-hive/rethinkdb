@@ -2,7 +2,12 @@
 #ifndef CLUSTERING_ADMINISTRATION_AUTH_PERMISSIONS_ARTIFICIAL_TABLE_BACKEND_HPP
 #define CLUSTERING_ADMINISTRATION_AUTH_PERMISSIONS_ARTIFICIAL_TABLE_BACKEND_HPP
 
+#include "errors.hpp"
+#include <boost/optional.hpp>
+
 #include "clustering/administration/auth/base_artificial_table_backend.hpp"
+
+class name_resolver_t;
 
 namespace auth {
 
@@ -11,11 +16,11 @@ class permissions_artificial_table_backend_t :
 {
 public:
     permissions_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
             auth_semilattice_view,
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t>>
             cluster_semilattice_view,
-        table_meta_client_t *table_meta_client,
         admin_identifier_format_t identifier_format);
 
     bool read_all_rows_as_vector(
@@ -62,14 +67,14 @@ private:
 
     bool table_to_datum(
         username_t const &username,
-        database_id_t const &database_id,
+        boost::optional<database_id_t> const &database_id,
         namespace_id_t const &table_id,
         permissions_t const &permissions,
         cluster_semilattice_metadata_t const &cluster_metadata,
         ql::datum_t *datum_out);
 
 private:
-    table_meta_client_t *m_table_meta_client;
+    name_resolver_t const &m_name_resolver;
     admin_identifier_format_t m_identifier_format;
 };
 

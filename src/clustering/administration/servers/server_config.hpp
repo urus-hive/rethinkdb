@@ -20,6 +20,7 @@ class server_config_artificial_table_backend_t :
 {
 public:
     server_config_artificial_table_backend_t(
+            name_resolver_t const &name_resolver,
             watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory,
             server_config_client_t *_server_config_client);
     ~server_config_artificial_table_backend_t();

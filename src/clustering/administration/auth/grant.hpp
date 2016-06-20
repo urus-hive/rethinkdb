@@ -66,6 +66,8 @@ bool grant(
             return copy == metadata;
         },
         interruptor);
+    (void) rdb_context;
+    (void) interruptor;
 
     ql::datum_object_builder_t result_builder;
     result_builder.overwrite("granted", ql::datum_t(1.0));

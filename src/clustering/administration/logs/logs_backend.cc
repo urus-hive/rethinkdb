@@ -64,11 +64,13 @@ ql::datum_t convert_log_message_to_datum(
 }
 
 logs_artificial_table_backend_t::logs_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         mailbox_manager_t *_mailbox_manager,
         watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory,
         server_config_client_t *_server_config_client,
         admin_identifier_format_t _identifier_format) :
-    cfeed_artificial_table_backend_t(name_string_t::guarantee_valid("logs")),
+    cfeed_artificial_table_backend_t(
+        name_string_t::guarantee_valid("logs"), name_resolver),
     mailbox_manager(_mailbox_manager),
     directory(_directory),
     server_config_client(_server_config_client),
@@ -208,9 +210,12 @@ bool logs_artificial_table_backend_t::write_row(
 }
 
 logs_artificial_table_backend_t::cfeed_machinery_t::cfeed_machinery_t(
+        namespace_id_t const &table_id,
+        name_resolver_t const &name_resolver,
         auth::user_context_t const &user_context,
         logs_artificial_table_backend_t *_parent)
-    : cfeed_artificial_table_backend_t::machinery_t(user_context),
+    : cfeed_artificial_table_backend_t::machinery_t(
+        table_id, name_resolver, user_context),
       parent(_parent),
       starting(true),
       num_starters_left(0),
@@ -518,9 +523,11 @@ bool logs_artificial_table_backend_t::read_all_rows_raw(
 
 cfeed_artificial_table_backend_t::machinery_t *
 logs_artificial_table_backend_t::construct_changefeed_machinery(
+        name_resolver_t const &name_resolver,
         auth::user_context_t const &user_context,
         signal_t *interruptor) {
-    std::unique_ptr<cfeed_machinery_t> machinery(new cfeed_machinery_t(user_context, this));
+    std::unique_ptr<cfeed_machinery_t> machinery(
+        new cfeed_machinery_t(get_table_id(), name_resolver, user_context, this));
     wait_interruptible(&machinery->all_starters_done, interruptor);
     return machinery.release();
 }

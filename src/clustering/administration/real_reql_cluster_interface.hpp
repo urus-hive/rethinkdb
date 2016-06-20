@@ -14,8 +14,9 @@
 #include "rdb_protocol/context.hpp"
 #include "rpc/semilattice/view.hpp"
 
-class admin_artificial_tables_t;
+class artificial_reql_cluster_interface_t;
 class artificial_table_backend_t;
+class name_resolver_t;
 class server_config_client_t;
 
 /* `real_reql_cluster_interface_t` is a concrete subclass of `reql_cluster_interface_t`
@@ -40,7 +41,8 @@ public:
             multi_table_manager_t *multi_table_manager,
             watchable_map_t<
                 std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> >,
-                table_query_bcard_t> *table_query_directory);
+                table_query_bcard_t> *table_query_directory,
+            name_resolver_t const &name_resolver);
 
     bool db_create(
             auth::user_context_t const &user_context,
@@ -252,7 +254,7 @@ public:
 
     /* This is public because it needs to be set after we're created to solve a certain
     chicken-and-egg problem */
-    admin_artificial_tables_t *admin_tables;
+    artificial_reql_cluster_interface_t *artificial_reql_cluster_interface;
 
 private:
     mailbox_manager_t *m_mailbox_manager;
@@ -278,7 +280,6 @@ private:
 
     void make_single_selection(
             auth::user_context_t const &user_context,
-            artificial_table_backend_t *table_backend,
             const name_string_t &table_name,
             const uuid_u &primary_key,
             ql::backtrace_id_t bt,

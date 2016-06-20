@@ -18,6 +18,7 @@ class stats_artificial_table_backend_t :
 {
 public:
     stats_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         const clone_ptr_t<watchable_t<change_tracking_map_t<peer_id_t,
             cluster_directory_metadata_t> > >
                 &_directory_view,

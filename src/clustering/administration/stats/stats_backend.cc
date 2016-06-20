@@ -6,6 +6,7 @@
 #include "concurrency/cross_thread_signal.hpp"
 
 stats_artificial_table_backend_t::stats_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         const clone_ptr_t<watchable_t<change_tracking_map_t<peer_id_t,
             cluster_directory_metadata_t> > >
                 &_directory_view,
@@ -15,7 +16,8 @@ stats_artificial_table_backend_t::stats_artificial_table_backend_t(
         table_meta_client_t *_table_meta_client,
         mailbox_manager_t *_mailbox_manager,
         admin_identifier_format_t _admin_format) :
-    timer_cfeed_artificial_table_backend_t(name_string_t::guarantee_valid("stats")),
+    timer_cfeed_artificial_table_backend_t(
+        name_string_t::guarantee_valid("stats"), name_resolver),
     directory_view(_directory_view),
     cluster_sl_view(_cluster_sl_view),
     server_config_client(_server_config_client),

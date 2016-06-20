@@ -28,6 +28,7 @@ class logs_artificial_table_backend_t :
 {
 public:
     logs_artificial_table_backend_t(
+            name_resolver_t const &name_resolver,
             mailbox_manager_t *_mailbox_manager,
             watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory,
             server_config_client_t *_server_config_client,
@@ -61,6 +62,8 @@ private:
     class cfeed_machinery_t : public cfeed_artificial_table_backend_t::machinery_t {
     public:
         cfeed_machinery_t(
+            namespace_id_t const &namespace_id,
+            name_resolver_t const &name_resolver,
             auth::user_context_t const &user_context,
             logs_artificial_table_backend_t *_parent);
 
@@ -123,6 +126,7 @@ private:
         admin_err_t *error_out);
 
     cfeed_artificial_table_backend_t::machinery_t *construct_changefeed_machinery(
+            name_resolver_t const &name_resolver,
             auth::user_context_t const &user_context,
             signal_t *interruptor);
 

@@ -20,8 +20,10 @@ class in_memory_artificial_table_backend_t :
     public caching_cfeed_artificial_table_backend_t
 {
 public:
-    explicit in_memory_artificial_table_backend_t(name_string_t const &table_name)
-        : caching_cfeed_artificial_table_backend_t(table_name) {
+    in_memory_artificial_table_backend_t(
+            name_string_t const &table_name,
+            name_resolver_t const &name_resolver)
+        : caching_cfeed_artificial_table_backend_t(table_name, name_resolver) {
     }
 
     ~in_memory_artificial_table_backend_t() {

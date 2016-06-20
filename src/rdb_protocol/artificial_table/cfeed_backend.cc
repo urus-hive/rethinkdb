@@ -36,9 +36,11 @@ void cfeed_artificial_table_backend_t::machinery_t::maybe_remove() {
 }
 
 cfeed_artificial_table_backend_t::cfeed_artificial_table_backend_t(
-        name_string_t const &table_name)
+        name_string_t const &table_name,
+        name_resolver_t const &name_resolver)
     : artificial_table_backend_t(table_name),
       begin_destruction_was_called(false),
+      m_name_resolver(name_resolver),
       remove_machinery_timer(
         machinery_expiration_secs * THOUSAND,
         [this]() { maybe_remove_machinery(); }) {
@@ -91,7 +93,8 @@ bool cfeed_artificial_table_backend_t::read_changes(
     auto &machinery = machineries[user_context];
     if (machinery == nullptr) {
         machinery.reset(
-            construct_changefeed_machinery(user_context, &interruptor2));
+            construct_changefeed_machinery(
+                m_name_resolver, user_context, &interruptor2));
     }
 
     new_mutex_acq_t machinery_lock(&machinery->mutex, &interruptor2);

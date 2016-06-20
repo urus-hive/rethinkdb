@@ -20,6 +20,7 @@ class jobs_artificial_table_backend_t :
 {
 public:
     jobs_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         mailbox_manager_t *_mailbox_manager,
         boost::shared_ptr<semilattice_readwrite_view_t<
             cluster_semilattice_metadata_t> > _semilattice_view,

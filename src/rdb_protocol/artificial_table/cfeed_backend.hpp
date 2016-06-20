@@ -31,8 +31,12 @@ public:
 protected:
     class machinery_t : private ql::changefeed::artificial_t {
     public:
-        explicit machinery_t(auth::user_context_t const &user_context)
-            : m_user_context(user_context),
+        machinery_t(
+                namespace_id_t const &table_id,
+                name_resolver_t const &name_resolver,
+                auth::user_context_t const &user_context)
+            : ql::changefeed::artificial_t(table_id, name_resolver),
+              m_user_context(user_context),
               last_subscriber_time(current_microtime()) {
         }
         virtual ~machinery_t() { }
@@ -69,7 +73,9 @@ protected:
         microtime_t last_subscriber_time;
     };
 
-    explicit cfeed_artificial_table_backend_t(name_string_t const &table_name);
+    cfeed_artificial_table_backend_t(
+            name_string_t const &table_name,
+            name_resolver_t const &name_resolver);
     virtual ~cfeed_artificial_table_backend_t();
 
     /* `cfeed_artificial_table_backend_t` guarantees that it will never have two sets of
@@ -77,6 +83,7 @@ protected:
 
     /* Subclasses should override this to return their own subclass of `machinery_t`. */
     virtual machinery_t *construct_changefeed_machinery(
+        name_resolver_t const &name_resolver,
         auth::user_context_t const &user_context,
         signal_t *interruptor) = 0;
 
@@ -91,6 +98,7 @@ private:
     std::map<auth::user_context_t, std::unique_ptr<machinery_t>> machineries;
     new_mutex_t mutex;
     bool begin_destruction_was_called;
+    name_resolver_t const &m_name_resolver;
     auto_drainer_t drainer;
     repeating_timer_t remove_machinery_timer;
 };

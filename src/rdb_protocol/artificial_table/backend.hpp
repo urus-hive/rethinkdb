@@ -25,9 +25,10 @@ public:
         can be called on any thread. */
 
     explicit artificial_table_backend_t(name_string_t const &table_name);
+    virtual ~artificial_table_backend_t();
 
     name_string_t const &get_table_name() const;
-    uuid_u const &get_table_id() const;
+    namespace_id_t const &get_table_id() const;
 
     /* Returns the name of the primary key for the table. The return value must not
     change. This must not block. */
@@ -95,9 +96,6 @@ public:
     }
 
     static const uuid_u base_table_id;
-
-protected:
-    virtual ~artificial_table_backend_t() { }
 
 private:
     name_string_t m_table_name;

@@ -24,6 +24,7 @@ class cluster_config_artificial_table_backend_t :
 {
 public:
     cluster_config_artificial_table_backend_t(
+            name_resolver_t const &name_resolver,
             boost::shared_ptr<semilattice_readwrite_view_t<
                 heartbeat_semilattice_metadata_t> > _heartbeat_sl_view);
     ~cluster_config_artificial_table_backend_t();

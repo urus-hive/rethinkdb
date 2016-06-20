@@ -10,6 +10,7 @@
 #include "concurrency/cross_thread_signal.hpp"
 
 jobs_artificial_table_backend_t::jobs_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         mailbox_manager_t *_mailbox_manager,
         boost::shared_ptr< semilattice_readwrite_view_t<
             cluster_semilattice_metadata_t> > _semilattice_view,
@@ -18,7 +19,8 @@ jobs_artificial_table_backend_t::jobs_artificial_table_backend_t(
         server_config_client_t *_server_config_client,
         table_meta_client_t *_table_meta_client,
         admin_identifier_format_t _identifier_format)
-    : timer_cfeed_artificial_table_backend_t(name_string_t::guarantee_valid("jobs")),
+    : timer_cfeed_artificial_table_backend_t(
+        name_string_t::guarantee_valid("jobs"), name_resolver),
       mailbox_manager(_mailbox_manager),
       semilattice_view(_semilattice_view),
       directory_view(_directory_view),
@@ -107,7 +109,8 @@ void jobs_artificial_table_backend_t::get_all_job_reports(
         throw interrupted_exc_t();
     }
 
-    // FIXME
+    // FIXME This can be done more efficiently by not fetching the data
+
     for (auto query_job = query_jobs_map.begin(); query_job != query_jobs_map.end(); ) {
         if (!user_context.is_admin() && query_job->second.user_context != user_context) {
             query_job = query_jobs_map.erase(query_job);

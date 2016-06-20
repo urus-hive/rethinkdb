@@ -5,9 +5,9 @@
 #include "rdb_protocol/env.hpp"
 
 caching_cfeed_artificial_table_backend_t::caching_cfeed_artificial_table_backend_t(
-        name_string_t const &table_name)
-    : cfeed_artificial_table_backend_t(table_name) {
-      // caching_machinery(nullptr) {
+        name_string_t const &table_name,
+        name_resolver_t const &name_resolver)
+    : cfeed_artificial_table_backend_t(table_name, name_resolver) {
 }
 
 void caching_cfeed_artificial_table_backend_t::notify_row(const ql::datum_t &pkey) {
@@ -60,9 +60,12 @@ void caching_cfeed_artificial_table_backend_t::notify_break() {
 }
 
 caching_cfeed_artificial_table_backend_t::caching_machinery_t::caching_machinery_t(
+            namespace_id_t const &table_id,
+            name_resolver_t const &name_resolver,
             auth::user_context_t const &user_context,
             caching_cfeed_artificial_table_backend_t *_parent)
-    : cfeed_artificial_table_backend_t::machinery_t(user_context),
+    : cfeed_artificial_table_backend_t::machinery_t(
+        table_id, name_resolver, user_context),
       /* Set `dirtiness` to force us to load initial values. Either `dirtiness_t::all`
       or `dirtiness_t::all_stop` would work equally well here since we don't have any
       subscribers yet, but `all_stop` saves us a few CPU cycles by not diffing the old
@@ -281,16 +284,18 @@ bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::get_values(
 }
 
 timer_cfeed_artificial_table_backend_t::timer_cfeed_artificial_table_backend_t(
-        name_string_t const &table_name)
-    : caching_cfeed_artificial_table_backend_t(table_name) {
+        name_string_t const &table_name,
+        name_resolver_t const &name_resolver)
+    : caching_cfeed_artificial_table_backend_t(table_name, name_resolver) {
 }
 
 cfeed_artificial_table_backend_t::machinery_t *
 caching_cfeed_artificial_table_backend_t::construct_changefeed_machinery(
+        name_resolver_t const &name_resolver,
         auth::user_context_t const &user_context,
         signal_t *interruptor) {
     std::unique_ptr<caching_machinery_t> machinery(
-        new caching_machinery_t(user_context, this));
+        new caching_machinery_t(get_table_id(), name_resolver, user_context, this));
     wait_interruptible(&machinery->ready, interruptor);
     return machinery.release();
 }

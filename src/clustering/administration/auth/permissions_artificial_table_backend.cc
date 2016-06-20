@@ -5,21 +5,23 @@
 #include <boost/algorithm/string/join.hpp>
 
 #include "clustering/administration/datum_adapter.hpp"
+#include "clustering/administration/tables/name_resolver.hpp"
 
 namespace auth {
 
 permissions_artificial_table_backend_t::permissions_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
             auth_semilattice_view,
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t>>
             cluster_semilattice_view,
-        table_meta_client_t *table_meta_client,
         admin_identifier_format_t identifier_format)
     : base_artificial_table_backend_t(
         name_string_t::guarantee_valid("permissions"),
+        name_resolver,
         auth_semilattice_view,
         cluster_semilattice_view),
-      m_table_meta_client(table_meta_client),
+      m_name_resolver(name_resolver),
       m_identifier_format(identifier_format) {
 }
 
@@ -49,7 +51,8 @@ bool permissions_artificial_table_backend_t::read_all_rows_as_vector(
             }
         }
 
-        cluster_semilattice_metadata_t cluster_metadata = m_cluster_semilattice_view->get();
+        cluster_semilattice_metadata_t cluster_metadata =
+            m_name_resolver.get_cluster_metadata();
         for (auto const &database : user.second.get_ref()->get_database_permissions()) {
             ql::datum_t row;
             if (database_to_datum(
@@ -67,7 +70,7 @@ bool permissions_artificial_table_backend_t::read_all_rows_as_vector(
             ql::datum_t row;
             if (table_to_datum(
                     user.first,
-                    nil_uuid(),
+                    boost::none,
                     table.first,
                     table.second,
                     cluster_metadata,
@@ -89,7 +92,8 @@ bool permissions_artificial_table_backend_t::read_row(
     *row_out = ql::datum_t();
     on_thread_t on_thread(home_thread());
 
-    cluster_semilattice_metadata_t cluster_metadata = m_cluster_semilattice_view->get();
+    cluster_semilattice_metadata_t cluster_metadata =
+        m_name_resolver.get_cluster_metadata();
 
     username_t username;
     database_id_t database_id;
@@ -213,9 +217,10 @@ bool permissions_artificial_table_backend_t::write_row(
                                 return false;
                             }
 
-                            if (cluster_metadata.databases.databases.at(
-                                        database_id_primary
-                                    ).get_ref().name.get_ref() != database_name) {
+
+                            if (m_name_resolver.database_id_to_name(
+                                        database_id_primary, cluster_metadata
+                                    ).get() != database_name) {
                                 *error_out = admin_err_t{
                                     "The key `database` does not match the primary key.",
                                     query_state_t::FAILED};
@@ -260,17 +265,11 @@ bool permissions_artificial_table_backend_t::write_row(
                                 return false;
                             }
 
-                            namespace_id_t table_id_secondary;
-                            try {
-                                m_table_meta_client->find(
-                                    database_id_primary, table_name, &table_id_secondary);
-                            } catch (no_such_table_exc_t const &) {
-                                 *error_out = admin_err_t{
-                                    "The key `table` does not match the primary key.",
-                                    query_state_t::FAILED};
-                                return false;
-                            }
-                            if (table_id_primary != table_id_secondary) {
+                            boost::optional<table_basic_config_t> table_basic_config =
+                                m_name_resolver.table_id_to_basic_config(
+                                    table_id_primary, database_id_primary);
+                            if (!static_cast<bool>(table_basic_config) ||
+                                    table_basic_config->name != table_name) {
                                 *error_out = admin_err_t{
                                     "The key `table` does not match the primary key.",
                                     query_state_t::FAILED};
@@ -442,9 +441,9 @@ uint8_t permissions_artificial_table_backend_t::parse_primary_key(
             return 0;
         }
 
-        auto iter = cluster_metadata.databases.databases.find(*database_id_out);
-        if (iter == cluster_metadata.databases.databases.end() ||
-                iter->second.is_deleted()) {
+        boost::optional<name_string_t> database_name =
+            m_name_resolver.database_id_to_name(*database_id_out, cluster_metadata);
+        if (!static_cast<bool>(database_name)) {
             if (admin_err_out != nullptr) {
                 *admin_err_out = admin_err_t{
                     strprintf(
@@ -468,10 +467,9 @@ uint8_t permissions_artificial_table_backend_t::parse_primary_key(
             return 0;
         }
 
-        table_basic_config_t table_basic_config;
-        try {
-            m_table_meta_client->get_name(*table_id_out, &table_basic_config);
-        } catch (no_such_table_exc_t const &) {
+        boost::optional<table_basic_config_t> table_basic_config =
+            m_name_resolver.table_id_to_basic_config(*table_id_out);
+        if (!static_cast<bool>(table_basic_config)) {
             if (admin_err_out != nullptr) {
                 *admin_err_out = admin_err_t{
                     strprintf(
@@ -482,7 +480,7 @@ uint8_t permissions_artificial_table_backend_t::parse_primary_key(
             return 0;
         }
 
-        if (*database_id_out != table_basic_config.database) {
+        if (table_basic_config->database != *database_id_out) {
             if (admin_err_out != nullptr) {
                 *admin_err_out = admin_err_t{
                     strprintf(
@@ -533,13 +531,19 @@ bool permissions_artificial_table_backend_t::database_to_datum(
         id_builder.add(convert_uuid_to_datum(database_id));
 
         ql::datum_t database_name_or_uuid;
-        if (!convert_database_id_to_datum(
-                database_id,
-                m_identifier_format,
-                cluster_metadata,
-                &database_name_or_uuid,
-                nullptr)) {
-            database_name_or_uuid = ql::datum_t("__deleted_database__");
+        switch (m_identifier_format) {
+            case admin_identifier_format_t::name:
+                {
+                    boost::optional<name_string_t> database_name =
+                        m_name_resolver.database_id_to_name(
+                            database_id, cluster_metadata);
+                    database_name_or_uuid = ql::datum_t(database_name.get_value_or(
+                        name_string_t::guarantee_valid("__deleted_database__")).str());
+                }
+                break;
+            case admin_identifier_format_t::uuid:
+                database_name_or_uuid = ql::datum_t(uuid_to_str(database_id));
+                break;
         }
 
         builder.overwrite("database", std::move(database_name_or_uuid));
@@ -555,20 +559,14 @@ bool permissions_artificial_table_backend_t::database_to_datum(
 
 bool permissions_artificial_table_backend_t::table_to_datum(
         username_t const &username,
-        database_id_t const &database_id,
+        boost::optional<database_id_t> const &database_id,
         namespace_id_t const &table_id,
         permissions_t const &permissions,
         cluster_semilattice_metadata_t const &cluster_metadata,
         ql::datum_t *datum_out) {
-    table_basic_config_t table_basic_config;
-    try {
-        m_table_meta_client->get_name(table_id, &table_basic_config);
-    } catch (no_such_table_exc_t const &) {
-        return false;
-    }
-    // `database_id` is only used to check for consistency, it should match the database
-    // that the `table_id` is in if `database_id` is provided
-    if (!database_id.is_nil() && database_id != table_basic_config.database) {
+    boost::optional<table_basic_config_t> table_basic_config =
+        m_name_resolver.table_id_to_basic_config(table_id, database_id);
+    if (!static_cast<bool>(table_basic_config)) {
         return false;
     }
 
@@ -578,22 +576,27 @@ bool permissions_artificial_table_backend_t::table_to_datum(
 
         ql::datum_array_builder_t id_builder(ql::configured_limits_t::unlimited);
         id_builder.add(convert_string_to_datum(username.to_string()));
-        id_builder.add(convert_uuid_to_datum(table_basic_config.database));
+        id_builder.add(convert_uuid_to_datum(table_basic_config->database));
         id_builder.add(convert_uuid_to_datum(table_id));
 
         ql::datum_t database_name_or_uuid;
         ql::datum_t table_name_or_uuid;
-        if (!convert_table_id_to_datums(
-                table_id,
-                m_identifier_format,
-                cluster_metadata,
-                m_table_meta_client,
-                &table_name_or_uuid,
-                nullptr,
-                &database_name_or_uuid,
-                nullptr)) {
-            // This shouldn't occur since we checked whether the table exists above
-            return false;
+        switch (m_identifier_format) {
+            case admin_identifier_format_t::name:
+                {
+                    boost::optional<name_string_t> database_name =
+                        m_name_resolver.database_id_to_name(
+                            table_basic_config->database, cluster_metadata);
+                    database_name_or_uuid = ql::datum_t(database_name.get_value_or(
+                        name_string_t::guarantee_valid("__deleted_database__")).str());
+                    table_name_or_uuid = ql::datum_t(table_basic_config->name.str());
+                }
+                break;
+            case admin_identifier_format_t::uuid:
+                database_name_or_uuid =
+                    ql::datum_t(uuid_to_str(table_basic_config->database));
+                table_name_or_uuid = ql::datum_t(uuid_to_str(table_id));
+                break;
         }
 
         builder.overwrite("database", std::move(database_name_or_uuid));

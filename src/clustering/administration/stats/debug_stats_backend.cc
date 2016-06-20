@@ -6,11 +6,13 @@
 #include "clustering/administration/main/watchable_fields.hpp"
 
 debug_stats_artificial_table_backend_t::debug_stats_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory_view,
         server_config_client_t *_server_config_client,
         mailbox_manager_t *_mailbox_manager)
     : common_server_artificial_table_backend_t(
         name_string_t::guarantee_valid("_debug_stats"),
+        name_resolver,
         _server_config_client,
         _directory_view),
       directory_view(_directory_view),

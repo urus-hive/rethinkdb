@@ -482,7 +482,6 @@ bool test_rdb_env_t::instance_t::table_find(const name_string_t &name,
                 nil_uuid(),
                 table_access,
                 it->second->get_primary_key(),
-                nullptr,
                 nullptr));
         return true;
     }

@@ -14,6 +14,9 @@ artificial_table_backend_t::artificial_table_backend_t(
       m_table_id(uuid_u::from_hash(base_table_id, table_name.str())) {
 }
 
+artificial_table_backend_t::~artificial_table_backend_t() {
+}
+
 uuid_u const &artificial_table_backend_t::get_table_id() const {
     return m_table_id;
 }

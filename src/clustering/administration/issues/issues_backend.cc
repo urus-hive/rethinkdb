@@ -7,6 +7,7 @@
 #include "concurrency/cross_thread_signal.hpp"
 
 issues_artificial_table_backend_t::issues_artificial_table_backend_t(
+        name_resolver_t const &name_resolver,
         mailbox_manager_t *mailbox_manager,
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t> >
             _cluster_sl_view,
@@ -16,7 +17,7 @@ issues_artificial_table_backend_t::issues_artificial_table_backend_t(
         namespace_repo_t *_namespace_repo,
         admin_identifier_format_t _identifier_format) :
     timer_cfeed_artificial_table_backend_t(
-        name_string_t::guarantee_valid("current_issues")),
+        name_string_t::guarantee_valid("current_issues"), name_resolver),
     identifier_format(_identifier_format),
     cluster_sl_view(_cluster_sl_view),
     server_config_client(_server_config_client),

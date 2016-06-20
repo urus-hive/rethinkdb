@@ -12,7 +12,9 @@ row, compares it to the old value, and sends a notification if necessary. */
 class caching_cfeed_artificial_table_backend_t :
     public cfeed_artificial_table_backend_t {
 protected:
-    explicit caching_cfeed_artificial_table_backend_t(name_string_t const &table_name);
+    caching_cfeed_artificial_table_backend_t(
+            name_string_t const &table_name,
+            name_resolver_t const &name_resolver);
 
     /* The `caching_cfeed_artificial_table_backend_t` calls `set_notifications()` to tell
     the subclass whether it needs notifications or not. The default is no; it will call
@@ -47,6 +49,8 @@ private:
         };
 
         caching_machinery_t(
+                namespace_id_t const &table_id,
+                name_resolver_t const &name_resolver,
                 auth::user_context_t const &user_context,
                 caching_cfeed_artificial_table_backend_t *parent);
         ~caching_machinery_t();
@@ -93,6 +97,7 @@ private:
     };
 
     cfeed_artificial_table_backend_t::machinery_t *construct_changefeed_machinery(
+            name_resolver_t const &name_resolver,
             auth::user_context_t const &user_context,
             signal_t *interruptor);
 
@@ -105,7 +110,9 @@ inefficient, but for many tables it's the most practical choice. */
 class timer_cfeed_artificial_table_backend_t :
     public caching_cfeed_artificial_table_backend_t {
 public:
-    explicit timer_cfeed_artificial_table_backend_t(name_string_t const &table_name);
+    timer_cfeed_artificial_table_backend_t(
+            name_string_t const &table_name,
+            name_resolver_t const &name_resolver);
 
 private:
     void set_notifications(bool);

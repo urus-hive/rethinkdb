@@ -8,11 +8,12 @@
 
 common_table_artificial_table_backend_t::common_table_artificial_table_backend_t(
         name_string_t const &table_name,
+        name_resolver_t const &name_resolver,
         boost::shared_ptr<semilattice_readwrite_view_t<
             cluster_semilattice_metadata_t> > _semilattice_view,
         table_meta_client_t *_table_meta_client,
         admin_identifier_format_t _identifier_format)
-    : timer_cfeed_artificial_table_backend_t(table_name),
+    : timer_cfeed_artificial_table_backend_t(table_name, name_resolver),
       semilattice_view(_semilattice_view),
       table_meta_client(_table_meta_client),
       identifier_format(_identifier_format) {

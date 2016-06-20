@@ -30,7 +30,8 @@ class table_config_artificial_table_backend_t :
 {
 public:
     table_config_artificial_table_backend_t(
-            boost::shared_ptr< semilattice_readwrite_view_t<
+            name_resolver_t const &name_resolver,
+            boost::shared_ptr<semilattice_readwrite_view_t<
                 cluster_semilattice_metadata_t> > _semilattice_view,
             real_reql_cluster_interface_t *_reql_cluster_interface,
             admin_identifier_format_t _identifier_format,

@@ -21,6 +21,7 @@ class server_status_artificial_table_backend_t :
 {
 public:
     server_status_artificial_table_backend_t(
+            name_resolver_t const &name_resolver,
             watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory,
             server_config_client_t *_server_config_client,
             admin_identifier_format_t _admin_format);

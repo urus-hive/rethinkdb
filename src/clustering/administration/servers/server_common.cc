@@ -7,9 +7,10 @@
 
 common_server_artificial_table_backend_t::common_server_artificial_table_backend_t(
         name_string_t const &table_name,
+        name_resolver_t const &name_resolver,
         server_config_client_t *_server_config_client,
         watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory) :
-    caching_cfeed_artificial_table_backend_t(table_name),
+    caching_cfeed_artificial_table_backend_t(table_name, name_resolver),
     directory(_directory),
     server_config_client(_server_config_client),
     directory_subs(directory,

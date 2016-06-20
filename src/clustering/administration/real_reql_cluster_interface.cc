@@ -33,8 +33,8 @@ real_reql_cluster_interface_t::real_reql_cluster_interface_t(
         multi_table_manager_t *multi_table_manager,
         watchable_map_t<
             std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> >,
-            table_query_bcard_t> *table_query_directory
-        ) :
+            table_query_bcard_t> *table_query_directory,
+        name_resolver_t const &name_resolver) :
     m_mailbox_manager(mailbox_manager),
     m_auth_semilattice_view(auth_semilattice_view),
     m_cluster_semilattice_view(cluster_semilattice_view),
@@ -51,7 +51,8 @@ real_reql_cluster_interface_t::real_reql_cluster_interface_t(
         m_mailbox_manager,
         [this](const namespace_id_t &id, signal_t *interruptor) {
             return this->m_namespace_repo.get_namespace_interface(id, interruptor);
-        }),
+        },
+        name_resolver),
     m_server_config_client(server_config_client)
 {
     guarantee(m_auth_semilattice_view->home_thread() == home_thread());
@@ -265,7 +266,6 @@ bool real_reql_cluster_interface_t::db_config(
 
         make_single_selection(
             user_context,
-            admin_tables->db_config_backend.get(),
             name_string_t::guarantee_valid("db_config"),
             db->id,
             backtrace_id,
@@ -404,8 +404,11 @@ bool real_reql_cluster_interface_t::table_drop(
         `table_meta_client_t` because this will return an error document instead of
         crashing if the table is not reachable. */
         ql::datum_t old_config;
-        artificial_table_backend_t *config_backend = admin_tables->table_config_backend[
-            static_cast<int>(admin_identifier_format_t::name)].get();
+        artificial_table_backend_t *config_backend =
+            artificial_reql_cluster_interface->get_table_backend(
+                name_string_t::guarantee_valid("table_config"),
+                admin_identifier_format_t::name);
+        guarantee(config_backend != nullptr);
         if (!config_backend->read_row(
                 user_context,
                 convert_uuid_to_datum(table_id),
@@ -472,8 +475,7 @@ bool real_reql_cluster_interface_t::table_find(
             table_id,
             m_namespace_repo.get_namespace_interface(table_id, interruptor_on_caller),
             primary_key,
-            &m_changefeed_client,
-            m_table_meta_client));
+            &m_changefeed_client));
 
         return true;
     } CATCH_NAME_ERRORS(db->name, name, error_out)
@@ -549,8 +551,6 @@ bool real_reql_cluster_interface_t::table_config(
 
         make_single_selection(
             user_context,
-            admin_tables->table_config_backend[
-                static_cast<int>(admin_identifier_format_t::name)].get(),
             name_string_t::guarantee_valid("table_config"),
             table_id,
             bt,
@@ -575,8 +575,6 @@ bool real_reql_cluster_interface_t::table_status(
         m_table_meta_client->find(db->id, name, &table_id);
         make_single_selection(
             env->get_user_context(), // FIXME someone can have config permissions on this database but not read permissions on the status table causing bad, bad things
-            admin_tables->table_status_backend[
-                static_cast<int>(admin_identifier_format_t::name)].get(),
             name_string_t::guarantee_valid("table_status"),
             table_id,
             bt,
@@ -665,9 +663,11 @@ void real_reql_cluster_interface_t::reconfigure_internal(
         table_id, convert_name_to_datum(db->name), old_config.config,
         admin_identifier_format_t::name, old_config.server_names);
 
-    table_status_artificial_table_backend_t *status_backend =
-        admin_tables->table_status_backend[
-            static_cast<int>(admin_identifier_format_t::name)].get();
+    artificial_table_backend_t *status_backend =
+        artificial_reql_cluster_interface->get_table_backend(
+            name_string_t::guarantee_valid("table_status"),
+            admin_identifier_format_t::name);
+    guarantee(status_backend != nullptr);
     ql::datum_t old_status;
     admin_err_t error;
     if (!status_backend->read_row(
@@ -854,9 +854,11 @@ void real_reql_cluster_interface_t::emergency_repair_internal(
         table_id, convert_name_to_datum(db->name), old_config.config,
         admin_identifier_format_t::name, old_config.server_names);
 
-    table_status_artificial_table_backend_t *status_backend =
-        admin_tables->table_status_backend[
-            static_cast<int>(admin_identifier_format_t::name)].get();
+    artificial_table_backend_t *status_backend =
+        artificial_reql_cluster_interface->get_table_backend(
+            name_string_t::guarantee_valid("table_status"),
+            admin_identifier_format_t::name);
+    guarantee(status_backend != nullptr);
     ql::datum_t old_status;
     admin_err_t error;
     if (!status_backend->read_row(
@@ -985,9 +987,11 @@ void real_reql_cluster_interface_t::rebalance_internal(
     table_config_and_shards_t config;
     m_table_meta_client->get_config(table_id, interruptor_on_home, &config);
 
-    table_status_artificial_table_backend_t *status_backend =
-        admin_tables->table_status_backend[
-            static_cast<int>(admin_identifier_format_t::name)].get();
+    artificial_table_backend_t *status_backend =
+        artificial_reql_cluster_interface->get_table_backend(
+            name_string_t::guarantee_valid("table_status"),
+            admin_identifier_format_t::name);
+    guarantee(status_backend != nullptr);
     ql::datum_t old_status;
     admin_err_t error;
     if (!status_backend->read_row(
@@ -1114,6 +1118,7 @@ bool real_reql_cluster_interface_t::grant_global(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
+    cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
     on_thread_t on_thread(home_thread());
 
     return auth::grant(
@@ -1122,7 +1127,7 @@ bool real_reql_cluster_interface_t::grant_global(
         user_context,
         std::move(username),
         std::move(permissions),
-        interruptor,
+        &cross_thread_interruptor,
         [](auth::user_t &user) -> auth::permissions_t & {
             return user.get_global_permissions();
         },
@@ -1138,6 +1143,7 @@ bool real_reql_cluster_interface_t::grant_database(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
+    cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
     on_thread_t on_thread(home_thread());
 
     return auth::grant(
@@ -1146,7 +1152,7 @@ bool real_reql_cluster_interface_t::grant_database(
         user_context,
         std::move(username),
         std::move(permissions),
-        interruptor,
+        &cross_thread_interruptor,
         [&](auth::user_t &user) -> auth::permissions_t & {
             return user.get_database_permissions(database_id);
         },
@@ -1163,6 +1169,7 @@ bool real_reql_cluster_interface_t::grant_table(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
+    cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
     on_thread_t on_thread(home_thread());
 
     return auth::grant(
@@ -1171,7 +1178,7 @@ bool real_reql_cluster_interface_t::grant_table(
         user_context,
         std::move(username),
         std::move(permissions),
-        interruptor,
+        &cross_thread_interruptor,
         [&](auth::user_t &user) -> auth::permissions_t & {
             return user.get_table_permissions(table_id);
         },
@@ -1364,13 +1371,18 @@ void real_reql_cluster_interface_t::get_databases_metadata(
 
 void real_reql_cluster_interface_t::make_single_selection(
         auth::user_context_t const &user_context,
-        artificial_table_backend_t *table_backend,
         const name_string_t &table_name,
         const uuid_u &primary_key,
         ql::backtrace_id_t bt,
         ql::env_t *env,
         scoped_ptr_t<ql::val_t> *selection_out)
         THROWS_ONLY(interrupted_exc_t, no_such_table_exc_t, admin_op_exc_t) {
+    artificial_table_backend_t *table_backend =
+        artificial_reql_cluster_interface->get_table_backend(
+            table_name,
+            admin_identifier_format_t::name);
+    guarantee(table_backend != nullptr);
+
     admin_err_t error;
 
     ql::datum_t row;
@@ -1388,7 +1400,7 @@ void real_reql_cluster_interface_t::make_single_selection(
     }
 
     counted_t<ql::db_t const> db;
-    if (!admin_tables->get_reql_cluster_interface()->db_find(
+    if (!artificial_reql_cluster_interface->db_find(
             name_string_t::guarantee_valid("rethinkdb"),
             env->interruptor,
             &db,
