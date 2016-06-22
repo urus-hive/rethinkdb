@@ -4,9 +4,13 @@
 
 from __future__ import print_function
 
-import codecs, collections, csv, ctypes, datetime, json, multiprocessing
-import optparse, os, re, signal, sys, threading, time, traceback
+import codecs, collections, csv, ctypes, json, multiprocessing
+import optparse, os, re, signal, sys, time, traceback
 
+try:
+    unicode
+except NameError:
+    unicode = str
 try:
     xrange
 except NameError:
@@ -16,13 +20,9 @@ try:
 except ImportError:
     from queue import Empty, Full
 try:
-    from multiprocessing import Queue
+    from multiprocessing import Queue, SimpleQueue
 except ImportError:
-    from multiprocessing.queues import Queue
-try:
-    from multiprocessing import SimpleQueue
-except ImportError:
-    from multiprocessing.queues import SimpleQueue
+    from multiprocessing.queues import Queue, SimpleQueue
 
 # Used because of API differences in the csv module, taken from
 # http://python3porting.com/problems.html
@@ -48,11 +48,12 @@ class SourceFile(object):
     table          = None
     primary_key    = None
     indexes        = None
+    options        = None
     
     start_time     = None
     end_time       = None
     
-    _source_file   = None # open filehandle for the source
+    _source        = None # open filehandle for the source
     
     # - internal synchronization variables
     
@@ -63,8 +64,9 @@ class SourceFile(object):
     _rows_read     = None
     _rows_written  = None
     
-    def __init__(self, source, db, table, primary_key=None, indexes=None):
-        assert self.format is not None, 'Subclass %s must have a format' % self.__class__.__name
+    def __init__(self, source, db, table, primary_key=None, indexes=None, options=None):
+        assert self.format is not None, 'Subclass %s must have a format' % self.__class__.__name__
+        assert db is not 'rethinkdb', "Error: Cannot import tables into the system database: 'rethinkdb'"
         
         # reporting information
         self._bytes_size   = multiprocessing.Value(ctypes.c_longlong, -1)
@@ -77,27 +79,35 @@ class SourceFile(object):
         # source
         sourceLength = 0
         if hasattr(source, 'read'):
-            self._source_file = source
+            if unicode != str or 'b' in source.mode:
+                # Python2.x or binary file, assume utf-8 encoding
+                self._source = codecs.getreader("utf-8")(source)
+            else:
+                # assume that it has the right encoding on it
+                self._source = source
         else:
             try:
-                self._source_file = open(source, "r", encoding="utf-8", newline="") if PY3 else open(source, "r")
+                self._source = codecs.open(source, mode="r", encoding="utf-8")
             except IOError as e:
                 raise ValueError('Unable to open source file "%s": %s' % (str(source), str(e)))
         
-        if hasattr(self._source_file, 'name') and self._source_file.name and os.path.isfile(self._source_file.name):
+        if hasattr(self._source, 'name') and self._source.name and os.path.isfile(self._source.name):
             self._bytes_size.value = os.path.getsize(source)
             if self._bytes_size.value == 0:
                 raise ValueError('Source is zero-length: %s' % source)
         
         # table info
-        self.db            = db
-        self.table         = table
-        self.primary_key   = str(primary_key) if primary_key else 'id'
-        self.indexes       = indexes or []
+        self.db          = db
+        self.table       = table
+        self.primary_key = primary_key
+        self.indexes     = indexes or []
+        
+        # options
+        self.options     = options
         
         # name
-        if hasattr(self._source_file, 'name') and self._source_file.name:
-            self.name = os.path.basename(self._source_file.name)
+        if hasattr(self._source, 'name') and self._source.name:
+            self.name = os.path.basename(self._source.name)
         else:
             self.name = '%s.%s' % (self.db, self.table)
         
@@ -197,10 +207,12 @@ class SourceFile(object):
             "primary key %s.%s" % (self.db, self.table),
             r.db(self.db).table(self.table).info()["primary_key"],
         )
-        if primaryKey != self.primary_key:
+        if self.primary_key is None:
+            self.primary_key = primaryKey
+        elif primaryKey != self.primary_key:
             raise RuntimeError("Error: table %s.%s primary key was `%s` rather than the expected: %s" % (self.db, table.table, primaryKey, self.primary_key))
         
-        # - recreate secondary indexes - droping existing on the assumption they are wrong
+        # - recreate secondary indexes - dropping existing on the assumption they are wrong
         if options.sindexes:
             existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).index_list())
             try:
@@ -224,12 +236,63 @@ class SourceFile(object):
                 )
             except RuntimeError as e:
                 ex_type, ex_class, tb = sys.exc_info()
-                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), self._source_file.name))
+                warning_queue.put((ex_type, ex_class, traceback.extract_tb(tb), self._source.name))
     
-    def batches(self, batch_size=None):
-        raise NotImplementedError("Subclasses need to impliment this")
+    def batches(self, batch_size=None, warning_queue=None):
+        
+        # default batch_size
+        if batch_size is None:
+            batch_size = default_batch_size
+        else:
+            batch_size = int(batch_size)
+        assert batch_size > 0
+        
+        # setup
+        self.setup(warning_queue=warning_queue)
+        
+        # - yield batches
+        
+        batch = []
+        try:
+            needMoreData = False
+            while True:
+                if needMoreData:
+                    self.fill_buffer()
+                    needMoreData = False
+                
+                while len(batch) < batch_size:
+                    try:
+                        row = self.get_line()
+                        # ToDo: validate the line
+                        batch.append(row)
+                    except NeedMoreData:
+                        needMoreData = True
+                        break
+                    except Exception:
+                        raise
+                else:
+                    yield batch
+                    batch = []
+        
+        except StopIteration as e:
+            # yield any final batch
+            if batch:
+                yield batch
+        
+            # - check the end of the file
+        
+            self.teardown()
+            
+            # - 
+            raise e
     
-    def read_to_queue(self, work_queue, exit_event, error_queue, timing_queue, fields=None, ignore_signals=True, batch_size=None):
+    def setup(self, warning_queue=None):
+        raise NotImplementedError("Subclasses need to implement this")
+    
+    def teardown(self):
+        pass
+    
+    def read_to_queue(self, work_queue, exit_event, error_queue, warning_queue, timing_queue, fields=None, ignore_signals=True, batch_size=None):
         if ignore_signals: # ToDo: work out when we are in a worker process automatically
             signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should ignore these
                 
@@ -239,14 +302,14 @@ class SourceFile(object):
         self.start_time = time.time()
         try:
             timePoint = time.time()
-            for batch in self.batches():
+            for batch in self.batches(warning_queue=warning_queue):
                 timing_queue.put(('reader_work', time.time() - timePoint))
                 timePoint = time.time()
                 
                 # apply the fields filter
                 if fields:
                     for row in batch:
-                        for key in (x for x in row.keys() if x not in fields):
+                        for key in [x for x in row.keys() if x not in fields]:
                             del row[key]
                 
                 while not exit_event.is_set():
@@ -259,7 +322,7 @@ class SourceFile(object):
                 timing_queue.put(('reader_wait', time.time() - timePoint))
                 timePoint = time.time()
         
-        # - report relevent errors
+        # - report relevant errors
         except Exception as e:
             error_queue.put(Error(str(e), traceback.format_exc(), self.name))
             exit_event.set()
@@ -297,7 +360,7 @@ class JsonSourceFile(SourceFile):
         readTarget = self._buffer_size - self._buffer_end + self._buffer_pos
         assert readTarget > 0
         
-        newChunk = self._source_file.read(readTarget)
+        newChunk = self._source.read(readTarget)
         if len(newChunk) == 0:
             raise StopIteration() # file ended
         self._buffer_str = self._buffer_str[self._buffer_pos:] + newChunk
@@ -333,18 +396,11 @@ class JsonSourceFile(SourceFile):
             return row
         except (ValueError, IndexError) as e:
             raise NeedMoreData()
-        
-    def batches(self, batch_size=None):
-        
-        if batch_size is None:
-            batch_size = default_batch_size
-        else:
-            batch_size = int(batch_size)
-        assert batch_size > 0
-        
+    
+    def setup(self, warning_queue=None):
         # - move to the first record
         
-        # advance thorugh any leading whitespace
+        # advance through any leading whitespace
         while True:
             self.fill_buffer()
             self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, 0).end()
@@ -361,42 +417,14 @@ class JsonSourceFile(SourceFile):
             else:
                 raise ValueError("Error: JSON format not recognized - file does not begin with an object or array")
         except IndexError:
-            raise ValueError("Error: JSON file was empty of content") 
-        
-        batch = []
-        try:
-            # - yield batches
-            
-            needMoreData = False
-            while True:
-                if needMoreData:
-                    self.fill_buffer()
-                    needMoreData = False
-                
-                while len(batch) < batch_size:
-                    try:
-                        row = self.get_line()
-                        # ToDo: validate the line
-                        batch.append(row)
-                    except NeedMoreData:
-                        needMoreData = True
-                        break
-                    except Exception:
-                        print(self._buffer_pos, self._buffer_str)
-                        raise
-                else:
-                    yield batch
-                    batch = []
-        
-        except StopIteration as e:
-            # yield any final batch
-            if batch:
-                yield batch
+            raise ValueError("Error: JSON file was empty of content")
+    
+        def teardown(self):
             
             # - check the end of the file
-            # note: fill_buffer should have gaurenteed that we have only the data in the end
+            # note: fill_buffer should have guaranteed that we have only the data in the end
             
-            # advance thorugh any leading whitespace
+            # advance through any leading whitespace
             self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, self._buffer_pos).end()
             
             # check the end of the array if we have it
@@ -407,14 +435,78 @@ class JsonSourceFile(SourceFile):
                     raise ValueError("Error: JSON array did not end cleanly, rather with: <<%s>>%s" % (snippit[:100], extra))
                 self._buffer_pos += 1
             
-            # advance thorugh any trailing whitespace
+            # advance through any trailing whitespace
             self._buffer_pos = json.decoder.WHITESPACE.match(self._buffer_str, self._buffer_pos).end()
             snippit = self._buffer_str[self._buffer_pos:]
             if len(snippit) > 0:
                 extra = '' if len(snippit) <= 100 else ' and %d more characters' %  (len(snippit) - 100)
                 raise ValueError("Error: extra data after JSON data: <<%s>>%s" % (snippit[:100], extra))
+
+class CsvSoureFile(SourceFile):
+    format        = "csv"
+    
+    no_header_row = False
+    custom_header = None
+    
+    _reader       = None # instance of csv.reader
+    _columns      = None # name of the columns
+    
+    def __init__(self, *args, **kwargs):
+        if 'options' in kwargs and isinstance(kwargs['options'], dict):
+            if 'no_header_row' in kwargs['options']:
+                self.no_header_row = kwargs['options']['no_header_row'] == True
+                del kwargs['options']['no_header_row']
+            if 'custom_header' in kwargs['options']:
+                self.custom_header = kwargs['options']['custom_header']
+                del kwargs['options']['custom_header']
+            if not kwargs['options']:
+                del kwargs['options']
             
-            raise e
+        super(CsvSoureFile, self).__init__(*args, **kwargs)
+    
+    def byte_counter(self):
+        '''Generator for getting a byte count on a file being used'''
+        
+        for line in self._source:
+            self._bytes_read.value += len(line)
+            if unicode != str:
+                yield line.encode("utf-8") # Python2.x csv module does not really handle unicode
+            else:
+                yield line
+    
+    def setup(self, warning_queue=None):
+        # - setup csv.reader with a byte counter wrapper
+        
+        self._reader = csv.reader(self.byte_counter())
+        
+        # - get the header information for column names
+        
+        if not self.no_header_row:
+            self._columns = next(self._reader)
+        
+        # field names may override fields from the header
+        if self.custom_header is not None:
+            if not self.no_header_row:
+                warning_queue.put("Ignoring header row on %s: %s" % (self.name, str(self._columns)))
+            self._columns = self.custom_header
+        elif self.no_header_row:
+            raise ValueError("Error: No field name information available")
+    
+    def get_line(self):
+        rowRaw = next(self._reader)
+        if len(self._columns) != len(rowRaw):
+            raise Exception("Error: '%s' line %d has an inconsistent number of columns: %s" % (self.name, self._reader.line_num, str(row)))
+        
+        row = {}
+        for key, value in zip(self._columns, rowRaw): # note: we import all csv fields as strings
+            # treat empty fields as no entry rather than empty string
+            if value == '':
+                continue
+            row[key] = value if str == unicode else unicode(value, encoding="utf-8")
+        
+        return row
+
+# ==
 
 usage = """rethinkdb import -d DIR [-c HOST:PORT] [--tls-cert FILENAME] [-p] [--password-file FILENAME]
       [--force] [-i (DB | DB.TABLE)] [--clients NUM]
@@ -676,7 +768,11 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
                     raise RuntimeError("The inserted/replaced/unchanged number did not match when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
                 
                 table_info.add_rows_written(modified)
-                
+            
+            except UnicodeDecodeError:
+                print(batch)
+                raise
+            
             except r.ReqlError:
                 # the error might have been caused by a comm or temporary error causing a partial batch write
                 
@@ -713,95 +809,6 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
     except Exception as e:
         error_queue.put(Error(str(e), traceback.format_exc(), "%s.%s" % (db , table)))
         exit_event.set()
-
-# Wrapper classes for the handling of unicode csv files
-# Taken from https://docs.python.org/2/library/csv.html
-class Utf8Recoder:
-    def __init__(self, f):
-        self.reader = codecs.getreader("utf-8")(f)
-
-    def __iter__(self):
-        return self
-
-    def next(self):
-        return self.reader.next().encode("utf-8")
-
-class Utf8CsvReader:
-    reader = None
-    
-    def __init__(self, iterable, **kwargs):
-        self.reader = csv.reader(Utf8Recoder(iterable), **kwargs)
-    
-    @property
-    def line_num(self):
-        return self.reader.line_num
-    
-    def next(self):
-        return [unicode(s, "utf-8") for s in self.reader.next()]
-    
-    def __iter__(self):
-        return self
-
-def csv_reader(table, options, exit_event):
-    with open(filename, "r", encoding="utf-8", newline="") if PY3 else open(table.path, "r") as file_in:
-        # - Count the lines so we can report progress # TODO: work around the double pass
-        for i, _ in enumerate(file_in):
-            pass
-        table.total_rows = i + 1
-        
-        # rewind the file
-        file_in.seek(0)
-        
-        if PY3:
-            reader = csv.reader(file_in, delimiter=options.delimiter)
-        else:
-            reader = Utf8CsvReader(file_in, delimiter=options.delimiter)
-        
-        # - Get the header information for column names
-        if not options.no_header:
-            fields_in = next(reader)
-
-        # Field names may override fields from the header
-        if options.custom_header is not None:
-            if not options.no_header and not options.quiet:
-                print("Ignoring header row: %s" % str(fields_in))
-            fields_in = options.custom_header
-        elif options.no_header:
-            raise RuntimeError("Error: No field name information available")
-        
-        # - Read in the data
-        
-        batch = []
-        for row in reader:
-            if exit_event.is_set():
-                break
-            
-            # update progress
-            file_line = reader.line_num
-            table.rows_read = file_line
-            
-            if len(fields_in) != len(row):
-                raise RuntimeError("Error: File '%s' line %d has an inconsistent number of columns" % (table.path, file_line))
-            
-            # We import all csv fields as strings (since we can't assume the type of the data)
-            row = dict(zip(fields_in, row))
-            
-            # Treat empty fields as no entry rather than empty string
-            for key in list(row.keys()):
-                if len(row[key]) == 0:
-                    del row[key]
-                elif options.fields and key not in options.fields:
-                    del row[key]
-            
-            batch.append(row)
-            if len(batch) >= options.batch_size:
-                table.rows_read += len(batch)
-                yield batch
-                batch = []
-        
-        if batch:
-            table.rows_read += len(batch)
-            yield batch
 
 def abort_import(pools, exit_event, interrupt_event):
     if interrupt_event.is_set():
@@ -858,10 +865,14 @@ def update_progress(tables, options, done_event, exit_event, sleep=0.2):
                 print(e)
                 traceback.print_exc()
 
-def import_tables(options, files_info):
+def import_tables(options, sources):
+    # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
+    # if the user has a database named 'rethinkdb'
+    utils_common.check_minimum_version("1.6")
+    
     start_time = time.time()
     
-    tables = dict(((x.db, x.table), x) for x in files_info) # (db, table) => table
+    tables = dict(((x.db, x.table), x) for x in sources) # (db, table) => table
     
     work_queue      = Queue(options.clients * 3)
     error_queue     = SimpleQueue()
@@ -877,8 +888,39 @@ def import_tables(options, files_info):
     progressBar = None
     progressBarSleep = 0.2
     
-    # setup KeyboardInterupt handler
+    # - setup KeyboardInterupt handler
     signal.signal(signal.SIGINT, lambda a, b: abort_import(pools, exit_event, interrupt_event))
+    
+    # - setup dbs and tables
+    
+    # create missing dbs
+    needed_dbs = set([x.db for x in sources])
+    if "rethinkdb" in needed_dbs:
+        raise RuntimeError("Error: Cannot import tables into the system database: 'rethinkdb'")
+    utils_common.retryQuery("ensure dbs: %s" % ", ".join(needed_dbs), r.expr(needed_dbs).set_difference(r.db_list()).for_each(r.db_create(r.row)))
+    
+    # check for existing tables, or if --force is enabled ones with mis-matched primary keys
+    existing_tables = dict([
+        ((x["db"], x["name"]), x["primary_key"]) for x in
+        utils_common.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
+    ])
+    already_exist = []
+    for source in sources:
+        if (source.db, source.table) in existing_tables:
+            if not options.force:
+                already_exist.append("%s.%s" % (db, table))
+            elif source.primary_key is None:
+                source.primary_key = existing_tables[(source.db, source.table)]
+            elif source.primary_key != existing_tables[(source.db, source.table)]:
+                raise RuntimeError("Error: Table '%s.%s' already exists with a different primary key: %s (expected: %s)" % (source.db, source.table, existing_tables[(source.db, source.table)], source.primary_key))
+    
+    if len(already_exist) == 1:
+        raise RuntimeError("Error: Table '%s' already exists, run with --force to import into the existing table" % already_exist[0])
+    elif len(already_exist) > 1:
+        already_exist.sort()
+        raise RuntimeError("Error: The following tables already exist, run with --force to import into the existing tables:\n  %s" % "\n  ".join(already_exist))
+    
+    # - start the import
     
     try:
         # - start the progress bar
@@ -886,7 +928,7 @@ def import_tables(options, files_info):
             progressBar = multiprocessing.Process(
                 target=update_progress,
                 name="progress bar",
-                args=(files_info, options, done_event, exit_event, progressBarSleep)
+                args=(sources, options, done_event, exit_event, progressBarSleep)
             )
             progressBar.start()
             pools.append([progressBar])
@@ -909,39 +951,41 @@ def import_tables(options, files_info):
         # - read the tables options.clients at a time
         readers = []
         pools.append(readers)
-        filesLeft = len(files_info)
-        fileIter = iter(files_info)
-        while filesLeft and not exit_event.is_set():
-            # add a workers to fill up the readers pool
-            while filesLeft and len(readers) < options.clients:
-                table = next(fileIter)
-                reader = multiprocessing.Process(
-                    target=table.read_to_queue, name="table reader %s.%s" % (table.db, table.table),
-                    kwargs={
-                        "fields":options.fields, "batch_size":options.batch_size,
-                        "work_queue":work_queue, "error_queue":error_queue, "timing_queue":timing_queue,
-                        "exit_event":exit_event
-                    }
-                )
-                readers.append(reader)
-                reader.start()
-                filesLeft -= 1
-            
-            # drain the timing queue
-            while not timing_queue.empty():
-                key, value = timing_queue.get()
-                if not key in timingSums:
-                    timingSums[key] = value
-                else:
-                    timingSums[key] += value
-            
-            # reap completed tasks
-            if filesLeft:
+        filesLeft = len(sources)
+        fileIter = iter(sources)
+        try:
+            while not exit_event.is_set():
+                # add a workers to fill up the readers pool
+                while len(readers) < options.clients:
+                    table = next(fileIter)
+                    reader = multiprocessing.Process(
+                        target=table.read_to_queue, name="table reader %s.%s" % (table.db, table.table),
+                        kwargs={
+                            "fields":options.fields, "batch_size":options.batch_size,
+                            "work_queue":work_queue, "error_queue":error_queue, "warning_queue":warning_queue, "timing_queue":timing_queue,
+                            "exit_event":exit_event
+                        }
+                    )
+                    readers.append(reader)
+                    reader.start()
+                    filesLeft -= 1
+                
+                # drain the timing queue
+                while not timing_queue.empty():
+                    key, value = timing_queue.get()
+                    if not key in timingSums:
+                        timingSums[key] = value
+                    else:
+                        timingSums[key] += value
+                
+                # reap completed tasks
                 for reader in readers[:]:
                     if not reader.is_alive():
                         readers.remove(reader)
                     if filesLeft and len(readers) == options.clients:
                         time.sleep(.05)
+        except StopIteration:
+            pass # ran out of new tables
         
         # - wait for the last batch of readers to complete
         while readers:
@@ -969,7 +1013,7 @@ def import_tables(options, files_info):
                 try:
                     work_queue.put((None, None, StopIteration()), timeout=0.1)
                     break
-                except Empty: pass
+                except Full: pass
         
         # - wait for all of the writers
         for writer in writers[:]:
@@ -1009,7 +1053,7 @@ def import_tables(options, files_info):
             
             # report statistics
             plural = lambda num, text: "%d %s%s" % (num, text, "" if num == 1 else "s")
-            print("  %s imported to %s in %.2f secs" % (plural(sum(x.rows_written for x in files_info), "row"), plural(len(files_info), "table"), time.time() - start_time))
+            print("  %s imported to %s in %.2f secs" % (plural(sum(x.rows_written for x in sources), "row"), plural(len(sources), "table"), time.time() - start_time))
             
             # report debug statistics
             if options.debug:
@@ -1042,13 +1086,9 @@ def import_tables(options, files_info):
         raise RuntimeError("Warnings occurred during import")
 
 def import_directory(options):
-    # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
-    # if the user has a database named 'rethinkdb'
-    utils_common.check_minimum_version(options, "1.6")
-    
     # Scan for all files, make sure no duplicated tables with different formats
     dbs = False
-    files_info = {} # (db, table) => {file:, format:, db:, table:, info:}
+    sources = {} # (db, table) => {file:, format:, db:, table:, info:}
     files_ignored = []
     for root, dirs, files in os.walk(options.directory):
         if not dbs:
@@ -1081,7 +1121,7 @@ def import_directory(options):
                     files_ignored.append(os.path.join(root, filename))
                 else:
                     # ensure we don't have a duplicate
-                    if (db, table) in files_info:
+                    if (db, table) in sources:
                         raise RuntimeError("Error: Duplicate db.table found in directory tree: %s.%s" % (db, table))
                     
                     # apply db/table filters
@@ -1106,40 +1146,13 @@ def import_directory(options):
                     except OSError:
                         files_ignored.append(os.path.join(root, f))
                     
-                    tableType = JsonSourceFile # ToDo check the type
-                    
-                    files_info[(db, table)] = tableType(
+                    tableType = JsonSourceFile if ext == ".json" else CsvSoureFile
+                    sources[(db, table)] = tableType(
                         source=path,
                         db=db, table=table,
                         primary_key=primary_key,
                         indexes=indexes
                     )
-    
-    # create missing dbs
-    needed_dbs = set([x[0] for x in files_info])
-    if "rethinkdb" in needed_dbs:
-        raise RuntimeError("Error: Cannot import tables into the system database: 'rethinkdb'")
-    options.retryQuery("ensure dbs: %s" % ", ".join(needed_dbs), r.expr(needed_dbs).set_difference(r.db_list()).for_each(r.db_create(r.row)))
-    
-    # check for existing tables, or if --force is enabled ones with mis-matched primary keys
-    existing_tables = dict([
-        ((x["db"], x["name"]), x["primary_key"]) for x in
-        options.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
-    ])
-    already_exist = []
-    for db, table, primary_key in ((x.db, x.table, x.primary_key) for x in files_info.values()):
-        if (db, table) in existing_tables:
-            if not options.force:
-                already_exist.append("%s.%s" % (db, table))
-
-            elif primary_key != existing_tables[(db, table)]:
-                raise RuntimeError("Error: Table '%s.%s' already exists with a different primary key: %s (expected: %s)" % (db, table, existing_tables[(db, table)], primary_key))
-    
-    if len(already_exist) == 1:
-        raise RuntimeError("Error: Table '%s' already exists, run with --force to import into the existing table" % already_exist[0])
-    elif len(already_exist) > 1:
-        already_exist.sort()
-        raise RuntimeError("Error: The following tables already exist, run with --force to import into the existing tables:\n  %s" % "\n  ".join(already_exist))
 
     # Warn the user about the files that were ignored
     if len(files_ignored) > 0:
@@ -1150,46 +1163,21 @@ def import_directory(options):
             print("%s" % str(f), file=sys.stderr)
     
     # start the imports
-    import_tables(options, list(files_info.values()))
+    import_tables(options, list(sources.values()))
 
 def import_file(options):
     db, table = options.import_table
-    if db == "rethinkdb":
-        raise RuntimeError("Error: Cannot import a table into the system database: 'rethinkdb'")
-    
-    # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
-    # if the user has a database named 'rethinkdb'
-    utils_common.check_minimum_version(options, "1.6")
-    
-    # Ensure that the database and table exist with the right primary key
-    options.retryQuery("create db %s" % db, r.expr([db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
-    tableInfo = None
-    try:
-        tableInfo = options.retryQuery('table info: %s.%s' % (db, table), r.db(db).table(table).info())
-    except r.ReqlOpFailedError:
-        pass # table does not exist
-    if tableInfo:
-        if not options.force:
-            raise RuntimeError("Error: Table `%s.%s` already exists, run with --force if you want to import into the existing table" % (db, table))
-        if "primary_key" in options.create_args:
-            if options.create_args["primary_key"] != tableInfo["primary_key"]:
-                raise RuntimeError("Error: Table already exists with a different primary key")
-    else:
-        if "primary_key" not in options.create_args and not options.quiet:
-            print("no primary key specified, using default primary key when creating table")
-        options.retryQuery("create table: %s.%s" % (db, table), r.db(db).table_create(table, **options.create_args))
-        tableInfo = options.retryQuery("table info: %s.%s" % (db, table), r.db(db).table(table).info())
-    
-    # Make this up so we can use the same interface as with an import directory
-    table = SourceFile(
-        path=options.file,
-        db=db,
-        table=table,
-        format=options.format,
-        primary_key=tableInfo["primary_key"],
-    )
-    
-    import_tables(options, [table])
+    import_tables(options, [
+        CsvSoureFile(
+            source=options.file,
+            db=db, table=table,
+            primary_key=options.create_args.get('primary_key', None) if options.create_args else None,
+            options={
+                'no_header_row': options.no_header,
+                'custom_header': options.custom_header
+            }
+        )
+    ])
 
 def main(argv=None, prog=None):
     if argv is None:
@@ -1197,8 +1185,7 @@ def main(argv=None, prog=None):
     try:
         options = parse_options(argv, prog=prog)
     except RuntimeError as ex:
-        print("Usage:\n%s" % usage, file=sys.stderr)
-        print(ex, file=sys.stderr)
+        print("Usage:\n%s\n%s" % (usage, ex), file=sys.stderr)
         return 1
 
     try:
