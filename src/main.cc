@@ -49,6 +49,14 @@ int main(int argc, char *argv[]) {
             return main_rethinkdb_restore(argc, argv);
         } else if (subcommand == "index-rebuild") {
             return main_rethinkdb_index_rebuild(argc, argv);
+#ifdef _WIN32
+		} else if (subcommand == "run-service") {
+			return main_rethinkdb_run_service(argc, argv);
+		} else if (subcommand == "install-service") {
+			return main_rethinkdb_install_service(argc, argv);
+		} else if (subcommand == "remove-service") {
+			return main_rethinkdb_remove_service(argc, argv);
+#endif /* _WIN32 */
         } else if (subcommand == "--version" || subcommand == "-v") {
             if (argc != 2) {
                 printf("WARNING: Ignoring extra parameters after '%s'.", subcommand.c_str());

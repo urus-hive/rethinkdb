@@ -13,6 +13,11 @@ int main_rethinkdb_import(int argc, char *argv[]);
 int main_rethinkdb_dump(int argc, char *argv[]);
 int main_rethinkdb_restore(int argc, char *argv[]);
 int main_rethinkdb_index_rebuild(int argc, char *argv[]);
+#ifdef _WIN32
+int main_rethinkdb_run_service(int argc, char *argv[]);
+int main_rethinkdb_install_service(int argc, char *argv[]);
+int main_rethinkdb_remove_service(int argc, char *argv[]);
+#endif /* _WIN32 */
 
 void help_rethinkdb_create();
 void help_rethinkdb_serve();

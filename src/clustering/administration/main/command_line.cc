@@ -46,6 +46,7 @@
 #include "clustering/administration/main/serve.hpp"
 #include "clustering/administration/main/directory_lock.hpp"
 #include "clustering/administration/main/version_check.hpp"
+#include "clustering/administration/main/windows_service.hpp"
 #include "clustering/administration/metadata.hpp"
 #include "clustering/administration/logs/log_writer.hpp"
 #include "clustering/administration/main/path.hpp"
@@ -2515,3 +2516,136 @@ void help_rethinkdb_index_rebuild() {
     char* args[3] = { dummy_arg, help_arg, nullptr };
     run_backup_script(RETHINKDB_INDEX_REBUILD_SCRIPT, args);
 }
+
+#ifdef _WIN32
+#include <windows.h>
+#include <Shellapi.h>
+
+#include "arch/runtime/thread_pool.hpp"
+
+// TODO! Refactor
+DWORD service_control_handler(DWORD dw_control, DWORD dw_event_type, void *, void *) {
+	switch (dw_control) {
+	case SERVICE_CONTROL_INTERROGATE:
+		return NO_ERROR;
+	case SERVICE_CONTROL_SHUTDOWN: // fallthru
+	case SERVICE_CONTROL_STOP:
+		thread_pool_t::interrupt_handler(CTRL_SHUTDOWN_EVENT);
+		return NO_ERROR;
+	default:
+		return ERROR_CALL_NOT_IMPLEMENTED;
+	}
+}
+
+void service_main_function(DWORD argc, char *argv[]) {
+	SERVICE_STATUS_HANDLE status_handle =
+		RegisterServiceCtrlHandlerEx("", service_control_handler, nullptr);
+	SERVICE_STATUS status;
+	memset(&status, sizeof(status), 0);
+	status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+	status.dwCurrentState = SERVICE_RUNNING;
+	status.dwControlsAccepted = SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_STOP;
+	SetServiceStatus(status_handle, &status);
+
+	int res = main_rethinkdb_porcelain(argc, argv);
+
+	status.dwCurrentState = SERVICE_STOPPED;
+	status.dwWin32ExitCode = res == 0 ? 0 : ERROR_SERVICE_SPECIFIC_ERROR;
+	status.dwServiceSpecificExitCode = res;
+	SetServiceStatus(status_handle, &status);
+}
+
+int main_rethinkdb_run_service(int argc, char *argv[]) {
+	SERVICE_TABLE_ENTRY DispatchTable[] =
+	{
+		{ "", service_main_function },
+		{ nullptr, nullptr }
+	};
+
+	if (!StartServiceCtrlDispatcher(DispatchTable)) {
+		// TODO! Log error
+		//SvcReportEvent("StartServiceCtrlDispatcher failed");
+		return 1;
+	}
+	return 0;
+}
+
+int restart_elevated(int argc, char *argv[]) {
+	SHELLEXECUTEINFO sei = { sizeof(sei) };
+	memset(&sei, sizeof(sei), 0);
+	sei.lpVerb = "runas";
+	sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+	sei.nShow = SW_NORMAL;
+	sei.lpFile = argv[0];
+	std::string args;
+	for (int i = 1; i < argc; ++i) {
+		if (i > 1) {
+			args += " ";
+		}
+		args += escape_windows_shell_arg(argv[i]);
+	}
+	sei.lpParameters = args.c_str();
+
+	if (!ShellExecuteEx(&sei)) {
+		int err = GetLastError();
+		if (err == ERROR_CANCELLED) {
+			// TODO!
+		}
+		return 1;
+	} else {
+		if (sei.hProcess != nullptr) {
+			WaitForSingleObject(sei.hProcess, INFINITE);
+			DWORD exit_code;
+			if (GetExitCodeProcess(sei.hProcess, &exit_code)) {
+				CloseHandle(sei.hProcess);
+				return exit_code;
+			}
+			CloseHandle(sei.hProcess);
+		}
+		// TODO!
+		return 1;
+	}
+}
+
+int main_rethinkdb_install_service(int argc, char *argv[]) {
+	// TODO! Parse arguments
+
+	// Get our filename
+	TCHAR my_path[MAX_PATH];
+	if (!GetModuleFileName(nullptr, my_path, MAX_PATH)) {
+		// TODO! Better error message (and return code)
+		printf("Cannot install service (%d)\n", GetLastError());
+		return -1;
+	}
+
+	std::vector<std::string> service_args;
+	service_args.push_back("run-service");
+	service_args.push_back("--config-file");
+	// TODO! Put an example config file into the zip archive for Windows.
+	// It would be nice to have a build target that automatically generates a
+	// zip archive with the example as well as a README.txt file.
+	service_args.push_back("c:\\Users\\daniel\\rethinkdb.conf");
+
+	try {
+		install_windows_service("rethinkdb", std::string(my_path), service_args);
+		// TODO!
+		Sleep(10000);
+		return 0;
+	} catch (const windows_privilege_exc_t &) {
+		return restart_elevated(argc, argv);
+	}
+}
+
+int main_rethinkdb_remove_service(int argc, char *argv[]) {
+	// TODO! Parse arguments
+
+	try {
+		remove_windows_service("rethinkdb");
+		// TODO!
+		Sleep(10000);
+		return 0;
+	} catch (const windows_privilege_exc_t &) {
+		return restart_elevated(argc, argv);
+	}
+}
+#endif /* _WIN32 */
