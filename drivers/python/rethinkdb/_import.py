@@ -543,12 +543,11 @@ rethinkdb import -f user_data.csv --delimiter ';' --no-header --custom-header id
 def parse_options(argv, prog=None):
     parser = utils_common.CommonOptionsParser(usage=usage, epilog=help_epilog, prog=prog)
     
-    parser.add_option("--clients",           dest="clients",    metavar="CLIENTS",    default=8,      help="client connections to use (default: 8)", type="pos_int")
-    parser.add_option("--hard-durability",   dest="durability", action="store_const", default="soft", help="use hard durability writes (slower, uses less memory)", const="hard")
-    parser.add_option("--force",             dest="force",      action="store_true",  default=False,  help="import even if a table already exists, overwriting duplicate primary keys")
+    parser.add_option("--clients",         dest="clients",    metavar="CLIENTS",    default=8,      help="client connections to use (default: 8)", type="pos_int")
+    parser.add_option("--hard-durability", dest="durability", action="store_const", default="soft", help="use hard durability writes (slower, uses less memory)", const="hard")
+    parser.add_option("--force",           dest="force",      action="store_true",  default=False,  help="import even if a table already exists, overwriting duplicate primary keys")
     
-    parser.add_option("--writers-per-table", dest="writers",    metavar="WRITERS",    default=multiprocessing.cpu_count(), help=optparse.SUPPRESS_HELP, type="pos_int")
-    parser.add_option("--batch-size",        dest="batch_size", metavar="BATCH",      default=default_batch_size,          help=optparse.SUPPRESS_HELP, type="pos_int")
+    parser.add_option("--batch-size",      dest="batch_size", metavar="BATCH",      default=default_batch_size,          help=optparse.SUPPRESS_HELP, type="pos_int")
     
     # Replication settings
     replicationOptionsGroup = optparse.OptionGroup(parser, "Replication Options")
