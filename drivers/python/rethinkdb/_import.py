@@ -112,7 +112,7 @@ class SourceFile(object):
             self.name = '%s.%s' % (self.db, self.table)
         
     def get_line(self):
-        '''Returns a single line from the file, assumes we have the _lock'''
+        '''Returns a single line from the file'''
         raise NotImplementedError('This needs to be implemented on the %s subclass' % self.format)
     
     # - bytes
@@ -767,10 +767,6 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
                     raise RuntimeError("The inserted/replaced/unchanged number did not match when importing into table '%s.%s': %s" % (db, table, res["first_error"]))
                 
                 table_info.add_rows_written(modified)
-            
-            except UnicodeDecodeError:
-                print(batch)
-                raise
             
             except r.ReqlError:
                 # the error might have been caused by a comm or temporary error causing a partial batch write
