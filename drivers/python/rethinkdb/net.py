@@ -27,12 +27,7 @@ from .handshake import *
 try:
     from ssl import match_hostname, CertificateError
 except ImportError:
-    from backports.ssl_match_hostname import match_hostname, CertificateError
-
-try:
-    xrange
-except NameError:
-    xrange = range
+    from .backports.ssl_match_hostname import match_hostname, CertificateError
 
 try:
     {}.iteritems
@@ -145,6 +140,12 @@ class Cursor(object):
 
         self._maybe_fetch_batch()
         self._extend_internal(first_response)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
 
     def close(self):
         if self.error is None:
@@ -314,10 +315,7 @@ class SocketWrapper(object):
                     if char == b'\0':
                         break
                     response += char
-        except ReqlAuthError:
-            self.close()
-            raise
-        except ReqlTimeoutError:
+        except (ReqlAuthError, ReqlTimeoutError):
             self.close()
             raise
         except ReqlDriverError as ex:
@@ -431,7 +429,7 @@ class ConnectionInstance(object):
     def is_open(self):
         return self._socket.is_open()
 
-    def close(self, noreply_wait, token):
+    def close(self, noreply_wait=False, token=None):
         self._closing = True
 
         # Cursors may remove themselves when errored, so copy a list of them
@@ -504,7 +502,7 @@ class ConnectionInstance(object):
                     self._parent._get_json_decoder(query))
             elif not self._closing:
                 # This response is corrupted or not intended for us
-                self.close(False, None)
+                self.close()
                 raise ReqlDriverError("Unexpected response received.")
 
 
@@ -644,17 +642,20 @@ class DefaultConnection(Connection):
 
 connection_type = DefaultConnection
 
-def connect(
-        host='localhost',
-        port=DEFAULT_PORT,
-        db=None,
-        auth_key=None,
-        user='admin',
-        password=None,
-        timeout=20,
-        ssl=dict(),
-        _handshake_version=10,
-        **kwargs):
+def connect(host=None, port=None, db=None, auth_key=None, user=None, password=None, timeout=20, ssl=None, _handshake_version=10, **kwargs):
+    if host is None:
+        host = 'localhost'
+    if port is None:
+        port = DEFAULT_PORT
+    if user is None:
+        user = 'admin'
+    if timeout is None:
+        timeout = 20
+    if ssl is None:
+        ssl = dict()
+    if _handshake_version is None:
+        _handshake_version = 10
+    
     conn = connection_type(host, port, db, auth_key, user, password, timeout, ssl, _handshake_version, **kwargs)
     return conn.reconnect(timeout=timeout)
 
