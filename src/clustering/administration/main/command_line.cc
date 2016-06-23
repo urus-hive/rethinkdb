@@ -2672,7 +2672,8 @@ int main_rethinkdb_remove_service(int argc, char *argv[]) {
     --instance-name
     --help
     */
-    std::string service_name = "rethinkdb";
+    std::string instance_name = "default";
+    std::string service_name = "rethinkdb_" + instance_name;
 
     return run_and_maybe_elevate(already_elevated, argc, argv, [&]() {
         fprintf(stderr, "Stopping service `%s`...\n", service_name.c_str());

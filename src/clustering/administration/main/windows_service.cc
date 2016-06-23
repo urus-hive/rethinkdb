@@ -235,7 +235,7 @@ bool start_windows_service(const std::string &service_name) {
         if (err == ERROR_ACCESS_DENIED) {
             throw windows_privilege_exc_t();
         } else if (err == ERROR_SERVICE_ALREADY_RUNNING) {
-            fprintf(stderr, "The service `%s` is already running\n",
+            fprintf(stderr, "The service `%s` is already running.\n",
                     service_name.c_str());
             return true;
         }
@@ -266,7 +266,7 @@ bool stop_windows_service(const std::string &service_name) {
         if (err == ERROR_ACCESS_DENIED) {
             throw windows_privilege_exc_t();
         } else if (err == ERROR_SERVICE_NOT_ACTIVE) {
-            fprintf(stderr, "The service `%s` is already stopped\n",
+            fprintf(stderr, "The service `%s` is already stopped.\n",
                 service_name.c_str());
             return true;
         }
