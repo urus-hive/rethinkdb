@@ -1,6 +1,8 @@
 // Copyright 2010-2013 RethinkDB, all rights reserved.
 #include "clustering/administration/main/command_line.hpp"
 
+#include <functional>
+
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +20,12 @@
 #ifndef _WIN32
 #include <pwd.h>
 #include <grp.h>
+#endif
+
+#ifdef _WIN32
+#include "errors.hpp"
+#include <Windows.h>
+#include <Shellapi.h>
 #endif
 
 // Needed for determining rethinkdb binary path below
@@ -2004,7 +2012,7 @@ bool maybe_daemonize(const std::map<std::string, options::values_t> &opts) {
             throw std::runtime_error(strprintf("Failed to redirect stderr for daemon: %s\n", errno_string(get_errno()).c_str()).c_str());
         }
 #endif
-	}
+    }
     return true;
 }
 
@@ -2222,7 +2230,6 @@ int main_rethinkdb_proxy(int argc, char *argv[]) {
     return EXIT_FAILURE;
 }
 
-// TODO: Add split_db_table unit test.
 MUST_USE bool split_db_table(const std::string &db_table, std::string *db_name_out, std::string *table_name_out) {
     size_t first_pos = db_table.find_first_of('.');
     if (first_pos == std::string::npos || db_table.find_last_of('.') != first_pos) {
@@ -2518,134 +2525,166 @@ void help_rethinkdb_index_rebuild() {
 }
 
 #ifdef _WIN32
-#include <windows.h>
-#include <Shellapi.h>
-
-#include "arch/runtime/thread_pool.hpp"
-
-// TODO! Refactor
-DWORD service_control_handler(DWORD dw_control, DWORD dw_event_type, void *, void *) {
-	switch (dw_control) {
-	case SERVICE_CONTROL_INTERROGATE:
-		return NO_ERROR;
-	case SERVICE_CONTROL_SHUTDOWN: // fallthru
-	case SERVICE_CONTROL_STOP:
-		thread_pool_t::interrupt_handler(CTRL_SHUTDOWN_EVENT);
-		return NO_ERROR;
-	default:
-		return ERROR_CALL_NOT_IMPLEMENTED;
-	}
-}
-
-void service_main_function(DWORD argc, char *argv[]) {
-	SERVICE_STATUS_HANDLE status_handle =
-		RegisterServiceCtrlHandlerEx("", service_control_handler, nullptr);
-	SERVICE_STATUS status;
-	memset(&status, sizeof(status), 0);
-	status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
-	status.dwCurrentState = SERVICE_RUNNING;
-	status.dwControlsAccepted = SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_STOP;
-	SetServiceStatus(status_handle, &status);
-
-	int res = main_rethinkdb_porcelain(argc, argv);
-
-	status.dwCurrentState = SERVICE_STOPPED;
-	status.dwWin32ExitCode = res == 0 ? 0 : ERROR_SERVICE_SPECIFIC_ERROR;
-	status.dwServiceSpecificExitCode = res;
-	SetServiceStatus(status_handle, &status);
-}
 
 int main_rethinkdb_run_service(int argc, char *argv[]) {
-	SERVICE_TABLE_ENTRY DispatchTable[] =
-	{
-		{ "", service_main_function },
-		{ nullptr, nullptr }
-	};
+    SERVICE_TABLE_ENTRY dispatch_table[] =
+    {
+        { "", [](DWORD argc, char *argv[]) {
+                  return windows_service_main_function(main_rethinkdb_porcelain, argc, argv);
+              } },
+        { nullptr, nullptr }
+    };
 
-	if (!StartServiceCtrlDispatcher(DispatchTable)) {
-		// TODO! Log error
-		//SvcReportEvent("StartServiceCtrlDispatcher failed");
-		return 1;
-	}
-	return 0;
+    if (!StartServiceCtrlDispatcher(dispatch_table)) {
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+}
+
+const char *ELEVATED_RUN_MARKER = "_rethinkdb_was_elevated";
+
+bool was_elevated(int argc, char *argv[]) {
+    return argc > 0 && strcmp(argv[argc - 1], ELEVATED_RUN_MARKER) == 0;
 }
 
 int restart_elevated(int argc, char *argv[]) {
-	SHELLEXECUTEINFO sei = { sizeof(sei) };
-	memset(&sei, sizeof(sei), 0);
-	sei.lpVerb = "runas";
-	sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-	sei.nShow = SW_NORMAL;
-	sei.lpFile = argv[0];
-	std::string args;
-	for (int i = 1; i < argc; ++i) {
-		if (i > 1) {
-			args += " ";
-		}
-		args += escape_windows_shell_arg(argv[i]);
-	}
-	sei.lpParameters = args.c_str();
+    SHELLEXECUTEINFO sei = { sizeof(sei) };
+    memset(&sei, sizeof(sei), 0);
+    sei.lpVerb = "runas";
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.nShow = SW_NORMAL;
+    sei.lpFile = argv[0];
+    std::string args;
+    for (int i = 1; i < argc; ++i) {
+        if (i > 1) {
+            args += " ";
+        }
+        args += escape_windows_shell_arg(argv[i]);
+    }
+    // Mark as elevated
+    args += " ";
+    args += ELEVATED_RUN_MARKER;
+    sei.lpParameters = args.c_str();
 
-	if (!ShellExecuteEx(&sei)) {
-		int err = GetLastError();
-		if (err == ERROR_CANCELLED) {
-			// TODO!
-		}
-		return 1;
-	} else {
-		if (sei.hProcess != nullptr) {
-			WaitForSingleObject(sei.hProcess, INFINITE);
-			DWORD exit_code;
-			if (GetExitCodeProcess(sei.hProcess, &exit_code)) {
-				CloseHandle(sei.hProcess);
-				return exit_code;
-			}
-			CloseHandle(sei.hProcess);
-		}
-		// TODO!
-		return 1;
-	}
+    if (!ShellExecuteEx(&sei)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_CANCELLED) {
+            fprintf(stderr, "The request to elevate permissions was rejected.\n");
+        } else {
+            fprintf(stderr, "ShellExecuteEx failed: %s\n", winerr_string(err).c_str());
+        }
+        return EXIT_FAILURE;
+    } else {
+        if (sei.hProcess != nullptr) {
+            WaitForSingleObject(sei.hProcess, INFINITE);
+            DWORD exit_code;
+            if (GetExitCodeProcess(sei.hProcess, &exit_code)) {
+                CloseHandle(sei.hProcess);
+                return exit_code;
+            }
+            CloseHandle(sei.hProcess);
+        }
+        fprintf(stderr, "Could not get a handler on the child process.\n");
+        return EXIT_FAILURE;
+    }
+}
+
+int run_and_maybe_elevate(
+        bool already_elevated,
+        int argc,
+        char *argv[],
+        const std::function<bool()> &f) {
+    try {
+        bool success = f();
+        if (already_elevated) {
+            // Sleep a bit so that any output from the elevated shell window remains visible.
+            Sleep(5000);
+        }
+        return success ? EXIT_SUCCESS : EXIT_FAILURE;
+    } catch (const windows_privilege_exc_t &) {
+        if (!already_elevated) {
+            fprintf(stderr, "Permission denied. Trying again with elevated permissions...\n");
+            return restart_elevated(argc, argv);
+        } else {
+            fprintf(stderr, "Permission denied\n");
+            return EXIT_FAILURE;
+        }
+    }
 }
 
 int main_rethinkdb_install_service(int argc, char *argv[]) {
-	// TODO! Parse arguments
+    bool already_elevated = was_elevated(argc, argv);
+    if (already_elevated) {
+        --argc;
+    }
 
-	// Get our filename
-	TCHAR my_path[MAX_PATH];
-	if (!GetModuleFileName(nullptr, my_path, MAX_PATH)) {
-		// TODO! Better error message (and return code)
-		printf("Cannot install service (%d)\n", GetLastError());
-		return -1;
-	}
+    // TODO! Parse arguments
+    /*
+    --runuser
+    --runuser-password
+    --instance-name
+    --config-file
+    --help
+    */
+    std::string instance_name = "default";
+    std::string service_name = "rethinkdb_" + instance_name;
+    std::string display_name = "RethinkDB (" + instance_name + ")";
 
-	std::vector<std::string> service_args;
-	service_args.push_back("run-service");
-	service_args.push_back("--config-file");
-	// TODO! Put an example config file into the zip archive for Windows.
-	// It would be nice to have a build target that automatically generates a
-	// zip archive with the example as well as a README.txt file.
-	service_args.push_back("c:\\Users\\daniel\\rethinkdb.conf");
+    // Get our filename
+    TCHAR my_path[MAX_PATH];
+    if (!GetModuleFileName(nullptr, my_path, MAX_PATH)) {
+        fprintf(stderr, "Unable to retrieve own path: %s\n",
+                winerr_string(GetLastError()).c_str());
+        return EXIT_FAILURE;
+    }
 
-	try {
-		install_windows_service("rethinkdb", std::string(my_path), service_args);
-		// TODO!
-		Sleep(10000);
-		return 0;
-	} catch (const windows_privilege_exc_t &) {
-		return restart_elevated(argc, argv);
-	}
+    std::vector<std::string> service_args;
+    service_args.push_back("run-service");
+    service_args.push_back("--config-file");
+    // TODO! Put an example config file into the zip archive for Windows.
+    // It would be nice to have a build target that automatically generates a
+    // zip archive with the example as well as a README.txt file.
+    service_args.push_back("c:\\Users\\daniel\\rethinkdb.conf");
+
+    return run_and_maybe_elevate(already_elevated, argc, argv, [&]() {
+        fprintf(stderr, "Installing service `%s`...\n", service_name.c_str());
+        bool success = install_windows_service(
+            service_name, display_name, std::string(my_path), service_args);
+        if (success) {
+            fprintf(stderr, "Service `%s` installed.\n", service_name.c_str());
+        }
+        fprintf(stderr, "Starting service `%s`...\n", service_name.c_str());
+        if (start_windows_service(service_name)) {
+            fprintf(stderr, "Service `%s` started.\n", service_name.c_str());
+        }
+        return success;
+    });
 }
 
 int main_rethinkdb_remove_service(int argc, char *argv[]) {
-	// TODO! Parse arguments
+    bool already_elevated = was_elevated(argc, argv);
+    if (already_elevated) {
+        --argc;
+    }
 
-	try {
-		remove_windows_service("rethinkdb");
-		// TODO!
-		Sleep(10000);
-		return 0;
-	} catch (const windows_privilege_exc_t &) {
-		return restart_elevated(argc, argv);
-	}
+    // TODO! Parse arguments
+    /*
+    --instance-name
+    --help
+    */
+    std::string service_name = "rethinkdb";
+
+    return run_and_maybe_elevate(already_elevated, argc, argv, [&]() {
+        fprintf(stderr, "Stopping service `%s`...\n", service_name.c_str());
+        if (stop_windows_service(service_name)) {
+            fprintf(stderr, "Service `%s` stopped.\n", service_name.c_str());
+        }
+        fprintf(stderr, "Removing service `%s`...\n", service_name.c_str());
+        bool success = remove_windows_service(service_name);
+        if (success) {
+            fprintf(stderr, "Service `%s` removed.\n", service_name.c_str());
+        }
+        return success;
+    });
 }
 #endif /* _WIN32 */

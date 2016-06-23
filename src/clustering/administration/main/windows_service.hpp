@@ -3,7 +3,12 @@
 #define CLUSTERING_ADMINISTRATION_MAIN_WINDOWS_SERVICE_HPP_
 #ifdef _WIN32
 
+#include "errors.hpp"
+
+#include <Windows.h>
+
 #include <exception>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -17,14 +22,22 @@ class windows_privilege_exc_t : public std::exception {
 //   "c:\\test folder\\test.exe"
 std::string escape_windows_shell_arg(const std::string &arg);
 
-void install_windows_service(
-	const std::string &service_name,
-	const std::string &bin_path,
-	const std::vector<std::string> &arguments);
+void windows_service_main_function(
+    const std::function<int(int, char *[])> &main_fun,
+    DWORD argc,
+    char *argv[]);
 
-void remove_windows_service(const std::string &service_name);
+bool install_windows_service(
+    const std::string &service_name,
+    const std::string &display_name,
+    const std::string &bin_path,
+    const std::vector<std::string> &arguments,
+    const char *account_name = nullptr /* LocalSystem account if nullptr */,
+    const char *account_password = nullptr);
+bool remove_windows_service(const std::string &service_name);
 
-// TODO! Start and stop the service
+bool start_windows_service(const std::string &service_name);
+bool stop_windows_service(const std::string &service_name);
 
 #endif /* _WIN32 */
 #endif /* CLUSTERING_ADMINISTRATION_MAIN_WINDOWS_SERVICE_HPP_ */
