@@ -48,6 +48,19 @@ void server_config_client_t::update_server_connectivity(
         ++server_connectivity.all_servers[key.second];
         server_connectivity.connected_to[key.first].insert(key.second);
     }
+
+    fprintf(stderr, "server connectivity\n");
+    for (auto i : server_connectivity.connected_to) {
+        fprintf(stderr, "%s\n", i.first.print().c_str());
+        for (auto j : i.second) {
+            fprintf(stderr, "    %s\n", j.print().c_str());
+        }
+    }
+
+    fprintf(stderr, "\nAll servers\n");
+    for (auto i : server_connectivity.all_servers) {
+        fprintf(stderr, "%s : %d\n", i.first.print().c_str(), i.second);
+    }
 }
 
 bool server_config_client_t::set_config(
@@ -166,7 +179,27 @@ void server_config_client_t::install_server_metadata(
 void server_config_client_t::on_directory_change(
         const peer_id_t &peer_id,
         const cluster_directory_metadata_t *metadata) {
+
     if (metadata != nullptr) {
+            // Double subscription to keep stale proxies from being kept.
+        fprintf(stderr, "~~~~~DIRECTORY VIEW CHANGE");
+        fprintf(stderr, "Metadata: %s\n", debug_str(metadata).c_str());
+        fprintf(stderr, "Value: %s\n", debug_str(peer_id).c_str());
+        peer_connections_map->read_all(
+            [&] (const std::pair<peer_id_t, server_id_t> &connection, const empty_value_t *value) {
+                if (connection.first == peer_id) {
+                    // This connection matches the directory view change
+                    fprintf(stderr, "HERE");
+                    if (value != nullptr) {
+                    connections_map.set_key(
+                        std::make_pair(metadata->server_id, connection.second), empty_value_t());
+                    } else {
+                        connections_map.delete_key(
+                            std::make_pair(metadata->server_id, connection.second));
+                    }
+                }
+            });
+
         if (metadata->peer_type != SERVER_PEER) {
             return;
         }
@@ -224,6 +257,9 @@ void server_config_client_t::on_peer_connections_map_change(
         const empty_value_t *value) {
     directory_view->read_key(key.first,
     [&](const cluster_directory_metadata_t *metadata) {
+        fprintf(stderr, "Metadata: %s\n", debug_str(metadata).c_str());
+        fprintf(stderr, "Value: %s\n", debug_str(value).c_str());
+        fprintf(stderr, "Key: %s\n", debug_str(key).c_str());
         if (metadata != nullptr) {
             if (value != nullptr) {
                 connections_map.set_key(
