@@ -246,6 +246,7 @@ bool start_windows_service(const std::string &service_name) {
         return true;
     }
 }
+
 bool stop_windows_service(const std::string &service_name) {
     // Get a handle to the SCM database. 
     service_manager_t sc_manager(SC_MANAGER_CONNECT);

@@ -1,4 +1,4 @@
-// Copyright 2010-2012 RethinkDB, all rights reserved.
+// Copyright 2010-2016 RethinkDB, all rights reserved.
 #ifndef CLUSTERING_ADMINISTRATION_MAIN_COMMAND_LINE_HPP_
 #define CLUSTERING_ADMINISTRATION_MAIN_COMMAND_LINE_HPP_
 
@@ -28,5 +28,7 @@ void help_rethinkdb_import();
 void help_rethinkdb_dump();
 void help_rethinkdb_restore();
 void help_rethinkdb_index_rebuild();
+void help_rethinkdb_install_service();
+void help_rethinkdb_remove_service();
 
 #endif /* CLUSTERING_ADMINISTRATION_MAIN_COMMAND_LINE_HPP_ */

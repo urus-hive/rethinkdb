@@ -89,6 +89,10 @@ int main(int argc, char *argv[]) {
                     help_rethinkdb_restore();
                 } else if (subcommand2 == "index-rebuild") {
                     help_rethinkdb_index_rebuild();
+                } else if (subcommand2 == "install-service") {
+                    help_rethinkdb_install_service();
+                } else if (subcommand2 == "remove-service") {
+                    help_rethinkdb_remove_service();
                 } else {
                     printf("ERROR: No help for '%s'\n", subcommand2.c_str());
                     return 1;
