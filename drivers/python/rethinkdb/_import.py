@@ -896,7 +896,7 @@ def import_tables(options, files_info):
                 print("In file: %s" % warning[3], file=sys.stderr)
         raise RuntimeError("Warnings occurred during import")
 
-def import_directory(options):
+def import_directory(options, files_ignored=None):
     # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
     # if the user has a database named 'rethinkdb'
     utils_common.check_minimum_version("1.6")
@@ -904,7 +904,8 @@ def import_directory(options):
     # Scan for all files, make sure no duplicated tables with different formats
     dbs = False
     files_info = {} # (db, table) => {file:, format:, db:, table:, info:}
-    files_ignored = []
+    if files_ignored is None:
+        files_ignored = []
     for root, dirs, files in os.walk(options.directory):
         if not dbs:
             files_ignored.extend([os.path.join(root, f) for f in files])
@@ -928,7 +929,7 @@ def import_directory(options):
                 table, ext = os.path.splitext(filename)
                 table = os.path.basename(table)
                 
-                if ext not in [".json", ".csv", ".info"]:
+                if ext not in (".json", ".csv", ".info"):
                     files_ignored.append(os.path.join(root, filename))
                 elif ext == ".info":
                     pass # Info files are included based on the data files
