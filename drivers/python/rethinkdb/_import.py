@@ -192,9 +192,6 @@ class SourceFile(object):
     def setup_table(self, options):
         '''Ensure that the db, table, and indexes exist and are correct'''
         
-        # - ensure the db exists
-        utils_common.retryQuery("ensure db: %s" % self.db, r.expr([self.db]).set_difference(r.db_list()).for_each(r.db_create(r.row)))
-        
         # - ensure the table exists and is ready
         utils_common.retryQuery(
             "create table: %s.%s" % (self.db, self.table),
