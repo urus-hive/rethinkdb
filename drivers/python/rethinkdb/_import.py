@@ -245,7 +245,7 @@ class SourceFile(object):
         assert batch_size > 0
         
         # setup
-        self.setup(warning_queue=warning_queue)
+        self.setup_table(warning_queue=warning_queue)
         
         # - yield batches
         
