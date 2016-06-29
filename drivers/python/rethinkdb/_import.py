@@ -442,7 +442,7 @@ class JsonSourceFile(SourceFile):
                 extra = '' if len(snippit) <= 100 else ' and %d more characters' %  (len(snippit) - 100)
                 raise ValueError("Error: extra data after JSON data: <<%s>>%s" % (snippit[:100], extra))
 
-class CsvSoureFile(SourceFile):
+class CsvSourceFile(SourceFile):
     format        = "csv"
     
     no_header_row = False
@@ -462,7 +462,7 @@ class CsvSoureFile(SourceFile):
             if not kwargs['options']:
                 del kwargs['options']
             
-        super(CsvSoureFile, self).__init__(*args, **kwargs)
+        super(CsvSourceFile, self).__init__(*args, **kwargs)
     
     def byte_counter(self):
         '''Generator for getting a byte count on a file being used'''
@@ -1141,7 +1141,7 @@ def import_directory(options):
                     except OSError:
                         files_ignored.append(os.path.join(root, f))
                     
-                    tableType = JsonSourceFile if ext == ".json" else CsvSoureFile
+                    tableType = JsonSourceFile if ext == ".json" else CsvSourceFile
                     sources[(db, table)] = tableType(
                         source=path,
                         db=db, table=table,
@@ -1161,16 +1161,20 @@ def import_directory(options):
     import_tables(options, sources.values())
 
 def import_file(options):
-    db, table = options.import_table
+    db, table     = options.import_table
+    sourceType    = JsonSourceFile
+    sourceOptions = {}
+    if options.format == "csv":
+        sourceOptions = {
+            'no_header_row': options.no_header,
+            'custom_header': options.custom_header
+        }
     import_tables(options, [
-        CsvSoureFile(
+        sourceType(
             source=options.file,
             db=db, table=table,
             primary_key=options.create_args.get('primary_key', None) if options.create_args else None,
-            options={
-                'no_header_row': options.no_header,
-                'custom_header': options.custom_header
-            }
+            options=sourceOptions
         )
     ])
 
@@ -1182,7 +1186,7 @@ def main(argv=None, prog=None):
     except RuntimeError as ex:
         print("Usage:\n%s\n%s" % (usage, ex), file=sys.stderr)
         return 1
-
+    
     try:
         start_time = time.time()
         if options.directory:
