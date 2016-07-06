@@ -64,7 +64,7 @@ class SourceFile(object):
     _rows_read     = None
     _rows_written  = None
     
-    def __init__(self, source, db, table, primary_key=None, indexes=None, options=None):
+    def __init__(self, source, db, table, primary_key=None, indexes=None, source_options=None):
         assert self.format is not None, 'Subclass %s must have a format' % self.__class__.__name__
         assert db is not 'rethinkdb', "Error: Cannot import tables into the system database: 'rethinkdb'"
         
@@ -103,7 +103,7 @@ class SourceFile(object):
         self.indexes     = indexes or []
         
         # options
-        self.options     = options
+        self.options     = source_options or {}
         
         # name
         if hasattr(self._source, 'name') and self._source.name:
@@ -189,13 +189,13 @@ class SourceFile(object):
         # - return the value
         return completed * 0.5
     
-    def setup_table(self, options):
+    def setup_table(self):
         '''Ensure that the db, table, and indexes exist and are correct'''
         
         # - ensure the table exists and is ready
         utils_common.retryQuery(
             "create table: %s.%s" % (self.db, self.table),
-            r.expr([self.table]).set_difference(r.db(self.db).table_list()).for_each(r.db(self.db).table_create(r.row, **options.create_args))
+            r.expr([self.table]).set_difference(r.db(self.db).table_list()).for_each(r.db(self.db).table_create(r.row, **self.options.create_args if 'create_args' in self.options else {}))
         )
         utils_common.retryQuery("wait for %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).wait(timeout=30))
         
@@ -210,7 +210,7 @@ class SourceFile(object):
             raise RuntimeError("Error: table %s.%s primary key was `%s` rather than the expected: %s" % (self.db, table.table, primaryKey, self.primary_key))
         
         # - recreate secondary indexes - dropping existing on the assumption they are wrong
-        if options.sindexes:
+        if 'sindexes' in self.options and self.options.sindexes:
             existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).index_list())
             try:
                 created_indexes = []
@@ -237,6 +237,9 @@ class SourceFile(object):
     
     def batches(self, batch_size=None, warning_queue=None):
         
+        # setup table
+        self.setup_table()
+        
         # default batch_size
         if batch_size is None:
             batch_size = default_batch_size
@@ -245,7 +248,7 @@ class SourceFile(object):
         assert batch_size > 0
         
         # setup
-        self.setup_table(warning_queue=warning_queue)
+        self.setup_file(warning_queue=warning_queue)
         
         # - yield batches
         
@@ -283,7 +286,7 @@ class SourceFile(object):
             # - 
             raise e
     
-    def setup(self, warning_queue=None):
+    def setup_file(self, warning_queue=None):
         raise NotImplementedError("Subclasses need to implement this")
     
     def teardown(self):
@@ -394,7 +397,7 @@ class JsonSourceFile(SourceFile):
         except (ValueError, IndexError) as e:
             raise NeedMoreData()
     
-    def setup(self, warning_queue=None):
+    def setup_file(self, warning_queue=None):
         # - move to the first record
         
         # advance through any leading whitespace
@@ -471,7 +474,7 @@ class CsvSourceFile(SourceFile):
             else:
                 yield line
     
-    def setup(self, warning_queue=None):
+    def setup_file(self, warning_queue=None):
         # - setup csv.reader with a byte counter wrapper
         
         self._reader = csv.reader(self.byte_counter())
@@ -649,6 +652,8 @@ def parse_options(argv, prog=None):
                 options.import_table = utils_common.DbTable(res.group("db"), res.group("table"))
             else:
                 parser.error("Invalid --table option: %s" % options.import_table)
+        else:
+            parser.error("A value is required for --table when importing from a file")
         
         # fields
         options.fields = options.fields.split(",") if options.fields else None
@@ -662,10 +667,6 @@ def parse_options(argv, prog=None):
             
             if options.max_document_size:
                 parser.error("--max_document_size only affects importing JSON documents")
-            
-            # required options
-            if not options.import_table:
-                paser.error("A value is required for --table when importing from a file")
             
             # delimiter
             if options.delimiter is None: 
@@ -694,7 +695,7 @@ def parse_options(argv, prog=None):
             
             if options.delimiter is not None:
                 parser.error("--delimiter option is not valid for json files")
-            if options.no_header is not False:
+            if options.no_header not in (False, None):
                 parser.error("--no-header option is not valid for json files")
             if options.custom_header is not None:
                 parser.error("--custom-header option is not valid for json files")
@@ -900,7 +901,7 @@ def import_tables(options, sources):
     for source in sources:
         if (source.db, source.table) in existing_tables:
             if not options.force:
-                already_exist.append("%s.%s" % (db, table))
+                already_exist.append("%s.%s" % (source.db, source.table))
             elif source.primary_key is None:
                 source.primary_key = existing_tables[(source.db, source.table)]
             elif source.primary_key != existing_tables[(source.db, source.table)]:
@@ -1158,10 +1159,12 @@ def import_directory(options):
     import_tables(options, sources.values())
 
 def import_file(options):
-    db, table     = options.import_table
+    assert options.import_table.db is not None
+    assert options.import_table.table is not None
     sourceType    = JsonSourceFile
     sourceOptions = {}
     if options.format == "csv":
+        sourceType = CsvSourceFile
         sourceOptions = {
             'no_header_row': options.no_header,
             'custom_header': options.custom_header
@@ -1169,9 +1172,9 @@ def import_file(options):
     import_tables(options, [
         sourceType(
             source=options.file,
-            db=db, table=table,
+            db=options.import_table.db, table=options.import_table.table,
             primary_key=options.create_args.get('primary_key', None) if options.create_args else None,
-            options=sourceOptions
+            source_options=sourceOptions
         )
     ])
 
