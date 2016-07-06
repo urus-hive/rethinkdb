@@ -61,13 +61,5 @@ void network_logger_t::on_change(
             }
         }
     }
-    fprintf(stderr, "\n\n\nLocal Connections: \n");
-    for (auto a : local_connections.get_all()) {
-        fprintf(stderr, "%s\n", a.first.print().c_str());
-    }
-    fprintf(stderr, "\nConnected Proxies: \n");
-    for (auto a : connected_proxies) {
-        fprintf(stderr, "%s\n", a.second.print().c_str());
-    }
 }
 
