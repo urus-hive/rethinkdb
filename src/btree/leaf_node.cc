@@ -442,13 +442,13 @@ bool fsck(value_sizer_t *sizer, const btree_key_t *left_exclusive_or_null, const
 }
 
 
-void validate(DEBUG_VAR value_sizer_t *sizer, DEBUG_VAR const leaf_node_t *node) {
-#ifndef NDEBUG
+void validate(value_sizer_t *sizer, const leaf_node_t *node) {
+//#ifndef NDEBUG
     do_nothing_fscker_t fits;
     std::string msg;
     bool fscked_successfully = fsck(sizer, nullptr, nullptr, node, &fits, &msg);
-    rassert(fscked_successfully, "%s", msg.c_str());
-#endif
+    guarantee(fscked_successfully, "%s", msg.c_str());
+//#endif
 }
 
 void init(value_sizer_t *sizer, leaf_node_t *node) {
@@ -1083,7 +1083,18 @@ bool level(value_sizer_t *sizer, int nodecmp_node_with_sib,
     int sibling_weight = mandatory_cost(sizer, sibling, MANDATORY_TIMESTAMPS,
                                         &tstamp_back_offset);
 
-    guarantee(node_weight < sibling_weight);
+    if (!(node_weight < sibling_weight)) {
+        std::string info = strprintf(
+            "node_weight = %d; sibling_weight = %d; is_underfull(node) = %d; is_underfull(sibling) = %d; free_space = %d; free_space / 2 = %d; free_space / 2 - leaf_epsiolon = %d",
+            node_weight,
+            sibling_weight,
+            (int)is_underfull(sizer, node),
+            (int)is_underfull(sizer, sibling),
+            free_space(sizer),
+            free_space(sizer) / 2,
+            free_space(sizer) / 2 - leaf_epsilon(sizer));
+        guarantee(node_weight < sibling_weight, "Debug info: %s", info.c_str());
+    }
 
     if (nodecmp_node_with_sib < 0) {
         // node is to the left of sibling, so we want to move elements

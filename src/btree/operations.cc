@@ -327,6 +327,8 @@ void check_and_handle_underfull(value_sizer_t *sizer,
                         sib_buf.detach_child(moved_children[i]);
                     }
                 } else {
+                    guarantee(static_cast<node_t *>(buf_write.get_data_write())->magic == sizer->btree_leaf_magic());
+                    guarantee(static_cast<node_t *>(sib_buf_write.get_data_write())->magic == sizer->btree_leaf_magic());
                     std::vector<const void *> moved_values;
                     leveled = leaf::level(sizer, nodecmp_node_with_sib,
                             static_cast<leaf_node_t *>(buf_write.get_data_write()),

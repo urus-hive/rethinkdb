@@ -295,19 +295,19 @@ bool change_unsafe(const internal_node_t *node) {
     return sizeof(internal_node_t) + node->npairs * sizeof(*node->pair_offsets) + MAX_KEY_SIZE >= node->frontmost_offset;
 }
 
-void validate(DEBUG_VAR block_size_t block_size, DEBUG_VAR const internal_node_t *node) {
-#ifndef NDEBUG
-    rassert(reinterpret_cast<const char *>(&(node->pair_offsets[node->npairs])) <= reinterpret_cast<const char *>(get_pair(node, node->frontmost_offset)));
-    rassert(node->frontmost_offset > 0);
+void validate(block_size_t block_size, const internal_node_t *node) {
+//#ifndef NDEBUG
+    guarantee(reinterpret_cast<const char *>(&(node->pair_offsets[node->npairs])) <= reinterpret_cast<const char *>(get_pair(node, node->frontmost_offset)));
+    guarantee(node->frontmost_offset > 0);
     rassert(node->frontmost_offset <= block_size.value());
     for (int i = 0; i < node->npairs; i++) {
-        rassert(node->pair_offsets[i] < block_size.value());
-        rassert(node->pair_offsets[i] >= node->frontmost_offset);
+        guarantee(node->pair_offsets[i] < block_size.value());
+        guarantee(node->pair_offsets[i] >= node->frontmost_offset);
     }
-    rassert(is_sorted(node->pair_offsets, node->pair_offsets+node->npairs-1, internal_key_comp(node)),
+    guarantee(is_sorted(node->pair_offsets, node->pair_offsets+node->npairs-1, internal_key_comp(node)),
         "Offsets no longer in sorted order");
-    rassert(get_pair_by_index(node, node->npairs-1)->key.size == 0);
-#endif
+    guarantee(get_pair_by_index(node, node->npairs-1)->key.size == 0);
+//#endif
 }
 
 bool is_underfull(block_size_t block_size, const internal_node_t *node) {

@@ -12,16 +12,18 @@ bool is_underfull(value_sizer_t *sizer, const node_t *node) {
     if (node->magic == sizer->btree_leaf_magic()) {
         return leaf::is_underfull(sizer, reinterpret_cast<const leaf_node_t *>(node));
     } else {
-        rassert(is_internal(node));
+        guarantee(is_internal(node));
         return internal_node::is_underfull(sizer->block_size(), reinterpret_cast<const internal_node_t *>(node));
     }
 }
 
 bool is_mergable(value_sizer_t *sizer, const node_t *node, const node_t *sibling, const internal_node_t *parent) {
     if (sizer->btree_leaf_magic() == node->magic) {
+        guarantee(sizer->btree_leaf_magic() == sibling->magic);
         return leaf::is_mergable(sizer, reinterpret_cast<const leaf_node_t *>(node), reinterpret_cast<const leaf_node_t *>(sibling));
     } else {
-        rassert(is_internal(node));
+        guarantee(is_internal(node));
+        guarantee(is_internal(sibling));
         return internal_node::is_mergable(sizer->block_size(), reinterpret_cast<const internal_node_t *>(node), reinterpret_cast<const internal_node_t *>(sibling), parent);
     }
 }
