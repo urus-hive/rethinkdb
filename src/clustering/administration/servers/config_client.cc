@@ -166,7 +166,6 @@ void server_config_client_t::install_server_metadata(
 void server_config_client_t::on_directory_change(
         const peer_id_t &peer_id,
         const cluster_directory_metadata_t *metadata) {
-
     if (metadata != nullptr) {
         // This is so we don't track servers inaccurately
         // if metadata updates after connections.

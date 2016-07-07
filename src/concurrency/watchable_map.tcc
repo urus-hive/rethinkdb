@@ -75,7 +75,6 @@ void watchable_map_t<key_t, value_t>::notify_change(
         const key_t &key,
         const value_t *new_value,
         rwi_lock_assertion_t::write_acq_t *acq) {
-
     ASSERT_FINITE_CORO_WAITING;
     acq->assert_is_holding(get_rwi_lock());
     all_subs_publisher.publish(
