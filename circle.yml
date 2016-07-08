@@ -1,0 +1,37 @@
+## Customize the test machine
+machine:
+
+  timezone:
+    America/Los_Angeles # Set the timezone
+
+  # Set version of node to use
+  node:
+    version: 5.7.0
+  ruby:
+    version: rbx-2.2.6
+
+## Set artifacts
+# general:
+#   artifacts:
+
+## Customize dependencies
+dependencies:
+  override:
+    # Stop default services
+    - sudo service redis-server stop
+    - sudo service postgresql stop
+    - sudo service mysql stop
+
+    # Prepare for client tests
+    - pip install tornado twisted pyopenssl gevent
+    - sudo npm install -g mocha
+    - sudo gem install eventmachine
+
+## Customize test commands
+test:
+  override:
+    # Run client tests
+    - ./test-runner -i js
+    - ./test-runner -i py2.7.11
+    - ./test-runner -i py3.5.1
+    - ./test-runner -i ruby-2.3.1
