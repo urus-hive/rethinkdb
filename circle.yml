@@ -28,8 +28,8 @@ dependencies:
     - sudo service mysql stop
 
     # Prepare for client tests
-    - sudo pip install urllib3[secure]
-    - sudo pip install tornado twisted pyopenssl gevent
+    - sudo pip install urllib3[secure] --upgrade --ignore-installed
+    - sudo pip install tornado twisted pyopenssl gevent --upgrade --ignore-installed
     - sudo npm install -g mocha
     - sudo gem install eventmachine
 
