@@ -38,14 +38,14 @@ test:
   override:
     # Run client tests
     - ./test-runner -i js5:
-      parallel: true
-      pwd: test
+        parallel: true
+        pwd: test
     - ./test-runner -i py2.7:
-      parallel: true
-      pwd: test
+        parallel: true
+        pwd: test
     - ./test-runner -i py3.5:
-      parallel: true
-      pwd: test
+        parallel: true
+        pwd: test
     - ./test-runner -i rb2.3:
-      parallel: true
-      pwd: test
+        parallel: true
+        pwd: test
