@@ -28,6 +28,7 @@ dependencies:
     - sudo service mysql stop
 
     # Prepare for client tests
+    - sudo apt-get update 
     - sudo apt-get install python-dev libffi-dev libssl-dev
     - sudo pip install urllib3[secure] --upgrade --ignore-installed
     - sudo pip install tornado --upgrade --ignore-installed
