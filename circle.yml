@@ -30,11 +30,10 @@ dependencies:
     # Prepare for client tests
     - sudo apt-get update
     - sudo apt-get install python-dev libffi-dev libssl-dev
-    - export LC_ALL="en_US.UTF-8"; export LC_CTYPE="en_US.UTF-8"; sudo dpkg-reconfigure locales
     - sudo pip install urllib3[secure] --upgrade --ignore-installed
     - sudo pip install tornado --upgrade --ignore-installed
     - sudo pip install twisted --upgrade --ignore-installed
-    - sudo pip install pyopenssl --upgrade --ignore-installed
+    - export LC_ALL="en_US.UTF-8"; export LC_CTYPE="en_US.UTF-8"; sudo dpkg-reconfigure locales; sudo pip install pyopenssl --upgrade --ignore-installed
     - sudo pip install gevent --upgrade --ignore-installed
     - sudo npm install -g mocha
     - sudo gem install eventmachine
