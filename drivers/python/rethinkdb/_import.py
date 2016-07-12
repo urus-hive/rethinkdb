@@ -48,10 +48,12 @@ class SourceFile(object):
     table          = None
     primary_key    = None
     indexes        = None
-    options        = None
+    source_options = None
     
     start_time     = None
     end_time       = None
+    
+    query_runner   = None
     
     _source        = None # open filehandle for the source
     
@@ -64,9 +66,13 @@ class SourceFile(object):
     _rows_read     = None
     _rows_written  = None
     
-    def __init__(self, source, db, table, primary_key=None, indexes=None, source_options=None):
+    def __init__(self, source, db, table, query_runner, primary_key=None, indexes=None, source_options=None):
         assert self.format is not None, 'Subclass %s must have a format' % self.__class__.__name__
         assert db is not 'rethinkdb', "Error: Cannot import tables into the system database: 'rethinkdb'"
+        
+        # query_runner
+        assert isinstance(query_runner, utils_common.RetryQuery)
+        self.query_runner = query_runner
         
         # reporting information
         self._bytes_size   = multiprocessing.Value(ctypes.c_longlong, -1)
@@ -97,13 +103,13 @@ class SourceFile(object):
                 raise ValueError('Source is zero-length: %s' % source)
         
         # table info
-        self.db          = db
-        self.table       = table
-        self.primary_key = primary_key
-        self.indexes     = indexes or []
+        self.db             = db
+        self.table          = table
+        self.primary_key    = primary_key
+        self.indexes        = indexes or []
         
         # options
-        self.options     = source_options or {}
+        self.source_options = source_options or {}
         
         # name
         if hasattr(self._source, 'name') and self._source.name:
@@ -193,14 +199,14 @@ class SourceFile(object):
         '''Ensure that the db, table, and indexes exist and are correct'''
         
         # - ensure the table exists and is ready
-        utils_common.retryQuery(
+        self.query_runner(
             "create table: %s.%s" % (self.db, self.table),
-            r.expr([self.table]).set_difference(r.db(self.db).table_list()).for_each(r.db(self.db).table_create(r.row, **self.options.create_args if 'create_args' in self.options else {}))
+            r.expr([self.table]).set_difference(r.db(self.db).table_list()).for_each(r.db(self.db).table_create(r.row, **self.source_options.create_args if 'create_args' in self.source_options else {}))
         )
-        utils_common.retryQuery("wait for %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).wait(timeout=30))
+        self.query_runner("wait for %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).wait(timeout=30))
         
         # - ensure that the primary key on the table is correct
-        primaryKey = utils_common.retryQuery(
+        primaryKey = self.query_runner(
             "primary key %s.%s" % (self.db, self.table),
             r.db(self.db).table(self.table).info()["primary_key"],
         )
@@ -210,24 +216,24 @@ class SourceFile(object):
             raise RuntimeError("Error: table %s.%s primary key was `%s` rather than the expected: %s" % (self.db, table.table, primaryKey, self.primary_key))
         
         # - recreate secondary indexes - dropping existing on the assumption they are wrong
-        if 'sindexes' in self.options and self.options.sindexes:
-            existing_indexes = utils_common.retryQuery("indexes from: %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).index_list())
+        if 'sindexes' in self.source_options and self.source_options.sindexes:
+            existing_indexes = self.query_runner("indexes from: %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).index_list())
             try:
                 created_indexes = []
                 for index in self.indexes:
                     if index["index"] in existing_indexes: # drop existing versions
-                        utils_common.retryQuery(
+                        self.query_runner(
                             "drop index: %s.%s:%s" % (self.db, self.table, index["index"]),
                             r.db(self.db).table(self.table).index_drop(index["index"])
                         )
-                    utils_common.retryQuery(
+                    self.query_runner(
                         "create index: %s.%s:%s" % (self.db, self.table, index["index"]),
                         r.db(self.db).table(self.table).index_create(index["index"], index["function"])
                     )
                     created_indexes.append(index["index"])
                 
                 # wait for all of the created indexes to build
-                utils_common.retryQuery(
+                self.query_runner(
                     "waiting for indexes on %s.%s" % (self.db, self.table),
                     r.db(self.db).table(self.table).index_wait(r.args(created_indexes))
                 )
@@ -861,7 +867,7 @@ def update_progress(tables, options, done_event, exit_event, sleep=0.2):
 def import_tables(options, sources):
     # Make sure this isn't a pre-`reql_admin` cluster - which could result in data loss
     # if the user has a database named 'rethinkdb'
-    utils_common.check_minimum_version("1.6")
+    utils_common.check_minimum_version(options, "1.6")
     
     start_time = time.time()
     
@@ -890,12 +896,12 @@ def import_tables(options, sources):
     needed_dbs = set([x.db for x in sources])
     if "rethinkdb" in needed_dbs:
         raise RuntimeError("Error: Cannot import tables into the system database: 'rethinkdb'")
-    utils_common.retryQuery("ensure dbs: %s" % ", ".join(needed_dbs), r.expr(needed_dbs).set_difference(r.db_list()).for_each(r.db_create(r.row)))
+    options.retryQuery("ensure dbs: %s" % ", ".join(needed_dbs), r.expr(needed_dbs).set_difference(r.db_list()).for_each(r.db_create(r.row)))
     
     # check for existing tables, or if --force is enabled ones with mis-matched primary keys
     existing_tables = dict([
         ((x["db"], x["name"]), x["primary_key"]) for x in
-        utils_common.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
+        options.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
     ])
     already_exist = []
     for source in sources:
@@ -1143,6 +1149,7 @@ def import_directory(options):
                     sources[(db, table)] = tableType(
                         source=path,
                         db=db, table=table,
+                        query_runner=options.retryQuery,
                         primary_key=primary_key,
                         indexes=indexes
                     )
@@ -1173,6 +1180,7 @@ def import_file(options):
         sourceType(
             source=options.file,
             db=options.import_table.db, table=options.import_table.table,
+            query_runner=options.retryQuery,
             primary_key=options.create_args.get('primary_key', None) if options.create_args else None,
             source_options=sourceOptions
         )
