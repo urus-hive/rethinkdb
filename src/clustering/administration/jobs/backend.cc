@@ -10,6 +10,8 @@
 #include "concurrency/cross_thread_signal.hpp"
 
 jobs_artificial_table_backend_t::jobs_artificial_table_backend_t(
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
         name_resolver_t const &name_resolver,
         mailbox_manager_t *_mailbox_manager,
         boost::shared_ptr< semilattice_readwrite_view_t<
@@ -20,7 +22,10 @@ jobs_artificial_table_backend_t::jobs_artificial_table_backend_t(
         table_meta_client_t *_table_meta_client,
         admin_identifier_format_t _identifier_format)
     : timer_cfeed_artificial_table_backend_t(
-        name_string_t::guarantee_valid("jobs"), name_resolver),
+        name_string_t::guarantee_valid("jobs"),
+        rdb_context,
+        database_id,
+        name_resolver),
       mailbox_manager(_mailbox_manager),
       semilattice_view(_semilattice_view),
       directory_view(_directory_view),

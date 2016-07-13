@@ -379,6 +379,7 @@ bool do_serve(io_backender_t *io_backender,
                 &table_meta_client,
                 &server_config_client,
                 &mailbox_manager,
+                &rdb_ctx,
                 name_resolver);
 
             /* Kick off a coroutine to log any outdated indexes. */

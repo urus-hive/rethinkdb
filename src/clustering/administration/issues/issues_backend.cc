@@ -7,6 +7,8 @@
 #include "concurrency/cross_thread_signal.hpp"
 
 issues_artificial_table_backend_t::issues_artificial_table_backend_t(
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
         name_resolver_t const &name_resolver,
         mailbox_manager_t *mailbox_manager,
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t> >
@@ -15,20 +17,22 @@ issues_artificial_table_backend_t::issues_artificial_table_backend_t(
         server_config_client_t *_server_config_client,
         table_meta_client_t *_table_meta_client,
         namespace_repo_t *_namespace_repo,
-        admin_identifier_format_t _identifier_format) :
-    timer_cfeed_artificial_table_backend_t(
-        name_string_t::guarantee_valid("current_issues"), name_resolver),
-    identifier_format(_identifier_format),
-    cluster_sl_view(_cluster_sl_view),
-    server_config_client(_server_config_client),
-    table_meta_client(_table_meta_client),
-    local_issue_client(mailbox_manager, directory_view),
-    name_collision_issue_tracker(
+        admin_identifier_format_t _identifier_format)
+    : timer_cfeed_artificial_table_backend_t(
+        name_string_t::guarantee_valid("current_issues"),
+        rdb_context,
+        database_id,
+        name_resolver),
+      identifier_format(_identifier_format),
+      cluster_sl_view(_cluster_sl_view),
+      server_config_client(_server_config_client),
+      table_meta_client(_table_meta_client),
+      local_issue_client(mailbox_manager, directory_view),
+      name_collision_issue_tracker(
         server_config_client, cluster_sl_view, table_meta_client),
-    table_issue_tracker(server_config_client, table_meta_client, _namespace_repo),
-    outdated_index_issue_tracker(table_meta_client),
-    non_transitive_issue_tracker(_server_config_client)
-{
+      table_issue_tracker(server_config_client, table_meta_client, _namespace_repo),
+      outdated_index_issue_tracker(table_meta_client),
+      non_transitive_issue_tracker(_server_config_client)  {
     trackers.insert(&local_issue_client);
     trackers.insert(&name_collision_issue_tracker);
     trackers.insert(&table_issue_tracker);

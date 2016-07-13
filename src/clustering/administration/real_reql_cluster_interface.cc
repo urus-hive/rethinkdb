@@ -574,7 +574,7 @@ bool real_reql_cluster_interface_t::table_status(
         namespace_id_t table_id;
         m_table_meta_client->find(db->id, name, &table_id);
         make_single_selection(
-            env->get_user_context(), // FIXME someone can have config permissions on this database but not read permissions on the status table causing bad, bad things
+            env->get_user_context(),
             name_string_t::guarantee_valid("table_status"),
             table_id,
             bt,
@@ -1409,7 +1409,8 @@ void real_reql_cluster_interface_t::make_single_selection(
     }
 
     counted_t<ql::table_t> table = make_counted<ql::table_t>(
-        counted_t<base_table_t>(new artificial_table_t(table_backend)),
+        counted_t<base_table_t>(
+            new artificial_table_t(m_rdb_context, db->id, table_backend)),
         db,
         table_name.str(),
         read_mode_t::SINGLE,

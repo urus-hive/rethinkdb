@@ -9,6 +9,8 @@
 #include "concurrency/cross_thread_signal.hpp"
 
 table_config_artificial_table_backend_t::table_config_artificial_table_backend_t(
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
         name_resolver_t const &name_resolver,
         boost::shared_ptr< semilattice_readwrite_view_t<
             cluster_semilattice_metadata_t> > _semilattice_view,
@@ -18,6 +20,8 @@ table_config_artificial_table_backend_t::table_config_artificial_table_backend_t
         table_meta_client_t *_table_meta_client)
     : common_table_artificial_table_backend_t(
         name_string_t::guarantee_valid("table_config"),
+        rdb_context,
+        database_id,
         name_resolver,
         _semilattice_view,
         _table_meta_client,

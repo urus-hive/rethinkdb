@@ -37,8 +37,10 @@ void cfeed_artificial_table_backend_t::machinery_t::maybe_remove() {
 
 cfeed_artificial_table_backend_t::cfeed_artificial_table_backend_t(
         name_string_t const &table_name,
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
         name_resolver_t const &name_resolver)
-    : artificial_table_backend_t(table_name),
+    : artificial_table_backend_t(table_name, rdb_context, database_id),
       begin_destruction_was_called(false),
       m_name_resolver(name_resolver),
       remove_machinery_timer(

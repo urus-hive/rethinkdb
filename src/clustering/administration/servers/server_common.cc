@@ -7,13 +7,16 @@
 
 common_server_artificial_table_backend_t::common_server_artificial_table_backend_t(
         name_string_t const &table_name,
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
         name_resolver_t const &name_resolver,
         server_config_client_t *_server_config_client,
-        watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory) :
-    caching_cfeed_artificial_table_backend_t(table_name, name_resolver),
-    directory(_directory),
-    server_config_client(_server_config_client),
-    directory_subs(directory,
+        watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory)
+    : caching_cfeed_artificial_table_backend_t(
+        table_name, rdb_context, database_id, name_resolver),
+      directory(_directory),
+      server_config_client(_server_config_client),
+      directory_subs(directory,
         [this](const peer_id_t &, const cluster_directory_metadata_t *md) {
             if (md == nullptr) {
                 notify_all();
@@ -22,8 +25,7 @@ common_server_artificial_table_backend_t::common_server_artificial_table_backend
                 needs to be recomputed */
                 notify_row(convert_server_id_to_datum(md->server_id));
             }
-        }, initial_call_t::NO)
-{
+        }, initial_call_t::NO) {
     directory->assert_thread();
     server_config_client->assert_thread();
 }

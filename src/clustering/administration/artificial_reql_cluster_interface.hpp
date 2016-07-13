@@ -232,9 +232,9 @@ public:
             std::map<std::string, std::pair<sindex_config_t, sindex_status_t> >
                 *configs_and_statuses_out);
 
-    database_id_t get_database_id() const;
+    database_id_t const &get_database_id() const;
 
-    name_string_t get_database_name() const;
+    name_string_t const &get_database_name() const;
 
     void set_next_reql_cluster_interface(reql_cluster_interface_t *next);
 
@@ -279,6 +279,7 @@ public:
         table_meta_client_t *table_meta_client,
         server_config_client_t *server_config_client,
         mailbox_manager_t *mailbox_manager,
+        rdb_context_t *rd_context,
         name_resolver_t const &name_resolver);
 
 private:

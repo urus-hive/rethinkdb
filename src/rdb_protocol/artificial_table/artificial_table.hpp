@@ -22,7 +22,10 @@ class artificial_table_backend_t;
 
 class artificial_table_t : public base_table_t {
 public:
-    explicit artificial_table_t(artificial_table_backend_t *backend);
+    artificial_table_t(
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
+        artificial_table_backend_t *backend);
 
     namespace_id_t get_id() const;
     const std::string &get_pkey() const;
@@ -94,9 +97,10 @@ private:
         ql::datum_t *stats_inout,
         std::set<std::string> *conditions_inout);
 
+    rdb_context_t *m_rdb_context;
+    database_id_t m_database_id;
     artificial_table_backend_t *m_backend;
-    uuid_u m_table_id;
-    std::string m_primary_key;
+    std::string m_primary_key_name;
 };
 
 #endif /* RDB_PROTOCOL_ARTIFICIAL_TABLE_ARTIFICIAL_TABLE_HPP_ */

@@ -64,13 +64,15 @@ ql::datum_t convert_log_message_to_datum(
 }
 
 logs_artificial_table_backend_t::logs_artificial_table_backend_t(
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
         name_resolver_t const &name_resolver,
         mailbox_manager_t *_mailbox_manager,
         watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory,
         server_config_client_t *_server_config_client,
         admin_identifier_format_t _identifier_format) :
     cfeed_artificial_table_backend_t(
-        name_string_t::guarantee_valid("logs"), name_resolver),
+        name_string_t::guarantee_valid("logs"), rdb_context, database_id, name_resolver),
     mailbox_manager(_mailbox_manager),
     directory(_directory),
     server_config_client(_server_config_client),

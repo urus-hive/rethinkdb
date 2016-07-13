@@ -33,9 +33,14 @@ bool checked_read_row_from_backend(
     return true;
 }
 
-artificial_table_t::artificial_table_t(artificial_table_backend_t *backend)
-    : m_backend(backend),
-      m_primary_key(backend->get_primary_key_name()) {
+artificial_table_t::artificial_table_t(
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
+        artificial_table_backend_t *backend)
+    : m_rdb_context(rdb_context),
+      m_database_id(database_id),
+      m_backend(backend),
+      m_primary_key_name(backend->get_primary_key_name()) {
 }
 
 namespace_id_t artificial_table_t::get_id() const {
@@ -43,11 +48,14 @@ namespace_id_t artificial_table_t::get_id() const {
 }
 
 const std::string &artificial_table_t::get_pkey() const {
-    return m_primary_key;
+    return m_primary_key_name;
 }
 
 ql::datum_t artificial_table_t::read_row(ql::env_t *env,
         ql::datum_t pval, UNUSED read_mode_t read_mode) {
+    env->get_user_context().require_read_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
     ql::datum_t row;
     admin_err_t error;
     if (!checked_read_row_from_backend(
@@ -68,7 +76,10 @@ counted_t<ql::datum_stream_t> artificial_table_t::read_all(
         const ql::datumspec_t &datumspec,
         sorting_t sorting,
         UNUSED read_mode_t read_mode) {
-    if (get_all_sindex_id != m_primary_key) {
+    env->get_user_context().require_read_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
+    if (get_all_sindex_id != m_primary_key_name) {
         rfail_datum(ql::base_exc_t::OP_FAILED, "%s",
             error_message_index_not_found(get_all_sindex_id, table_name).c_str());
     }
@@ -92,6 +103,9 @@ counted_t<ql::datum_stream_t> artificial_table_t::read_changes(
         ql::env_t *env,
         const ql::changefeed::streamspec_t &ss,
         ql::backtrace_id_t bt) {
+    env->get_user_context().require_read_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
     counted_t<ql::datum_stream_t> stream;
     admin_err_t error;
     if (!m_backend->read_changes(
@@ -102,20 +116,24 @@ counted_t<ql::datum_stream_t> artificial_table_t::read_changes(
 }
 
 counted_t<ql::datum_stream_t> artificial_table_t::read_intersecting(
-        UNUSED ql::env_t *env,
+        ql::env_t *env,
         const std::string &sindex,
         UNUSED ql::backtrace_id_t bt,
         const std::string &table_name,
         UNUSED read_mode_t read_mode,
         UNUSED const ql::datum_t &query_geometry) {
-    guarantee(sindex != m_primary_key, "read_intersecting() should never be called with "
-        "the primary index");
+    env->get_user_context().require_read_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
+    guarantee(
+        sindex != m_primary_key_name,
+        "read_intersecting() should never be called with the primary index");
     rfail_datum(ql::base_exc_t::OP_FAILED, "%s",
         error_message_index_not_found(sindex, table_name).c_str());
 }
 
 ql::datum_t artificial_table_t::read_nearest(
-        UNUSED ql::env_t *env,
+        ql::env_t *env,
         const std::string &sindex,
         const std::string &table_name,
         UNUSED read_mode_t read_mode,
@@ -125,8 +143,12 @@ ql::datum_t artificial_table_t::read_nearest(
         UNUSED const ellipsoid_spec_t &geo_system,
         UNUSED dist_unit_t dist_unit,
         UNUSED const ql::configured_limits_t &limits) {
-    guarantee(sindex != m_primary_key, "read_nearest() should never be called with "
-        "the primary index");
+    env->get_user_context().require_read_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
+    guarantee(
+        sindex != m_primary_key_name,
+        "read_nearest() should never be called with the primary index");
     rfail_datum(ql::base_exc_t::OP_FAILED, "%s",
         error_message_index_not_found(sindex, table_name).c_str());
 }
@@ -137,6 +159,9 @@ ql::datum_t artificial_table_t::write_batched_replace(
         const counted_t<const ql::func_t> &func,
         return_changes_t return_changes,
         UNUSED durability_requirement_t durability) {
+    env->get_user_context().require_write_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
     /* Note that we ignore the `durability` optarg. In theory we could assert that it's
     unspecified or specified to be "soft", since durability is irrelevant or effectively
     soft for system tables anyway. But this might lead to some confusing errors if the
@@ -173,13 +198,16 @@ ql::datum_t artificial_table_t::write_batched_insert(
         boost::optional<counted_t<const ql::func_t> > conflict_func,
         return_changes_t return_changes,
         UNUSED durability_requirement_t durability) {
+    env->get_user_context().require_read_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
     ql::datum_t stats = ql::datum_t::empty_object();
     std::set<std::string> conditions;
     throttled_pmap(inserts.size(), [&] (int i) {
         try {
             ql::datum_t insert_row = inserts[i];
             ql::datum_t key = insert_row.get_field(
-                datum_string_t(m_primary_key), ql::NOTHROW);
+                datum_string_t(m_primary_key_name), ql::NOTHROW);
             guarantee(key.has(), "write_batched_insert() shouldn't ever be called with "
                 "documents that lack a primary key.");
 
@@ -190,7 +218,7 @@ ql::datum_t artificial_table_t::write_batched_insert(
                 [&](ql::datum_t old_row) {
                     return resolve_insert_conflict(
                         env,
-                        m_primary_key,
+                        m_primary_key_name,
                         old_row,
                         insert_row,
                         conflict_behavior,
@@ -215,8 +243,11 @@ ql::datum_t artificial_table_t::write_batched_insert(
 }
 
 bool artificial_table_t::write_sync_depending_on_durability(
-        UNUSED ql::env_t *env,
+        ql::env_t *env,
         UNUSED durability_requirement_t durability) {
+    env->get_user_context().require_write_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
+
     /* Calling `sync()` on an artificial table is a meaningful operation; it would mean
     to flush the metadata to disk. But it would be a lot of trouble to implement in
     practice, so we don't. */
@@ -235,6 +266,9 @@ void artificial_table_t::do_single_update(
         ql::datum_t *stats_inout,
         std::set<std::string> *conditions_inout) {
     cross_thread_mutex_t::acq_t txn = m_backend->aquire_transaction_mutex();
+
+    env->get_user_context().require_write_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
 
     admin_err_t error;
     ql::datum_t old_row;
@@ -255,8 +289,11 @@ void artificial_table_t::do_single_update(
     ql::datum_t new_row;
     try {
         new_row = function(old_row);
-        rcheck_row_replacement(datum_string_t(m_primary_key),
-            store_key_t(pval.print_primary()), old_row, new_row);
+        rcheck_row_replacement(
+            datum_string_t(m_primary_key_name),
+            store_key_t(pval.print_primary()),
+            old_row,
+            new_row);
         if (new_row.get_type() == ql::datum_t::R_NULL) {
             new_row.reset();
         }
@@ -275,8 +312,12 @@ void artificial_table_t::do_single_update(
         }
         bool dummy_was_changed;
         resp = make_row_replacement_stats(
-            datum_string_t(m_primary_key), store_key_t(pval.print_primary()),
-            old_row, new_row, return_changes, &dummy_was_changed);
+            datum_string_t(m_primary_key_name),
+            store_key_t(pval.print_primary()),
+            old_row,
+            new_row,
+            return_changes,
+            &dummy_was_changed);
     } catch (const ql::base_exc_t &e) {
         resp = make_row_replacement_error_stats(
             old_row, new_row, return_changes, e.what());

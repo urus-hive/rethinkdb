@@ -22,6 +22,8 @@ class common_table_artificial_table_backend_t :
 public:
     common_table_artificial_table_backend_t(
             name_string_t const &table_name,
+            rdb_context_t *rdb_context,
+            database_id_t const &database_id,
             name_resolver_t const &name_resolver,
             boost::shared_ptr< semilattice_readwrite_view_t<
                 cluster_semilattice_metadata_t> > _semilattice_view,

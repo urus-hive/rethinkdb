@@ -55,12 +55,17 @@ bool convert_db_config_and_name_from_datum(
 }
 
 db_config_artificial_table_backend_t::db_config_artificial_table_backend_t(
+        rdb_context_t *rdb_context,
+        database_id_t const &database_id,
         name_resolver_t const &name_resolver,
         boost::shared_ptr< semilattice_readwrite_view_t<
         databases_semilattice_metadata_t> > _database_sl_view,
         real_reql_cluster_interface_t *_reql_cluster_interface) :
     caching_cfeed_artificial_table_backend_t(
-        name_string_t::guarantee_valid("db_config"), name_resolver),
+        name_string_t::guarantee_valid("db_config"),
+        rdb_context,
+        database_id,
+        name_resolver),
     database_sl_view(_database_sl_view),
     subs([this]() { notify_all(); }, database_sl_view),
     reql_cluster_interface(_reql_cluster_interface)
