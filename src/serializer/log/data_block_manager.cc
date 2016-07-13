@@ -24,7 +24,7 @@ const int64_t APPROXIMATE_READ_AHEAD_SIZE = 32 * DEFAULT_BTREE_BLOCK_SIZE;
  *****************/
 
 // How many GC routines to launch in concurrently, at maximum
-const size_t MAX_CONCURRENT_GCS = 32;
+const size_t MAX_CONCURRENT_GCS = 128;
 
 // Garbage Collection uses its own two IO accounts.
 // There is one low-priority account that is meant to guarantee
@@ -39,12 +39,12 @@ const int GC_IO_PRIORITY_NICE = 8;
 const int GC_IO_PRIORITY_HIGH = 4 * MERGER_BLOCK_WRITE_IO_PRIORITY;
 
 // The ratio at which we start GCing.
-constexpr double GC_START_RATIO = 0.15;
+constexpr double GC_START_RATIO = 0.10;
 // The ratio at which we don't want to keep GC'ing.
-constexpr double GC_STOP_RATIO = 0.1;
+constexpr double GC_STOP_RATIO = 0.05;
 // The ratio at which we start taking more serious measures to get the garbage
 // rate down.
-constexpr double GC_HIGH_RATIO = 0.5;
+constexpr double GC_HIGH_RATIO = 0.4;
 
 // What's the maximum number of "young" extents we can have?
 const size_t GC_YOUNG_EXTENT_MAX_SIZE = 50;
