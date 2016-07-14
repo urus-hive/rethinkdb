@@ -98,6 +98,18 @@ minidriver_t::reql_t minidriver_t::fun(dummy_var_t a,
                   std::move(body));
 }
 
+minidriver_t::reql_t minidriver_t::fun(dummy_var_t a,
+                                       dummy_var_t b,
+                                       dummy_var_t c,
+                                       const minidriver_t::reql_t &body) {
+    return reql_t(this, Term::FUNC,
+                  reql_t(this, Term::MAKE_ARRAY,
+                         dummy_var_to_sym(a).value,
+                         dummy_var_to_sym(b).value,
+                         dummy_var_to_sym(c).value),
+                  std::move(body));
+}
+
 minidriver_t::reql_t minidriver_t::null() {
     return reql_t(this, datum_t::null());
 }
@@ -109,6 +121,12 @@ minidriver_t::reql_t minidriver_t::reql_t::operator !() {
 minidriver_t::reql_t minidriver_t::reql_t::do_(dummy_var_t arg,
                                                const minidriver_t::reql_t &body) {
     return r->fun(arg, std::move(body))(std::move(*this));
+}
+
+minidriver_t::reql_t minidriver_t::reql_t::do_(dummy_var_t arg1,
+                                               dummy_var_t arg2,
+                                               const minidriver_t::reql_t &body) {
+    return r->fun(arg1, arg2, std::move(body))(std::move(*this));
 }
 
 minidriver_t::reql_t minidriver_t::db(const std::string &name) {

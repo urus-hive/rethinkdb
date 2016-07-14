@@ -160,6 +160,7 @@ struct keyspec_t {
           table(std::move(_table)),
           table_name(std::move(_table_name)) { }
 
+    explicit keyspec_t(bool) { }
     // This needs to be copyable and assignable because it goes inside a
     // `changefeed_stamp_t`, which goes inside a variant.
     keyspec_t(const keyspec_t &) = default;

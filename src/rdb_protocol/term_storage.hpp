@@ -82,8 +82,9 @@ public:
     backtrace_id_t bt() const;
     term_variant_t get_src() const;
 
-private:
+    // TODO, put this back
     raw_term_t();
+private:
     void init_json(const rapidjson::Value *src);
 
     struct json_data_t {

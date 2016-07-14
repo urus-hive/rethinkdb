@@ -2426,6 +2426,8 @@ fold_datum_stream_t::next_raw_batch(env_t *env, const batchspec_t &batchspec) {
             // This can happen if `stream` is a changefeed.
             break;
         }
+        //fprintf(stderr, "%s\n", acc_func->print_js_function().c_str());
+        //fprintf(stderr, "ACC: %s ROW: %s\n", acc.print().c_str(), row.print().c_str());
         datum_t new_acc = acc_func->call(
             env,
             std::vector<datum_t>{acc, row})->as_datum();

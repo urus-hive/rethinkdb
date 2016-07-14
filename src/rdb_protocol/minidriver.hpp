@@ -51,7 +51,18 @@ public:
         FUNC_EQCOMPARISON,
         FUNC_PAGE,
         DISTINCT_ROW,
-        REPLACE_HELPER_ROW
+        REPLACE_HELPER_ROW,
+        INC_REDUCTION_OLD_ACC,
+        INC_REDUCTION_ROW,
+        INC_REDUCTION_NEW_ACC,
+        INC_REDUCTION_ACC,
+        INC_REDUCTION_TEMP,
+        INC_REDUCTION_EL,
+        INC_REDUCTION_A,
+        INC_REDUCTION_B,
+        INC_REDUCTION_C,
+        INC_REDUCTION_D,
+        INC_REDUCTION_E
     };
 
     /** reql_t
@@ -69,14 +80,18 @@ public:
     { return reql_t(r, Term::termtype, *this, std::forward<T>(a)...); }
 
         REQL_METHOD(operator +, ADD)
+        REQL_METHOD(operator -, SUB)
+        REQL_METHOD(operator *, MUL)
         REQL_METHOD(operator /, DIV)
         REQL_METHOD(operator ==, EQ)
+        REQL_METHOD(operator !=, NE)
         REQL_METHOD(operator (), FUNCALL)
         REQL_METHOD(operator >, GT)
         REQL_METHOD(operator <, LT)
         REQL_METHOD(operator >=, GE)
         REQL_METHOD(operator <=, LE)
         REQL_METHOD(operator &&, AND)
+        REQL_METHOD(operator ||, AND)
         REQL_METHOD(count, COUNT)
         REQL_METHOD(map, MAP)
         REQL_METHOD(concat_map, CONCAT_MAP)
@@ -100,6 +115,7 @@ public:
 
         reql_t operator !();
         reql_t do_(dummy_var_t arg, const reql_t &body);
+        reql_t do_(dummy_var_t arg1, dummy_var_t arg2, const reql_t &body);
 
         template <class... T>
         reql_t call(Term::TermType type, T &&... args) {
@@ -154,6 +170,10 @@ public:
     reql_t fun(const reql_t &body);
     reql_t fun(dummy_var_t a, const reql_t &body);
     reql_t fun(dummy_var_t a, dummy_var_t b, const reql_t &body);
+    reql_t fun(dummy_var_t a,
+               dummy_var_t b,
+               dummy_var_t c,
+               const reql_t &body);
 
     template <class... T>
     reql_t array(T &&... args) {
@@ -185,6 +205,24 @@ public:
                       std::forward<Cond>(a),
                       std::forward<Then>(b),
                       std::forward<Else>(c));
+    }
+
+    template <class Cond, class Then, class Else>
+    reql_t branch(Cond &&a,
+                  Then &&b,
+                  Cond &&c,
+                  Then &&d,
+                  Cond &&e,
+                  Then &&f,
+                  Else &&g) {
+        return reql_t(this, Term::BRANCH,
+                      std::forward<Cond>(a),
+                      std::forward<Then>(b),
+                      std::forward<Cond>(c),
+                      std::forward<Then>(d),
+                      std::forward<Cond>(e),
+                      std::forward<Then>(f),
+                      std::forward<Else>(g));
     }
 
     reql_t var(dummy_var_t var);

@@ -15,6 +15,7 @@
 #include "errors.hpp"
 #include <boost/optional.hpp>
 
+#include "rdb_protocol/term_storage.hpp"
 #include "concurrency/coro_pool.hpp"
 #include "concurrency/queue/unlimited_fifo.hpp"
 #include "containers/counted.hpp"
@@ -64,9 +65,14 @@ struct changespec_t {
     changespec_t(changefeed::keyspec_t _keyspec,
                  counted_t<datum_stream_t> _stream)
         : keyspec(std::move(_keyspec)),
-          stream(std::move(_stream)) { }
+          stream(std::move(_stream)),
+          lazy_reduction_changespec(false) { }
+    explicit changespec_t(bool b)
+        : keyspec{false},
+          lazy_reduction_changespec{b} { }
     changefeed::keyspec_t keyspec;
     counted_t<datum_stream_t> stream;
+     bool lazy_reduction_changespec;
 };
 
 class datum_stream_t : public single_threaded_countable_t<datum_stream_t>,
@@ -110,6 +116,22 @@ public:
     virtual void accumulate(
         env_t *env, eager_acc_t *acc, const terminal_variant_t &tv) = 0;
     virtual void accumulate_all(env_t *env, eager_acc_t *acc) = 0;
+
+    virtual counted_t<datum_stream_t> get_source() {
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+    }
+    virtual raw_term_t get_reduction_function() {
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+    }
+    virtual raw_term_t get_emit_function() {
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+    }
+    virtual raw_term_t get_reverse_function() {
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+    }
+    virtual raw_term_t get_base() {
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+    }
 
 protected:
     bool batch_cache_exhausted() const;
@@ -770,6 +792,7 @@ public:
 // To handle empty range on getAll
 class empty_reader_t : public reader_t {
 public:
+    empty_reader_t() { }
     explicit empty_reader_t(counted_t<real_table_t> _table, std::string _table_name)
       : table(std::move(_table)), table_name(std::move(_table_name)) {}
     virtual ~empty_reader_t() {}
@@ -981,6 +1004,121 @@ private:
     std::vector<datum_t> current_batch;
 
     scoped_ptr_t<reader_t> reader;
+};
+
+template<class T>
+class lazy_reduction_datum_stream_t : public datum_stream_t {
+public:
+    lazy_reduction_datum_stream_t(
+        backtrace_id_t _bt,
+        counted_t<datum_stream_t> &&_source,
+        counted_t<const func_t> _func,
+        raw_term_t raw_func,
+        raw_term_t raw_reverse,
+        raw_term_t raw_emit,
+        raw_term_t _base) :
+        datum_stream_t(_bt),
+        source(std::move(_source)),
+        reduction_function(_func),
+        reduction_function_term(raw_func),
+        reverse_function_term(raw_reverse),
+        emit_function_term(raw_emit),
+        base_term(_base),
+        bt(_bt),
+        has_result(true) {
+
+        fprintf(stderr, "blah");
+    };
+
+    counted_t<datum_stream_t> get_source() {
+        return source;
+    }
+
+    raw_term_t get_reduction_function() {
+        return reduction_function_term;
+    }
+    raw_term_t get_reverse_function() {
+        return reverse_function_term;
+    }
+    raw_term_t get_emit_function() {
+        return emit_function_term;
+    }
+    raw_term_t get_base() {
+        return base_term;
+    }
+
+    bool is_exhausted() const {
+        return !has_result;
+    }
+    virtual feed_type_t cfeed_type() const {
+        return feed_type_t::stream;
+    }
+    virtual bool is_infinite() const {
+        return false;
+    }
+    virtual bool is_array() const {
+        return false;
+    }
+
+    virtual datum_t as_array(env_t *) {
+        return datum_t();
+    }
+
+    virtual void accumulate(
+        env_t *, eager_acc_t *, const terminal_variant_t &) {
+    }
+
+    virtual void accumulate_all(env_t *, eager_acc_t *) {
+    }
+    virtual bool add_stamp(changefeed_stamp_t) {
+        return false;
+    }
+    void add_transformation(transform_variant_t &&tv,
+                            backtrace_id_t _bt) {
+        source->add_transformation(std::move(tv), _bt);
+    }
+    virtual boost::optional<active_state_t> get_active_state() {
+        return boost::none;
+    }
+
+private:
+    virtual std::vector<changespec_t> get_changespecs() {
+        return std::vector<changespec_t>{changespec_t(true)};
+    }
+
+    std::vector<datum_t >
+    next_batch_impl(env_t *env, UNUSED const batchspec_t &batchspec) {
+        std::vector<datum_t> batch;
+        if (has_result) {
+            if (reduction_function.has()) {
+                batch.push_back(
+                    source->run_terminal(env, T(bt,
+                                                reduction_function))->as_datum());
+            } else {
+                batch.push_back(
+                    source->run_terminal(env, T(bt))->as_datum());
+            }
+        }
+        has_result = false;
+        return batch;
+    }
+    // We use these to cache a batch so that `next` works.  There are a lot of
+    // things that are most easily written in terms of `next` that would
+    // otherwise have to do this caching themselves.
+    size_t current_batch_offset;
+    std::vector<datum_t> current_batch;
+
+    scoped_ptr_t<reader_t> reader;
+    counted_t<datum_stream_t> source;
+
+    counted_t<const func_t> reduction_function;
+    // Wire function for delayed evaluation
+    raw_term_t reduction_function_term;
+    raw_term_t reverse_function_term;
+    raw_term_t emit_function_term;
+    raw_term_t base_term;
+    backtrace_id_t bt;
+    bool has_result;
 };
 
 class vector_datum_stream_t : public eager_datum_stream_t {

@@ -9,6 +9,7 @@
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/func.hpp"
 #include "rdb_protocol/math_utils.hpp"
+#include "rdb_protocol/minidriver.hpp"
 #include "rdb_protocol/op.hpp"
 #include "rdb_protocol/order_util.hpp"
 
@@ -21,7 +22,7 @@ protected:
         : grouped_seq_op_term_t(env, term, argspec_t(1, 2), optargspec_t({"index"})) { }
 private:
     virtual scoped_ptr_t<val_t> eval_impl(scope_env_t *env, args_t *args,
-                                       eval_flags_t) const {
+                                          eval_flags_t) const {
         scoped_ptr_t<val_t> v = args->arg(env, 0);
         scoped_ptr_t<val_t> idx = args->optarg(env, "index");
         counted_t<const func_t> func;
@@ -45,16 +46,88 @@ private:
                   name());
         }
     }
+
     virtual bool uses_idx() const = 0;
     virtual scoped_ptr_t<val_t> on_idx(
         env_t *env, counted_t<table_t> tbl, scoped_ptr_t<val_t> idx) const = 0;
+protected:
+    raw_term_t reduction_func;
+    raw_term_t reverse_func;
+    raw_term_t emit_func;
+    raw_term_t reduction_base;
+};
+
+// Similar to the map_acc_term_t, but allows for lazy fold based changefeeds.
+template<class T>
+class lazy_reduction_term_t : public grouped_seq_op_term_t {
+protected:
+    lazy_reduction_term_t(compile_env_t *env, const raw_term_t &term)
+        : grouped_seq_op_term_t(env, term, argspec_t(1,2), optargspec_t({"index"})) { }
+protected:
+    virtual scoped_ptr_t<val_t> eval_impl(scope_env_t *env, args_t *args,
+                                          eval_flags_t) const {
+        scoped_ptr_t<val_t> v = args->arg(env, 0);
+        scoped_ptr_t<val_t> idx = args->optarg(env, "index");
+        counted_t<const func_t> func;
+        if (args->num_args() == 2) {
+            func = args->arg(env, 1)->as_func(GET_FIELD_SHORTCUT);
+        }
+
+        if (!func.has() && !idx.has()) {
+            // TODO: make this use a table slice.
+            if (uses_idx() && v->get_type().is_convertible(val_t::type_t::TABLE)) {
+                return on_idx(env->env, v->as_table(), std::move(idx));
+            } else {
+                counted_t<datum_stream_t> stream =
+                    make_counted<lazy_reduction_datum_stream_t<T> >(
+                        backtrace(),
+                        v->as_seq(env->env),
+                        func,
+                        reduction_func,
+                        reverse_func,
+                        emit_func,
+                        reduction_base);
+                return make_scoped<val_t>(
+                    env->env,
+                    stream,
+                    backtrace());
+            }
+        } else if (func.has() && !idx.has()) {
+            counted_t<datum_stream_t> stream =
+                make_counted<lazy_reduction_datum_stream_t<T> >(
+                    backtrace(),
+                    v->as_seq(env->env),
+                    func,
+                    reduction_func,
+                    reverse_func,
+                    emit_func,
+                    reduction_base);
+            return make_scoped<val_t>(
+                env->env,
+                stream,
+                backtrace());
+        } else if (!func.has() && idx.has()) {
+            return on_idx(env->env, v->as_table(), std::move(idx));
+        } else {
+            rfail(base_exc_t::LOGIC,
+                  "Cannot provide both a function and an index to %s.",
+                  name());
+        }
+    }
+    virtual bool uses_idx() const = 0;
+    virtual scoped_ptr_t<val_t> on_idx(
+        env_t *env, counted_t<table_t> tbl, scoped_ptr_t<val_t> idx) const = 0;
+    raw_term_t reduction_func;
+    raw_term_t reverse_func;
+    raw_term_t emit_func;
+    raw_term_t reduction_base;
 };
 
 template<class T>
-class unindexable_map_acc_term_t : public map_acc_term_t<T> {
+class unindexable_map_acc_term_t : public lazy_reduction_term_t<T> {
 protected:
     template<class... Args> unindexable_map_acc_term_t(Args... args)
-        : map_acc_term_t<T>(args...) { }
+        : lazy_reduction_term_t<T>(args...) { }
 private:
     virtual bool uses_idx() const { return false; }
     virtual scoped_ptr_t<val_t> on_idx(
@@ -65,14 +138,74 @@ private:
 class sum_term_t : public unindexable_map_acc_term_t<sum_wire_func_t> {
 public:
     template<class... Args> sum_term_t(Args... args)
-        : unindexable_map_acc_term_t<sum_wire_func_t>(args...) { }
+        : unindexable_map_acc_term_t<sum_wire_func_t>(args...) {
+        minidriver_t r(backtrace());
+        auto a = minidriver_t::dummy_var_t::INC_REDUCTION_A;
+        auto b = minidriver_t::dummy_var_t::INC_REDUCTION_B;
+        auto c = minidriver_t::dummy_var_t::INC_REDUCTION_C;
+        auto d = minidriver_t::dummy_var_t::INC_REDUCTION_D;
+        auto e = minidriver_t::dummy_var_t::INC_REDUCTION_E;
+
+        reduction_func = r.fun(a, b, r.expr(a) + r.expr(b)).root_term();
+        reverse_func = r.fun(c, d, r.expr(c) - r.expr(d)).root_term();
+        emit_func = r.fun(e, r.expr(e)).root_term();
+        reduction_base = r.expr(0).root_term();
+    }
 private:
     virtual const char *name() const { return "sum"; }
 };
+
+//TODO, work in count
+class count_term_t : public unindexable_map_acc_term_t<count_wire_func_t> {
+public:
+    count_term_t(compile_env_t *env, const raw_term_t &term)
+        : unindexable_map_acc_term_t(env, term) {
+        minidriver_t r(backtrace());
+        auto a = minidriver_t::dummy_var_t::INC_REDUCTION_A;
+        auto b = minidriver_t::dummy_var_t::INC_REDUCTION_B;
+        auto c = minidriver_t::dummy_var_t::INC_REDUCTION_C;
+        auto d = minidriver_t::dummy_var_t::INC_REDUCTION_D;
+        auto e = minidriver_t::dummy_var_t::INC_REDUCTION_E;
+
+        reduction_func = r.fun(a, b, r.expr(a) + 1).root_term();
+        reverse_func = r.fun(c, d, r.expr(c) - 1).root_term();
+        emit_func = r.fun(e, r.expr(e)).root_term();
+        reduction_base = r.expr(0).root_term();
+}
+private:
+    virtual const char *name() const { return "count"; }
+};
+
 class avg_term_t : public unindexable_map_acc_term_t<avg_wire_func_t> {
 public:
     template<class... Args> avg_term_t(Args... args)
-        : unindexable_map_acc_term_t<avg_wire_func_t>(args...) { }
+        : unindexable_map_acc_term_t<avg_wire_func_t>(args...) {
+        minidriver_t r(backtrace());
+        auto a = minidriver_t::dummy_var_t::INC_REDUCTION_A;
+        auto b = minidriver_t::dummy_var_t::INC_REDUCTION_B;
+        auto c = minidriver_t::dummy_var_t::INC_REDUCTION_C;
+        auto d = minidriver_t::dummy_var_t::INC_REDUCTION_D;
+        auto e = minidriver_t::dummy_var_t::INC_REDUCTION_E;
+
+        reduction_func = r.fun(
+            a,
+            b,
+            r.object(
+                r.optarg("num_el", r.expr(a)["num_el"] + 1),
+                r.optarg("sum", r.expr(a)["sum"] + b))).root_term();
+        reverse_func = r.fun(
+            c,
+            d,
+            r.object(
+                r.optarg("num_el", r.expr(c)["num_el"] - 1),
+                r.optarg("sum", r.expr(c)["sum"] - d))).root_term();
+        emit_func = r.fun(e, r.branch(r.expr(e)["num_el"] == 0,
+                                      0,
+                                      r.expr(e)["sum"] / r.expr(e)["num_el"])).root_term();
+
+        reduction_base = r.object(r.optarg("num_el", 0),
+                                  r.optarg("sum", 0)).root_term();
+}
 private:
     virtual const char *name() const { return "avg"; }
 };
@@ -117,55 +250,6 @@ public:
 private:
     virtual sorting_t sorting() const { return sorting_t::DESCENDING; }
     virtual const char *name() const { return "max"; }
-};
-
-class count_term_t : public grouped_seq_op_term_t {
-public:
-    count_term_t(compile_env_t *env, const raw_term_t &term)
-        : grouped_seq_op_term_t(env, term, argspec_t(1, 2)) { }
-private:
-    virtual scoped_ptr_t<val_t> eval_impl(scope_env_t *env, args_t *args,
-                                          eval_flags_t) const {
-        scoped_ptr_t<val_t> v0 = args->arg(env, 0);
-        if (args->num_args() == 1) {
-            if (v0->get_type().is_convertible(val_t::type_t::DATUM)) {
-                datum_t d = v0->as_datum();
-                switch (static_cast<int>(d.get_type())) { // TODO: See issue 5177
-                case datum_t::R_BINARY:
-                    return new_val(datum_t(
-                       safe_to_double(d.as_binary().size())));
-                case datum_t::R_STR:
-                    return new_val(datum_t(
-                        safe_to_double(utf8::count_codepoints(d.as_str()))));
-                case datum_t::R_OBJECT:
-                    return new_val(datum_t(
-                        safe_to_double(d.obj_size())));
-                default:
-                    break;
-                }
-            }
-            return v0->as_seq(env->env)
-                ->run_terminal(env->env, count_wire_func_t());
-        } else {
-            scoped_ptr_t<val_t> v1 = args->arg(env, 1);
-            if (v1->get_type().is_convertible(val_t::type_t::FUNC)) {
-                counted_t<datum_stream_t> stream = v0->as_seq(env->env);
-                stream->add_transformation(
-                        filter_wire_func_t(v1->as_func(), boost::none),
-                        backtrace());
-                return stream->run_terminal(env->env, count_wire_func_t());
-            } else {
-                counted_t<const func_t> f =
-                    new_eq_comparison_func(v1->as_datum(), backtrace());
-                counted_t<datum_stream_t> stream = v0->as_seq(env->env);
-                stream->add_transformation(
-                        filter_wire_func_t(f, boost::none), backtrace());
-
-                return stream->run_terminal(env->env, count_wire_func_t());
-            }
-        }
-    }
-    virtual const char *name() const { return "count"; }
 };
 
 class map_term_t : public grouped_seq_op_term_t {
@@ -585,6 +669,154 @@ private:
             std::vector<counted_t<datum_stream_t> > streams;
             std::vector<changespec_t> changespecs = seq->get_changespecs();
             r_sanity_check(changespecs.size() >= 1);
+            if (changespecs[0].lazy_reduction_changespec) {
+
+                minidriver_t r(backtrace());
+                // TODO actually do this
+
+                auto acc = minidriver_t::dummy_var_t::INC_REDUCTION_ACC;
+                auto el = minidriver_t::dummy_var_t::INC_REDUCTION_EL;
+                auto old_acc = minidriver_t::dummy_var_t::INC_REDUCTION_OLD_ACC;
+                auto row = minidriver_t::dummy_var_t::INC_REDUCTION_ROW;
+                auto new_acc = minidriver_t::dummy_var_t::INC_REDUCTION_NEW_ACC;
+                auto temp = minidriver_t::dummy_var_t::INC_REDUCTION_TEMP;
+
+                raw_term_t reverse_function = seq->get_reverse_function();
+                raw_term_t apply_function = seq->get_reduction_function();
+                raw_term_t emit_function = seq->get_emit_function();
+                raw_term_t base_term = seq->get_base();
+
+                compile_env_t compile_env(env->scope.compute_visibility());
+
+                datum_t f_acc_base = base_term.datum();
+                if (!f_acc_base.has()) {
+                    f_acc_base = make_make_obj_term(&compile_env, base_term)->eval(env)->as_datum();
+                }
+
+                guarantee(f_acc_base.has());
+                fprintf(stderr, "Fold base: %s\n", debug_str(f_acc_base).c_str());
+                datum_t fold_base(std::map<datum_string_t, datum_t>{
+                        {datum_string_t("f_acc"), f_acc_base},
+                            {datum_string_t("is_initialized"), datum_t::boolean(false)}});
+
+                fprintf(stderr, "Fold base datum: %s\n", fold_base.print().c_str());
+                minidriver_t::reql_t fold_acc =
+                    r.fun(acc, el,
+                          r.object(r.optarg("f_acc",
+                                            r.branch(r.expr(el).has_fields("old_val"),
+                                                     r.expr(reverse_function)(r.expr(acc)["f_acc"], r.expr(el)["old_val"]),
+                                                     r.expr(r.expr(acc)["f_acc"]))
+                                            .do_(temp, r.branch(r.expr(el).has_fields("new_val"),
+                                                                r.expr(apply_function)(temp, r.expr(el)["new_val"]),
+                                                                r.expr(temp)))),
+                                   r.optarg("is_initialized",
+                                            r.branch(r.expr(acc)["is_initialized"],
+                                                     true,
+                                                     (r.expr(el).has_fields("state") &&
+                                                      (r.expr(el)["state"] == "ready"))))
+                                   )
+                          );
+
+                // TODO: use r.do to eliminate double usage of new_val and old_val
+
+                minidriver_t::reql_t newval =
+                    r.expr(emit_function)(r.expr(new_acc)["f_acc"]);
+                minidriver_t::reql_t oldval =
+                    r.expr(emit_function)(r.expr(old_acc)["f_acc"]);
+
+                minidriver_t::reql_t emit_state = r.boolean(false);
+                if (include_states) {
+                    emit_state =
+                        r.expr(row).has_fields("state") &&
+                        (!r.boolean(include_initial)
+                         || r.expr(row)["state"] != r.expr("ready"));
+                }
+
+                minidriver_t::reql_t emit_update =
+                    r.expr(old_acc)["is_initialized"] &&
+                    oldval != newval;
+
+                minidriver_t::reql_t emit_initial = r.boolean(false);
+                if (include_initial) {
+                    emit_initial =
+                        !r.expr(old_acc)["is_initialized"] &&
+                        r.expr(new_acc)["is_initialized"];
+                }
+
+                minidriver_t::reql_t fold_emit =
+                    r.fun(old_acc, row, new_acc,
+                          r.branch(emit_state, r.array(row),
+                                   emit_update, r.array(
+                                       r.object(r.optarg("old_val", oldval),
+                                                r.optarg("new_val", newval))),
+                                   emit_initial,
+                                   r.branch(r.expr(include_states),
+                                            r.array(
+                                                r.object(r.optarg("new_val", newval)),
+                                                r.object(r.optarg("state", "ready"))),
+                                            r.array(
+                                                r.object(r.optarg("new_val", newval)))),
+                                   r.array()
+                          ));
+
+                counted_t<func_term_t> fold_acc_term =
+                    make_counted<func_term_t>(&compile_env, fold_acc.root_term());
+                counted_t<const func_t> fold_acc_func = fold_acc_term->eval_to_func(env->scope);
+
+                counted_t<func_term_t> fold_emit_term =
+                    make_counted<func_term_t>(&compile_env, fold_emit.root_term());
+                counted_t<const func_t> fold_emit_func = fold_emit_term->eval_to_func(env->scope);
+
+
+                // Get changefeed stream to fold.
+                std::vector<changespec_t> internal_changespecs = seq->get_source()->get_changespecs();
+                std::vector<counted_t<datum_stream_t> > internal_streams;
+
+                counted_t<datum_stream_t> internal_changefeed_stream;
+                for (auto &&changespec : internal_changespecs) {
+                    r_sanity_check(changespec.stream.has());
+                    boost::apply_visitor(rcheck_spec_visitor_t(env->env, backtrace()),
+                                         changespec.keyspec.spec);
+
+                    internal_streams.push_back(
+                        changespec.keyspec.table->read_changes(
+                            env->env,
+                            changefeed::streamspec_t(
+                                std::move(changespec.stream),
+                                changespec.keyspec.table_name,
+                                false,
+                                true,
+                                false,
+                                ql::configured_limits_t::unlimited,
+                                datum_t::boolean(false),
+                                std::move(changespec.keyspec.spec)),
+                            backtrace()));
+                }
+
+                if (internal_streams.size() == 1) {
+                    internal_changefeed_stream = internal_streams[0];
+                } else {
+                    internal_changefeed_stream =
+                        make_counted<union_datum_stream_t>(
+                            env->env,
+                            std::move(internal_streams),
+                            backtrace(),
+                            internal_streams.size());
+                }
+
+                // Fold the stream to get incremental changefeed.
+                counted_t<datum_stream_t> fold_datum_stream
+                    = make_counted<fold_datum_stream_t>(
+                        std::move(internal_changefeed_stream),
+                        fold_base,
+                        std::move(fold_acc_func),
+                        std::move(fold_emit_func),
+                        counted_t<const func_t>(),
+                        backtrace());
+
+                return new_val(env->env, fold_datum_stream);
+
+            }
             for (auto &&changespec : changespecs) {
                 if (include_initial) {
                     r_sanity_check(changespec.stream.has());

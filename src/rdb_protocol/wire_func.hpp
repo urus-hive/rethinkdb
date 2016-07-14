@@ -109,10 +109,6 @@ public:
 };
 
 // These are fake functions because we don't need to send anything.
-// TODO: make `count` behave like `sum`, `avg`, etc.
-struct count_wire_func_t {
-};
-RDB_DECLARE_SERIALIZABLE(count_wire_func_t);
 
 class zip_wire_func_t {
 };
@@ -162,6 +158,13 @@ public:
     template <class... Args>
     explicit sum_wire_func_t(Args... args) : skip_wire_func_t(args...) { }
 };
+
+struct count_wire_func_t : public skip_wire_func_t {
+public:
+    template <class... Args>
+    explicit count_wire_func_t(Args... args) : skip_wire_func_t(args...) { }
+};
+
 class avg_wire_func_t : public skip_wire_func_t {
 public:
     template <class... Args>
