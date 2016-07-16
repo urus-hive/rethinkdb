@@ -590,6 +590,7 @@ const char *val_t::type_t::name() const {
 
 val_t::val_t(datum_t _datum, backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::DATUM),
       u(_datum) {
     guarantee(datum().has());
@@ -598,6 +599,7 @@ val_t::val_t(datum_t _datum, backtrace_id_t _bt)
 val_t::val_t(const counted_t<grouped_data_t> &groups,
              backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::GROUPED_DATA),
       u(groups) {
     guarantee(groups.has());
@@ -605,6 +607,7 @@ val_t::val_t(const counted_t<grouped_data_t> &groups,
 
 val_t::val_t(counted_t<single_selection_t> _selection, backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::SINGLE_SELECTION),
       u(_selection) {
     guarantee(single_selection().has());
@@ -613,12 +616,15 @@ val_t::val_t(counted_t<single_selection_t> _selection, backtrace_id_t _bt)
 val_t::val_t(env_t *env, counted_t<datum_stream_t> _sequence,
              backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(env),
       type(type_t::SEQUENCE),
       u(_sequence) {
     guarantee(sequence().has());
     // Some streams are really arrays in disguise.
     datum_t arr = sequence()->as_array(env);
-    if (arr.has()) {
+    if (arr.has() && !sequence()->is_datum()) {
+        // If the sequence is for a lazy_reduction_datum_stream,
+        // we save the env to evaluate later.
         type = type_t::DATUM;
         u = arr;
     }
@@ -626,6 +632,7 @@ val_t::val_t(env_t *env, counted_t<datum_stream_t> _sequence,
 
 val_t::val_t(counted_t<selection_t> _selection, backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::SELECTION),
       u(_selection) {
     guarantee(selection().has());
@@ -633,24 +640,28 @@ val_t::val_t(counted_t<selection_t> _selection, backtrace_id_t _bt)
 
 val_t::val_t(counted_t<table_t> _table, backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::TABLE),
       u(_table) {
     guarantee(table().has());
 }
 val_t::val_t(counted_t<table_slice_t> _slice, backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::TABLE_SLICE),
       u(_slice) {
     guarantee(table_slice().has());
 }
 val_t::val_t(counted_t<const db_t> _db, backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::DB),
       u(_db) {
     guarantee(db().has());
 }
 val_t::val_t(counted_t<const func_t> _func, backtrace_id_t _bt)
     : bt_rcheckable_t(_bt),
+      env_(nullptr),
       type(type_t::FUNC),
       u(_func) {
     guarantee(func().has());
@@ -666,6 +677,14 @@ datum_t val_t::as_datum() const {
         return datum();
     } else if (type.raw_type == type_t::SINGLE_SELECTION) {
         return single_selection()->get();
+    } else if (type.raw_type == type_t::SEQUENCE) {
+        if (sequence()->is_datum()) {
+            guarantee(env_ != nullptr);
+            datum_t arr = sequence()->as_array(env_);
+            if (arr.has()) {
+                return arr;
+            }
+        }
     }
     rcheck_literal_type(type_t::DATUM);
     unreachable();
@@ -843,9 +862,12 @@ datum_string_t val_t::as_str() const {
 }
 
 void val_t::rcheck_literal_type(type_t::raw_type_t expected_raw_type) const {
-    rcheck_typed_target(
+    if (type.raw_type != expected_raw_type) {
+        fprintf(stderr, "VAL WRONG TYPE\n");
+    }
+     rcheck_typed_target(
         this, type.raw_type == expected_raw_type,
-        strprintf("Expected type %s but found %s:\n%s",
+        strprintf("VAL Expected type %s but found %s:\n%s",
                   type_t(expected_raw_type).name(), type.name(), print().c_str()));
 }
 

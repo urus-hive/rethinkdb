@@ -78,6 +78,7 @@ protected:
             if (uses_idx() && v->get_type().is_convertible(val_t::type_t::TABLE)) {
                 return on_idx(env->env, v->as_table(), std::move(idx));
             } else {
+                fprintf(stderr, "BLAH: %s\n", v->print().c_str());
                 counted_t<datum_stream_t> stream =
                     make_counted<lazy_reduction_datum_stream_t<T> >(
                         backtrace(),
@@ -172,6 +173,76 @@ public:
         emit_func = r.fun(e, r.expr(e)).root_term();
         reduction_base = r.expr(0).root_term();
 }
+        virtual scoped_ptr_t<val_t> eval_impl(scope_env_t *env, args_t *args,
+                                          eval_flags_t) const {
+        scoped_ptr_t<val_t> v0 = args->arg(env, 0);
+        if (args->num_args() == 1) {
+            if (v0->get_type().is_convertible(val_t::type_t::DATUM)) {
+                datum_t d = v0->as_datum();
+                switch (static_cast<int>(d.get_type())) { // TODO: See issue 5177
+                case datum_t::R_BINARY:
+                    return new_val(datum_t(
+                       safe_to_double(d.as_binary().size())));
+                case datum_t::R_STR:
+                    return new_val(datum_t(
+                        safe_to_double(utf8::count_codepoints(d.as_str()))));
+                case datum_t::R_OBJECT:
+                    return new_val(datum_t(
+                        safe_to_double(d.obj_size())));
+                default:
+                    break;
+                }
+            }
+            counted_t<func_t> dummy_func;
+            counted_t<datum_stream_t> stream =
+                make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
+                    backtrace(),
+                    v0->as_seq(env->env),
+                    dummy_func,
+                    reduction_func,
+                    reverse_func,
+                    emit_func,
+                    reduction_base);
+            return make_scoped<val_t>(
+                env->env,
+                stream,
+                backtrace());
+        } else {
+            scoped_ptr_t<val_t> v1 = args->arg(env, 1);
+            if (v1->get_type().is_convertible(val_t::type_t::FUNC)) {
+                counted_t<datum_stream_t> stream =
+                    make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
+                        backtrace(),
+                        v0->as_seq(env->env),
+                        v1->as_func(),
+                        reduction_func,
+                        reverse_func,
+                        emit_func,
+                        reduction_base);
+                return make_scoped<val_t>(
+                    env->env,
+                    stream,
+                    backtrace());
+            } else {
+                counted_t<const func_t> f =
+                    new_eq_comparison_func(v1->as_datum(), backtrace());
+                counted_t<datum_stream_t> stream =
+                    make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
+                        backtrace(),
+                        v0->as_seq(env->env),
+                        f,
+                        reduction_func,
+                        reverse_func,
+                        emit_func,
+                        reduction_base);
+                return make_scoped<val_t>(
+                    env->env,
+                    stream,
+                    backtrace());
+            }
+        }
+    }
+
 private:
     virtual const char *name() const { return "count"; }
 };

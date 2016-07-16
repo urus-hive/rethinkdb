@@ -269,6 +269,7 @@ private:
     friend int val_type(const scoped_ptr_t<val_t> &v); // type_manip version
     void rcheck_literal_type(type_t::raw_type_t expected_raw_type) const;
 
+    env_t *env_;
     type_t type;
     // We pretend that this variant is a union -- as if it doesn't have type
     // information.  The sequence, datum, func, and db_ptr functions get the
@@ -286,7 +287,7 @@ private:
     const counted_t<const db_t> &db() const {
         return boost::get<counted_t<const db_t> >(u);
     }
-    counted_t<datum_stream_t> &sequence() {
+    const counted_t<datum_stream_t> &sequence() const {
         return boost::get<counted_t<datum_stream_t> >(u);
     }
     datum_t &datum() {

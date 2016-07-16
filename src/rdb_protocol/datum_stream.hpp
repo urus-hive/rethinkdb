@@ -90,6 +90,7 @@ public:
 
     scoped_ptr_t<val_t> run_terminal(env_t *env, const terminal_variant_t &tv);
     scoped_ptr_t<val_t> to_array(env_t *env);
+    virtual bool is_datum() { return false; }
 
     // stream -> stream (always eager)
     counted_t<datum_stream_t> slice(size_t l, size_t r);
@@ -1025,10 +1026,9 @@ public:
         emit_function_term(raw_emit),
         base_term(_base),
         bt(_bt),
-        has_result(true) {
+        has_result(true) { }
 
-        fprintf(stderr, "blah");
-    };
+    bool is_datum() { return true; }
 
     counted_t<datum_stream_t> get_source() {
         return source;
@@ -1060,7 +1060,20 @@ public:
         return false;
     }
 
-    virtual datum_t as_array(env_t *) {
+    virtual datum_t as_array(env_t *env) {
+        if (has_result) {
+            has_result = false;
+            if (reduction_function.has()) {
+                saved_result = source->run_terminal(
+                    env,
+                    T(bt, reduction_function))->as_datum();
+            } else {
+                saved_result = source->run_terminal(env, T(bt))->as_datum();
+            }
+            return saved_result;
+        } else if (saved_result.has()) {
+            return saved_result;
+        }
         return datum_t();
     }
 
@@ -1119,6 +1132,7 @@ private:
     raw_term_t base_term;
     backtrace_id_t bt;
     bool has_result;
+    datum_t saved_result;
 };
 
 class vector_datum_stream_t : public eager_datum_stream_t {
