@@ -156,7 +156,6 @@ private:
     virtual const char *name() const { return "sum"; }
 };
 
-//TODO, work in count
 class count_term_t : public unindexable_map_acc_term_t<count_wire_func_t> {
 public:
     count_term_t(compile_env_t *env, const raw_term_t &term)

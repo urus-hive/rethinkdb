@@ -1351,7 +1351,7 @@ void datum_t::check_type(type_t desired, const char *msg) const {
         this, get_type() == desired,
         (msg != NULL)
             ? std::string(msg)
-            : strprintf("DATUM Expected type %s but found %s.",
+            : strprintf("Expected type %s but found %s.",
                         raw_type_name(desired, name_for_sorting_t::NO).c_str(),
                         get_type_name().c_str()));
 }
