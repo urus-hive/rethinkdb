@@ -101,7 +101,7 @@ public:
     virtual bool is_array() const = 0;
     virtual datum_t as_array(env_t *env) = 0;
 
-    bool is_grouped() const { return grouped; }
+    virtual bool is_grouped() const { return grouped; }
 
     // Gets the next elements from the stream.  (Returns zero elements only when
     // the end of the stream has been reached.  Otherwise, returns at least one
@@ -131,6 +131,9 @@ public:
         rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual raw_term_t get_base() {
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+    }
+    virtual scoped_ptr_t<val_t> as_val(env_t *) {
         rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
 
@@ -1026,7 +1029,9 @@ public:
         emit_function_term(raw_emit),
         base_term(_base),
         bt(_bt),
-        has_result(true) { }
+        has_result(true) {
+        fprintf(stderr, "\n\n\nINITIALIZING LAZY_REDUCTION_DATUM_STREAM_T\n");
+    }
 
     bool is_datum() { return true; }
 
@@ -1050,6 +1055,12 @@ public:
     bool is_exhausted() const {
         return !has_result;
     }
+
+    bool is_grouped() const {
+        fprintf(stderr, "IS_GROUPED() called.\n");
+        return source->is_grouped();
+    }
+
     virtual feed_type_t cfeed_type() const {
         return feed_type_t::stream;
     }
@@ -1057,10 +1068,22 @@ public:
         return false;
     }
     virtual bool is_array() const {
-        return false;
+        return true;
+    }
+
+    virtual scoped_ptr_t<val_t> as_val(env_t *env) {
+        fprintf(stderr, "AS_VAL\n");
+        if (reduction_function.has()) {
+            return source->run_terminal(
+                env,
+                T(bt, reduction_function));
+        } else {
+            return source->run_terminal(env, T(bt));
+        }
     }
 
     virtual datum_t as_array(env_t *env) {
+        fprintf(stderr, "AS_ARRAY\n");
         if (has_result) {
             has_result = false;
             if (reduction_function.has()) {
@@ -1101,6 +1124,7 @@ private:
 
     std::vector<datum_t >
     next_batch_impl(env_t *env, UNUSED const batchspec_t &batchspec) {
+        fprintf(stderr, "NEXT_BATCH_IMPL\n");
         std::vector<datum_t> batch;
         if (has_result) {
             if (reduction_function.has()) {

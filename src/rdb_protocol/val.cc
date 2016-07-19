@@ -620,13 +620,24 @@ val_t::val_t(env_t *env, counted_t<datum_stream_t> _sequence,
       type(type_t::SEQUENCE),
       u(_sequence) {
     guarantee(sequence().has());
-    // Some streams are really arrays in disguise.
-    datum_t arr = sequence()->as_array(env);
-    if (arr.has() && !sequence()->is_datum()) {
-        // If the sequence is for a lazy_reduction_datum_stream,
-        // we save the env to evaluate later.
-        type = type_t::DATUM;
-        u = arr;
+    // Some streams are lazy reduction streams
+
+    // TODO change the name of is_datum
+    if (sequence()->is_datum()) {
+        if (!sequence()->is_grouped()) {
+            fprintf(stderr, "NOT GROUPED\n");
+        } else {
+            fprintf(stderr, "===GROUPED\n");
+        }
+    } else {
+        // Some streams are really arrays in disguise.
+        datum_t arr = sequence()->as_array(env);
+        if (arr.has()) {
+            // If the sequence is for a lazy_reduction_datum_stream,
+            // we save the env to evaluate later.
+            type = type_t::DATUM;
+            u = arr;
+        }
     }
 }
 
@@ -679,11 +690,8 @@ datum_t val_t::as_datum() const {
         return single_selection()->get();
     } else if (type.raw_type == type_t::SEQUENCE) {
         if (sequence()->is_datum()) {
-            guarantee(env_ != nullptr);
-            datum_t arr = sequence()->as_array(env_);
-            if (arr.has()) {
-                return arr;
-            }
+            scoped_ptr_t<val_t> delayed = sequence()->as_val(env_);
+            return delayed->as_datum();
         }
     }
     rcheck_literal_type(type_t::DATUM);
@@ -705,6 +713,7 @@ counted_t<table_slice_t> val_t::as_table_slice() {
 
 counted_t<datum_stream_t> val_t::as_seq(env_t *env) {
     if (type.raw_type == type_t::SEQUENCE) {
+        fprintf(stderr, "AS_SEQ\n");
         return sequence();
     } else if (type.raw_type == type_t::SELECTION) {
         return selection()->seq;

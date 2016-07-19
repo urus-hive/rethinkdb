@@ -192,6 +192,7 @@ public:
                     break;
                 }
             }
+            fprintf(stderr, "OPTION 1\n");
             counted_t<func_t> dummy_func;
             counted_t<datum_stream_t> stream =
                 make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
@@ -209,6 +210,7 @@ public:
         } else {
             scoped_ptr_t<val_t> v1 = args->arg(env, 1);
             if (v1->get_type().is_convertible(val_t::type_t::FUNC)) {
+                fprintf(stderr, "OPTION 2\n");
                 counted_t<datum_stream_t> stream =
                     make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
                         backtrace(),
@@ -223,6 +225,7 @@ public:
                     stream,
                     backtrace());
             } else {
+                fprintf(stderr, "OPTION 2\n");
                 counted_t<const func_t> f =
                     new_eq_comparison_func(v1->as_datum(), backtrace());
                 counted_t<datum_stream_t> stream =
