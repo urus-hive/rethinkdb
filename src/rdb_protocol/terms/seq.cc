@@ -208,13 +208,17 @@ public:
                 stream,
                 backtrace());
         } else {
+            counted_t<datum_stream_t> input_stream = v0->as_seq(env->env);
             scoped_ptr_t<val_t> v1 = args->arg(env, 1);
             if (v1->get_type().is_convertible(val_t::type_t::FUNC)) {
                 fprintf(stderr, "OPTION 2\n");
+                input_stream->add_transformation(
+                    filter_wire_func_t(v1->as_func(), boost::none),
+                    backtrace());
                 counted_t<datum_stream_t> stream =
                     make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
                         backtrace(),
-                        v0->as_seq(env->env),
+                        std::move(input_stream),
                         v1->as_func(),
                         reduction_func,
                         reverse_func,
@@ -225,13 +229,16 @@ public:
                     stream,
                     backtrace());
             } else {
-                fprintf(stderr, "OPTION 2\n");
+                fprintf(stderr, "OPTION 3\n");
                 counted_t<const func_t> f =
                     new_eq_comparison_func(v1->as_datum(), backtrace());
+                input_stream->add_transformation(
+                    filter_wire_func_t(f, boost::none),
+                    backtrace());
                 counted_t<datum_stream_t> stream =
                     make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
                         backtrace(),
-                        v0->as_seq(env->env),
+                        std::move(input_stream),
                         f,
                         reduction_func,
                         reverse_func,
@@ -602,12 +609,39 @@ class reduce_term_t : public grouped_seq_op_term_t {
 public:
     reduce_term_t(compile_env_t *env, const raw_term_t &term)
         : grouped_seq_op_term_t(env, term, argspec_t(2),
-                                optargspec_t({ "base" })) { }
+                                optargspec_t({ "base", "reverse" })) { }
 private:
     virtual scoped_ptr_t<val_t> eval_impl(
         scope_env_t *env, args_t *args, eval_flags_t) const {
-        return args->arg(env, 0)->as_seq(env->env)->run_terminal(
-            env->env, reduce_wire_func_t(args->arg(env, 1)->as_func()));
+
+        boost::optional<raw_term_t> reverse_arg = get_src().optarg("reverse");
+        if (!reverse_arg) {
+            return args->arg(env, 0)->as_seq(env->env)->run_terminal(
+                env->env, reduce_wire_func_t(args->arg(env, 1)->as_func()));
+        } else {
+            // Make a lazy reduction stream to do the reduce
+
+            minidriver_t r(backtrace());
+            auto e = minidriver_t::dummy_var_t::INC_REDUCTION_E;
+
+            raw_term_t reduction_func = get_src().arg(1);
+            raw_term_t emit_func = r.fun(e, r.expr(e)).root_term();
+            raw_term_t reduction_base = r.null().root_term();
+
+            counted_t<datum_stream_t> stream =
+                make_counted<lazy_reduction_datum_stream_t<reduce_wire_func_t> >(
+                    backtrace(),
+                    args->arg(env, 0)->as_seq(env->env),
+                    args->arg(env, 1)->as_func(),
+                    reduction_func,
+                    reverse_arg.get(),
+                    emit_func,
+                    reduction_base);
+            return make_scoped<val_t>(
+                env->env,
+                stream,
+                backtrace());
+        }
     }
     virtual const char *name() const { return "reduce"; }
 };

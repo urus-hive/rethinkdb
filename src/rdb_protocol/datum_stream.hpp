@@ -78,6 +78,9 @@ struct changespec_t {
 class datum_stream_t : public single_threaded_countable_t<datum_stream_t>,
                        public bt_rcheckable_t {
 public:
+    virtual std::string test() {
+        return "Datum stream test";
+    }
     virtual ~datum_stream_t() { }
     virtual void set_notes(response_t *) const { }
 
@@ -89,7 +92,7 @@ public:
                       backtrace_id_t bt);
 
     scoped_ptr_t<val_t> run_terminal(env_t *env, const terminal_variant_t &tv);
-    scoped_ptr_t<val_t> to_array(env_t *env);
+    virtual scoped_ptr_t<val_t> to_array(env_t *env);
     virtual bool is_datum() { return false; }
 
     // stream -> stream (always eager)
@@ -1057,7 +1060,9 @@ public:
     }
 
     bool is_grouped() const {
-        fprintf(stderr, "IS_GROUPED() called.\n");
+        if (source->is_grouped()) {
+            fprintf(stderr, "IS_GROUPED() called: %d.\n", source->is_grouped());
+        }
         return source->is_grouped();
     }
 
@@ -1082,11 +1087,16 @@ public:
         }
     }
 
+    virtual std::string test() {
+        return "THIS IS THE CORRECT TEST VALUE";
+    }
+
     virtual datum_t as_array(env_t *env) {
         fprintf(stderr, "AS_ARRAY\n");
         if (has_result) {
             has_result = false;
             if (reduction_function.has()) {
+                fprintf(stderr, "Has reduction function\n");
                 saved_result = source->run_terminal(
                     env,
                     T(bt, reduction_function))->as_datum();
@@ -1098,6 +1108,18 @@ public:
             return saved_result;
         }
         return datum_t();
+    }
+
+    virtual scoped_ptr_t<val_t> to_array(env_t* env) {
+        // Why are to_array and as_array different?
+        fprintf(stderr, "TO ARRAY\n");
+        if (reduction_function.has()) {
+            return source->run_terminal(
+                env,
+                T(bt, reduction_function));
+        } else {
+            return source->run_terminal(env, T(bt));
+        }
     }
 
     virtual void accumulate(
@@ -1148,7 +1170,7 @@ private:
     scoped_ptr_t<reader_t> reader;
     counted_t<datum_stream_t> source;
 
-    counted_t<const func_t> reduction_function;
+    terminal_variant_t terminal;
     // Wire function for delayed evaluation
     raw_term_t reduction_function_term;
     raw_term_t reverse_function_term;

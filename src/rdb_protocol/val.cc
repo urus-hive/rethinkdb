@@ -713,7 +713,7 @@ counted_t<table_slice_t> val_t::as_table_slice() {
 
 counted_t<datum_stream_t> val_t::as_seq(env_t *env) {
     if (type.raw_type == type_t::SEQUENCE) {
-        fprintf(stderr, "AS_SEQ\n");
+        fprintf(stderr, "%s\n", sequence()->test().c_str());
         return sequence();
     } else if (type.raw_type == type_t::SELECTION) {
         return selection()->seq;
