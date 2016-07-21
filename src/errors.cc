@@ -263,6 +263,10 @@ int windows_runtime_debug_failure_handler(int type, char *message, int *retval) 
 
 BOOL WINAPI windows_ctrl_handler(DWORD type) {
     thread_pool_t::interrupt_handler(type);
+
+    // Give the server enough time to close
+    Sleep(INFINITE);
+
     return true;
 }
 #endif
