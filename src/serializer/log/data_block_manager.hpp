@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "arch/types.hpp"
+#include "concurrency/pump_coro.hpp"
 #include "containers/intrusive_list.hpp"
 #include "containers/priority_queue.hpp"
 #include "containers/scoped.hpp"
@@ -120,7 +121,12 @@ private:
 
     void gc_one_extent(gc_state_t *gc_state);
 
-    void write_gcs(const std::vector<gc_write_t> &writes, gc_state_t *gc_state);
+    void write_gcs(
+        std::vector<gc_write_t> &&writes,
+        gc_state_t *gc_state,
+        scoped_device_block_aligned_ptr_t<char> &&gc_blocks);
+
+    void flush_gc_index_writes(signal_t *);
 
     // Determine how many GC processes should run concurrently at the moment.
     // Returns a number between 1 and MAX_CONCURRENT_GCS
@@ -208,6 +214,20 @@ private:
 
     /* The state of all currently active GC coroutines */
     intrusive_list_t<gc_state_t> active_gcs;
+
+    /* We aggregate GC index writes into few large index writes
+    to improve GC efficiency on drives with slow random access. */
+    struct gc_index_write_t {
+        std::vector<counted_t<ls_block_token_pointee_t> >
+            *old_block_tokens;
+        std::vector<counted_t<ls_block_token_pointee_t> >
+            *new_block_tokens;
+        std::vector<gc_write_t> *writes;
+        gc_state_t *gc_state;
+        scoped_device_block_aligned_ptr_t<char> *gc_blocks;
+    };
+    std::vector<gc_index_write_t> collected_gc_index_writes;
+    pump_coro_t gc_index_write_pumper;
 
 
     struct gc_stats_t {
