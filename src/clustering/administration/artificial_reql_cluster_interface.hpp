@@ -38,7 +38,9 @@ class table_meta_client_t;
 `real_reql_cluster_interface_t`; queries go first to the `artificial_...`, and if they
 aren't related to the `rethinkdb` database, they get passed on to the `real_...`. */
 
-class artificial_reql_cluster_interface_t : public reql_cluster_interface_t {
+class artificial_reql_cluster_interface_t
+    : public reql_cluster_interface_t,
+      public home_thread_mixin_t {
 public:
     artificial_reql_cluster_interface_t(
             name_string_t database_name,

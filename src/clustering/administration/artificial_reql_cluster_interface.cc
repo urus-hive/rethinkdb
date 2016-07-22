@@ -5,6 +5,7 @@
 #include "clustering/administration/main/watchable_fields.hpp"
 #include "clustering/administration/metadata.hpp"
 #include "clustering/administration/real_reql_cluster_interface.hpp"
+#include "concurrency/cross_thread_signal.hpp"
 #include "rdb_protocol/artificial_table/artificial_table.hpp"
 #include "rdb_protocol/env.hpp"
 #include "rpc/semilattice/view/field.hpp"
@@ -427,13 +428,16 @@ bool artificial_reql_cluster_interface_t::grant_database(
         ql::datum_t *result_out,
         admin_err_t *error_out) {
     if (database_id == m_database_id) {
+        cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
+        on_thread_t on_thread(home_thread());
+
         return auth::grant(
             m_auth_semilattice_view,
             m_rdb_context,
             user_context,
             std::move(username),
             std::move(permissions),
-            interruptor,
+            &cross_thread_interruptor,
             [&](auth::user_t &user) -> auth::permissions_t & {
                 return user.get_database_permissions(database_id);
             },
@@ -460,13 +464,16 @@ bool artificial_reql_cluster_interface_t::grant_table(
         ql::datum_t *result_out,
         admin_err_t *error_out) {
     if (database_id == m_database_id) {
+        cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
+        on_thread_t on_thread(home_thread());
+
         return auth::grant(
             m_auth_semilattice_view,
             m_rdb_context,
             user_context,
             std::move(username),
             std::move(permissions),
-            interruptor,
+            &cross_thread_interruptor,
             [&](auth::user_t &user) -> auth::permissions_t & {
                 return user.get_table_permissions(table_id);
             },
