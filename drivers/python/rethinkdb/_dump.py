@@ -4,7 +4,7 @@
 
 from __future__ import print_function
 
-import datetime, os, shutil, sys, tarfile, tempfile, time, traceback
+import datetime, os, platform, shutil, sys, tarfile, tempfile, time, traceback
 
 from . import utils_common, net, _export
 r = utils_common.r
@@ -27,9 +27,10 @@ def parse_options(argv, prog=None):
     parser.add_option("-f", "--file",     dest="out_file",  metavar="FILE",        default=None,  help='file to write archive to (defaults to rethinkdb_dump_DATE_TIME.tar.gz);\nif FILE is -, use standard output (note that intermediate files will still be written to the --temp-dir directory)')
     parser.add_option("-e", "--export",   dest="db_tables", metavar="DB|DB.TABLE", default=[],    help='limit dump to the given database or table (may be specified multiple times)', action="append")
 
-    parser.add_option("--temp-dir",       dest="temp_dir", metavar="directory",   default=None,  help='the directory to use for intermediary results')
-    parser.add_option("--overwrite-file", dest="overwrite_file",                  default=False, help="overwrite -f/--file if it exists", action="store_true")
-    parser.add_option("--clients",        dest="clients",  metavar="NUM",         default=3,     help='number of tables to export simultaneously (default: 3)', type="pos_int")
+    parser.add_option("--temp-dir",       dest="temp_dir",  metavar="directory",   default=None,   help='the directory to use for intermediary results')
+    parser.add_option("--overwrite-file", dest="overwrite",                        default=False,  help="overwrite -f/--file if it exists", action="store_true")
+    parser.add_option("--clients",        dest="clients",   metavar="NUM",         default=3,      help='number of tables to export simultaneously (default: 3)', type="pos_int")
+    parser.add_option("--read-outdated",  dest="outdated",                         default=False,  help='use outdated read mode', action="store_true")
     
     options, args = parser.parse_args(argv)
     
@@ -39,7 +40,7 @@ def parse_options(argv, prog=None):
         raise parser.error("No positional arguments supported. Unrecognized option(s): %s" % args)
     
     # Add dump name
-    if sys.platform.startswith('win32') or sys.platform.startswith('cygwin'):
+    if platform.system() == "Windows" or platform.system().lower().startswith('cygwin'):
         options.dump_name = "rethinkdb_dump_%s" % datetime.datetime.today().strftime("%Y-%m-%dT%H-%M-%S") # no colons in name
     else:
         options.dump_name = "rethinkdb_dump_%s" % datetime.datetime.today().strftime("%Y-%m-%dT%H:%M:%S")
@@ -54,7 +55,7 @@ def parse_options(argv, prog=None):
         options.out_file = os.path.realpath(options.out_file)
     
     if not options.out_file is not sys.stdout:
-        if os.path.exists(options.out_file) and not options.overwrite_file:
+        if os.path.exists(options.out_file) and not options.overwrite:
             parser.error("Output file already exists: %s" % options.out_file)
         if os.path.exists(options.out_file) and not os.path.isfile(options.out_file):
             parser.error("There is a non-file at the -f/--file location: %s" % options.out_file)
@@ -126,7 +127,8 @@ NOTE: 'rethinkdb-dump' saves data and secondary indexes, but does *not* save
                     archive.add(fullPath, arcname=archivePath)
                     os.unlink(fullPath)
         finally:
-            archive.close()
+            if archive:
+                archive.close()
         
         # --
         
@@ -140,7 +142,7 @@ NOTE: 'rethinkdb-dump' saves data and secondary indexes, but does *not* save
             shutil.rmtree(options.directory)
 
 def main(argv=None, prog=None):
-    options = parse_options(argv or sys.argv[2:], prog=prog)
+    options = parse_options(argv or sys.argv[1:], prog=prog)
 
     try:
         run_rethinkdb_export(options)
