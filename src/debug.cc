@@ -79,7 +79,7 @@ void debugf(const char *msg, ...) {
 
     va_end(ap);
 
-    if (!buf.size() || buf.c_str()[buf.size() - 1] != '\n') {
+    if (buf.size() == 0 || buf.c_str()[buf.size() - 1] != '\n') {
         buf.appendf("\n");
     }
 
