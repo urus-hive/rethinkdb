@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "math.hpp"
+#include "random.hpp"
 #include "rdb_protocol/op.hpp"
 #include "rdb_protocol/term.hpp"
 #include "rdb_protocol/math_utils.hpp"

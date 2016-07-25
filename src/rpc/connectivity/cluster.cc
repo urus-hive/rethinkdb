@@ -24,6 +24,7 @@
 #include "containers/object_buffer.hpp"
 #include "containers/uuid.hpp"
 #include "logger.hpp"
+#include "random.hpp"
 #include "rpc/semilattice/watchable.hpp"
 #include "stl_utils.hpp"
 #include "utils.hpp"

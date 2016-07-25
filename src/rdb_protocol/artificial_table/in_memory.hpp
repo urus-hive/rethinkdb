@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "containers/archive/archive.hpp"
+#include "random.hpp"
 #include "rdb_protocol/artificial_table/backend.hpp"
 #include "rdb_protocol/artificial_table/caching_cfeed_backend.hpp"
 #include "rdb_protocol/datum.hpp"

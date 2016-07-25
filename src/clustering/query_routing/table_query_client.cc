@@ -9,6 +9,7 @@
 #include "concurrency/cross_thread_signal.hpp"
 #include "concurrency/fifo_enforcer.hpp"
 #include "concurrency/watchable.hpp"
+#include "random.hpp"
 #include "rdb_protocol/env.hpp"
 
 table_query_client_t::table_query_client_t(

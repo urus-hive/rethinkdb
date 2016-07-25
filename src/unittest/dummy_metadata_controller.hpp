@@ -6,6 +6,7 @@
 #include <boost/make_shared.hpp>
 
 #include "arch/timing.hpp"
+#include "random.hpp"
 #include "rpc/semilattice/view.hpp"
 #include "concurrency/mutex.hpp"
 

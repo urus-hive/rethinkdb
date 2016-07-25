@@ -8,6 +8,7 @@
 
 #include "arch/address.hpp"
 #include "containers/scoped.hpp"
+#include "random.hpp"
 #include "rdb_protocol/protocol.hpp"
 #include "rpc/serialize_macros.hpp"
 

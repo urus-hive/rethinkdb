@@ -18,7 +18,6 @@
 #include "containers/map_sentries.hpp"
 #include "concurrency/pump_coro.hpp"
 #include "perfmon/perfmon.hpp"
-#include "random.hpp"
 #include "rpc/connectivity/peer_id.hpp"
 #include "rpc/connectivity/server_id.hpp"
 #include "utils.hpp"
@@ -308,9 +307,6 @@ public:
 
         map_insertion_sentry_t<peer_id_t, peer_address_t> routing_table_entry_for_ourself;
         connection_t connection_to_ourself;
-
-        /* For picking random threads */
-        rng_t rng;
 
         boost::shared_ptr<semilattice_read_view_t<heartbeat_semilattice_metadata_t> >
             heartbeat_sl_view;
