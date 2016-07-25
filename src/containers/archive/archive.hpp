@@ -76,7 +76,7 @@ private:
         }                                                               \
     } while (0)
 
-// Returns the number of bytes written, or -1.  Returns a
+// Returns the number of bytes read, or -1.  Returns a
 // non-negative value less than n upon EOF.
 MUST_USE int64_t force_read(read_stream_t *s, void *p, int64_t n);
 

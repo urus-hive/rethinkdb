@@ -7,9 +7,9 @@
 #include "containers/counted.hpp"
 #include "errors.hpp"
 
-/* A `shared_buffer_t` is a reference counted binary buffer.
+/* A `shared_buf_t` is a reference counted binary buffer.
 You can have multiple `shared_buf_ref_t`s pointing to different offsets in
-the same `shared_buffer_t`. */
+the same `shared_buf_t`. */
 class shared_buf_t {
 public:
     shared_buf_t() = delete;

@@ -38,11 +38,11 @@ int64_t force_read(read_stream_t *s, void *p, int64_t n) {
     rassert(n >= 0);
 
     char *chp = static_cast<char *>(p);
-    int64_t written_so_far = 0;
+    int64_t read_so_far = 0;
     while (n > 0) {
         int64_t res = s->read(chp, n);
         if (res == 0) {
-            return written_so_far;
+            return read_so_far;
         }
         if (res == -1) {
             // We don't communicate what data has been read so far.
@@ -51,11 +51,11 @@ int64_t force_read(read_stream_t *s, void *p, int64_t n) {
         }
         rassert(res <= n);
 
-        written_so_far += res;
+        read_so_far += res;
         chp += res;
         n -= res;
     }
-    return written_so_far;
+    return read_so_far;
 }
 
 write_message_t::~write_message_t() {
