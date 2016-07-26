@@ -12,7 +12,6 @@
 #include "containers/scoped.hpp"
 #include "threading.hpp"
 
-// ATN TODO: inherit from bufferable
 class buffered_conn_t : public home_thread_mixin_t {
 public:
 

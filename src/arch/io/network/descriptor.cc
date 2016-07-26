@@ -40,19 +40,3 @@ void conn_descriptor_t::make_server_connection(
 #endif
     tcp_conn->init(new buffered_conn_t(make_scoped<tcp_conn_t>(sock)));
 }
-
-[[deprecated]] // ATN
-void conn_descriptor_t::make_server_connection(
-    tls_ctx_t *tls_ctx, buffered_conn_t **tcp_conn_out, signal_t *closer
-) THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t) {
-    // We pass ownership of `fd_` to the connection.
-    fd_t sock = fd_;
-    fd_ = INVALID_FD;
-#ifdef ENABLE_TLS
-    if (tls_ctx != nullptr) {
-        *tcp_conn_out = new buffered_conn_t(make_scoped<secure_tcp_conn_t>(tls_ctx, sock, closer));
-        return;
-    }
-#endif
-    *tcp_conn_out = new buffered_conn_t(make_scoped<tcp_conn_t>(sock));
-}

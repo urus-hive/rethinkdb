@@ -310,7 +310,7 @@ void connectivity_cluster_t::run_t::on_new_connection(
     parent->assert_thread();
 
     // conn gets owned by the keepalive_tcp_conn_stream_t.
-    buffered_conn_t *conn;
+    scoped_ptr_t<buffered_conn_t> conn;
 
     try {
         nconn->make_server_connection(tls_ctx, &conn, lock.get_drain_signal());
@@ -323,7 +323,7 @@ void connectivity_cluster_t::run_t::on_new_connection(
         return;
     }
 
-    keepalive_tcp_conn_stream_t conn_stream(conn);
+    keepalive_tcp_conn_stream_t conn_stream(std::move(conn));
 
     handle(&conn_stream, boost::none, boost::none, lock, nullptr, join_delay_secs);
 }

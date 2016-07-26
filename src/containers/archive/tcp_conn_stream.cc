@@ -17,7 +17,7 @@ tcp_conn_stream_t::tcp_conn_stream_t(
         scoped_ptr_t<bufferable_conn_t>(new tcp_conn_t(host, port, interruptor, local_port))
     )) { }
 
-tcp_conn_stream_t::tcp_conn_stream_t(buffered_conn_t *conn) : conn_(conn) {
+tcp_conn_stream_t::tcp_conn_stream_t(scoped_ptr_t<buffered_conn_t> &&conn) : conn_(std::move(conn)) {
     rassert(conn_.has());
 }
 
@@ -107,8 +107,8 @@ keepalive_tcp_conn_stream_t::keepalive_tcp_conn_stream_t(
     tcp_conn_stream_t(tls_ctx, host, port, interruptor, local_port),
     keepalive_callback(NULL) { }
 
-keepalive_tcp_conn_stream_t::keepalive_tcp_conn_stream_t(buffered_conn_t *conn) :
-    tcp_conn_stream_t(conn),
+keepalive_tcp_conn_stream_t::keepalive_tcp_conn_stream_t(scoped_ptr_t<buffered_conn_t> &&conn) :
+    tcp_conn_stream_t(std::move(conn)),
     keepalive_callback(nullptr) { }
 
 keepalive_tcp_conn_stream_t::~keepalive_tcp_conn_stream_t() {

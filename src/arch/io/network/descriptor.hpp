@@ -13,12 +13,6 @@ public:
         tls_ctx_t *tls_ctx, scoped_ptr_t<buffered_conn_t> *tcp_conn, signal_t *closer)
         THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t);
 
-    // Must get called exactly once during lifetime of this object.
-    // Call it on the thread you'll use the server connection on.
-    void make_server_connection(
-        tls_ctx_t *tls_ctx, buffered_conn_t **tcp_conn_out, signal_t *closer)
-        THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t);
-
 private:
     friend class nonthrowing_tcp_listener_t;
 
