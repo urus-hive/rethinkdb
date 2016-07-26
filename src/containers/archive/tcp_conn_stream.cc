@@ -1,7 +1,9 @@
 // Copyright 2010-2012 RethinkDB, all rights reserved.
 #include "containers/archive/tcp_conn_stream.hpp"
 
-#include "arch/io/network.hpp"
+#include "arch/io/network/secure.hpp"
+#include "arch/io/network/tcp.hpp"
+#include "arch/io/network/buffered.hpp"
 
 tcp_conn_stream_t::tcp_conn_stream_t(
     tls_ctx_t *tls_ctx, const ip_address_t &host, int port,

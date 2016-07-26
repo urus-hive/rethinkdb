@@ -6,7 +6,7 @@
 #include "arch/io/openssl.hpp"
 #include "arch/types.hpp"
 #include "containers/archive/archive.hpp"
-#include "arch/io/network.hpp" // ATN
+#include "arch/io/network/buffered.hpp"
 #include "threading.hpp"
 
 class signal_t;
@@ -20,7 +20,7 @@ public:
 
     // Takes ownership.
     explicit tcp_conn_stream_t(buffered_conn_t *conn);
-    virtual ~tcp_conn_stream_t() { };
+    virtual ~tcp_conn_stream_t() { }
 
     virtual MUST_USE int64_t read(void *p, int64_t n);
     virtual MUST_USE int64_t write(const void *p, int64_t n);

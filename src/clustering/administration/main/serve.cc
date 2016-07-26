@@ -4,7 +4,6 @@
 #include <stdio.h>
 
 #include "arch/arch.hpp"
-#include "arch/io/network.hpp"
 #include "arch/os_signal.hpp"
 #include "buffer_cache/cache_balancer.hpp"
 #include "clustering/administration/artificial_reql_cluster_interface.hpp"

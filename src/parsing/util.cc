@@ -1,6 +1,6 @@
 // Copyright 2010-2012 RethinkDB, all rights reserved.
 #include "parsing/util.hpp"
-#include "arch/io/network.hpp"
+#include "arch/io/network/buffered.hpp"
 
 line_parser_t::line_parser_t(buffered_conn_t *_conn) : conn(_conn) {
     peek();

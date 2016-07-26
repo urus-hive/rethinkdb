@@ -12,11 +12,12 @@
 #include <ws2tcpip.h> // NOLINT
 #else
 #include <netinet/in.h>
+#include <ifaddrs.h>
 #endif
 
 #include <functional>
 
-#include "arch/io/network.hpp"
+#include "arch/io/network/listen.hpp"
 #include "arch/runtime/thread_pool.hpp"
 #include "logger.hpp"
 

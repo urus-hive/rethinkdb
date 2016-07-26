@@ -17,7 +17,8 @@
 #include <string> // NOLINT(build/include_order)
 
 #include "arch/arch.hpp"
-#include "arch/io/network.hpp"
+#include "arch/io/network/listen.hpp"
+#include "arch/io/network/buffered.hpp"
 #include "client_protocol/client_server_error.hpp"
 #include "client_protocol/protocols.hpp"
 #include "clustering/administration/auth/authentication_error.hpp"

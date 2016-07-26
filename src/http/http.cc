@@ -11,7 +11,8 @@
 #include <boost/bind.hpp>
 #include <boost/algorithm/string.hpp>
 
-#include "arch/io/network.hpp"
+#include "arch/io/network/listen.hpp"
+#include "arch/io/network/buffered.hpp"
 #include "logger.hpp"
 #include "utils.hpp"
 

@@ -11,7 +11,8 @@
 #include "errors.hpp"
 #include <boost/optional.hpp>
 
-#include "arch/io/network.hpp"
+#include "arch/io/network/buffered.hpp"
+#include "arch/io/network/listen.hpp"
 #include "arch/timing.hpp"
 #include "clustering/administration/metadata.hpp"
 #include "concurrency/cross_thread_signal.hpp"

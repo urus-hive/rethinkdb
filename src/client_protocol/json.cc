@@ -1,7 +1,7 @@
 // Copyright 2010-2015 RethinkDB, all rights reserved.
 #include "client_protocol/json.hpp"
 
-#include "arch/io/network.hpp"
+#include "arch/io/network/buffered.hpp"
 #include "arch/timing.hpp"
 #include "client_protocol/protocols.hpp"
 #include "concurrency/pmap.hpp"
