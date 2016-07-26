@@ -16,54 +16,6 @@ struct iovec;
 #define DEFAULT_DISK_ACCOUNT (static_cast<file_account_t *>(0))
 #define UNLIMITED_OUTSTANDING_REQUESTS (-1)
 
-// ATN TODO: Remove this from this header.
-
-// The tcp_listener_t constructor can throw this exception
-class address_in_use_exc_t : public std::exception {
-public:
-    address_in_use_exc_t(const char* hostname, int port) throw ();
-    explicit address_in_use_exc_t(const std::string &msg) throw ()
-        : info(msg) { }
-
-    ~address_in_use_exc_t() throw () { }
-
-    const char *what() const throw () {
-        return info.c_str();
-    }
-
-private:
-    std::string info;
-};
-
-class tcp_socket_exc_t : public std::exception {
-public:
-    explicit tcp_socket_exc_t(int err, int port);
-
-    ~tcp_socket_exc_t() throw () { }
-
-    const char *what() const throw () {
-        return info.c_str();
-    }
-
-private:
-    std::string info;
-};
-
-// ATN no tcp_
-class tcp_conn_read_closed_exc_t : public std::exception {
-    const char *what() const throw () {
-        return "Network connection read end closed";
-    }
-};
-
-// ATN no tcp_
-struct tcp_conn_write_closed_exc_t : public std::exception {
-    const char *what() const throw () {
-        return "Network connection write end closed";
-    }
-};
-
-
 class linux_iocallback_t {
 public:
     virtual ~linux_iocallback_t() {}

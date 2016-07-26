@@ -21,7 +21,6 @@
 #include "concurrency/wait_any.hpp"
 #include "logger.hpp"
 
-// ATN dupe from tcp.cc
 #ifdef TRACE_WINSOCK
 #define winsock_debugf(...) debugf("winsock: " __VA_ARGS__)
 #else

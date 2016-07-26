@@ -15,6 +15,7 @@
 
 #include "arch/address.hpp"
 #include "arch/io/io_utils.hpp"
+#include "arch/io/network/exceptions.hpp"
 #include "arch/io/openssl.hpp"
 #include "arch/types.hpp"
 #include "concurrency/auto_drainer.hpp"

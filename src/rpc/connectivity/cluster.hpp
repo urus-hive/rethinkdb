@@ -11,6 +11,7 @@
 #include "arch/types.hpp"
 #include "arch/io/io_utils.hpp"
 #include "arch/io/openssl.hpp"
+#include "arch/io/network/exceptions.hpp"
 #include "concurrency/auto_drainer.hpp"
 #include "concurrency/mutex.hpp"
 #include "concurrency/one_per_thread.hpp"

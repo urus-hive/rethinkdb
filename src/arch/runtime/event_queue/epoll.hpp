@@ -22,12 +22,12 @@ public:
 
     // These should only be called by the event queue itself or by the
     // linux_* classes
-    void watch_resource(fd_t resource, int events, linux_event_callback_t *cb);
-    void adjust_resource(fd_t resource, int events, linux_event_callback_t *cb);
-    void forget_resource(fd_t resource, linux_event_callback_t *cb);
+    void watch_resource(fd_t resource, int events, event_callback_t *cb);
+    void adjust_resource(fd_t resource, int events, event_callback_t *cb);
+    void forget_resource(fd_t resource, event_callback_t *cb);
 
-    void watch_event(system_event_t *, linux_event_callback_t *cb);
-    void forget_event(system_event_t *, linux_event_callback_t *cb);
+    void watch_event(system_event_t *, event_callback_t *cb);
+    void forget_event(system_event_t *, event_callback_t *cb);
 
 private:
     linux_queue_parent_t *parent;
@@ -44,7 +44,7 @@ private:
     /* In debug mode, check to make sure epoll() doesn't give us events that
     we didn't ask for. The ints stored here are combinations of poll_event_in
     and poll_event_out. */
-    std::map<linux_event_callback_t*, int> events_requested;
+    std::map<event_callback_t*, int> events_requested;
 #endif
 
     DISABLE_COPYING(epoll_event_queue_t);

@@ -18,7 +18,7 @@
 class tcp_conn_t :
     public bufferable_conn_t,
     public home_thread_mixin_t,
-    private linux_event_callback_t {
+    private event_callback_t {
 public:
 
     scoped_signal_t rdhup_watcher();

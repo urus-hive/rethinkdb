@@ -7,7 +7,7 @@
 
 #include "arch/address.hpp"
 #include "concurrency/signal.hpp"
-#include "arch/io/network/bufferable.hpp"
+#include "arch/io/network/exceptions.hpp"
 #include "perfmon/perfmon.hpp"
 #include "threading.hpp"
 

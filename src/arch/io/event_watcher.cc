@@ -70,7 +70,7 @@ void overlapped_operation_t::set_result(size_t nb_bytes_, DWORD error_) {
     completed.pulse();
 }
 
-windows_event_watcher_t::windows_event_watcher_t(fd_t handle_, linux_event_callback_t *eh) :
+windows_event_watcher_t::windows_event_watcher_t(fd_t handle_, event_callback_t *eh) :
     handle(handle_), error_handler(eh), original_thread(get_thread_id()), current_thread_(get_thread_id()) {
     linux_thread_pool_t::get_thread()->queue.add_handle(handle);
 }
@@ -86,7 +86,7 @@ void windows_event_watcher_t::stop_watching_for_errors() {
 void windows_event_watcher_t::on_error(UNUSED DWORD error) {
     rassert(current_thread_ == get_thread_id());
     if (error_handler != nullptr) {
-        linux_event_callback_t *eh = error_handler;
+        event_callback_t *eh = error_handler;
         error_handler = nullptr;
         eh->on_event(poll_event_err);
     }
@@ -120,7 +120,7 @@ void overlapped_operation_t::wait_abortable(const signal_t *aborter) {
 
 #else
 
-linux_event_watcher_t::linux_event_watcher_t(fd_t f, linux_event_callback_t *eh) :
+linux_event_watcher_t::linux_event_watcher_t(fd_t f, event_callback_t *eh) :
     fd(f), error_handler(eh),
     in_watcher(nullptr), out_watcher(nullptr),
 #ifdef __linux

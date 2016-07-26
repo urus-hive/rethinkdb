@@ -80,8 +80,6 @@ private:
     keepalive_callback_t *keepalive_callback;
 };
 
-
-// ATN rename
 class rethread_tcp_conn_stream_t {
 public:
     rethread_tcp_conn_stream_t(tcp_conn_stream_t *conn, threadnum_t thread);

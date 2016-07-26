@@ -75,8 +75,8 @@ void kqueue_event_queue_t::run() {
                 // notifying us to skip it by setting `udata` to NULL.
                 continue;
             } else {
-                linux_event_callback_t *cb =
-                    reinterpret_cast<linux_event_callback_t *>(events[i].udata);
+                event_callback_t *cb =
+                    reinterpret_cast<event_callback_t *>(events[i].udata);
                 cb->on_event(kevent_filter_to_user(events[i].filter));
             }
         }
@@ -91,7 +91,7 @@ kqueue_event_queue_t::~kqueue_event_queue_t() {
 }
 
 void kqueue_event_queue_t::add_filters(fd_t resource, const std::set<int16_t> &filters,
-                                       linux_event_callback_t *cb) {
+                                       event_callback_t *cb) {
     rassert(cb != nullptr);
 
     for (auto filter : filters) {
@@ -102,7 +102,7 @@ void kqueue_event_queue_t::add_filters(fd_t resource, const std::set<int16_t> &f
 }
 
 void kqueue_event_queue_t::del_filters(fd_t resource, const std::set<int16_t> &filters,
-                                       linux_event_callback_t *cb) {
+                                       event_callback_t *cb) {
     rassert(cb != nullptr);
 
     for (auto filter : filters) {
@@ -113,7 +113,7 @@ void kqueue_event_queue_t::del_filters(fd_t resource, const std::set<int16_t> &f
 }
 
 void kqueue_event_queue_t::watch_resource(fd_t resource, int event_mask,
-                                          linux_event_callback_t *cb) {
+                                          event_callback_t *cb) {
     rassert(cb != nullptr);
 
     // Start watching the events on `resource`
@@ -125,7 +125,7 @@ void kqueue_event_queue_t::watch_resource(fd_t resource, int event_mask,
 }
 
 void kqueue_event_queue_t::adjust_resource(fd_t resource, int event_mask,
-                                           linux_event_callback_t *cb) {
+                                           event_callback_t *cb) {
     rassert(cb);
 
     auto ev = watched_events.find(resource);
@@ -169,7 +169,7 @@ void kqueue_event_queue_t::adjust_resource(fd_t resource, int event_mask,
     }
 }
 
-void kqueue_event_queue_t::forget_resource(fd_t resource, linux_event_callback_t *cb) {
+void kqueue_event_queue_t::forget_resource(fd_t resource, event_callback_t *cb) {
     rassert(cb);
 
     // To stop watching all associated events, we have to re-generate the
@@ -192,11 +192,11 @@ void kqueue_event_queue_t::forget_resource(fd_t resource, linux_event_callback_t
     }
 }
 
-void kqueue_event_queue_t::watch_event(system_event_t *ev, linux_event_callback_t *cb) {
+void kqueue_event_queue_t::watch_event(system_event_t *ev, event_callback_t *cb) {
     watch_resource(ev->get_notify_fd(), poll_event_in, cb);
 }
 
-void kqueue_event_queue_t::forget_event(system_event_t *ev, linux_event_callback_t *cb) {
+void kqueue_event_queue_t::forget_event(system_event_t *ev, event_callback_t *cb) {
     forget_resource(ev->get_notify_fd(), cb);
 }
 

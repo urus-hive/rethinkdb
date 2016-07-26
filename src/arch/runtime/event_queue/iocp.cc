@@ -54,7 +54,7 @@ void iocp_event_queue_t::add_handle(fd_t handle) {
 }
 
 void iocp_event_queue_t::watch_event(windows_event_t *event,
-                                     linux_event_callback_t *cb) {
+                                     event_callback_t *cb) {
     debugf_queue("[%p] watch_event\n", this);
     rassert(event->event_queue == nullptr && event->callback == nullptr,
             "Cannot watch the same event twice");
@@ -63,13 +63,13 @@ void iocp_event_queue_t::watch_event(windows_event_t *event,
 }
 
 void iocp_event_queue_t::forget_event(windows_event_t *event,
-                                      UNUSED linux_event_callback_t *cb) {
+                                      UNUSED event_callback_t *cb) {
     debugf_queue("[%p] forget_event\n", this);
     event->event_queue = nullptr;
     event->callback = nullptr;
 }
 
-void iocp_event_queue_t::post_event(linux_event_callback_t *cb) {
+void iocp_event_queue_t::post_event(event_callback_t *cb) {
     debugf_queue("[%p] post_event\n", this);
     rassert(cb != nullptr);
     BOOL res = PostQueuedCompletionStatus(
@@ -174,8 +174,8 @@ void iocp_event_queue_t::run() {
                 guarantee_xwinerr(error == NO_ERROR,
                                   error,
                                   "GetQueuedCompletionStatus failed");
-                linux_event_callback_t *cb =
-                    reinterpret_cast<linux_event_callback_t*>(overlapped);
+                event_callback_t *cb =
+                    reinterpret_cast<event_callback_t*>(overlapped);
                 cb->on_event(poll_event_in);
                 break;
             }

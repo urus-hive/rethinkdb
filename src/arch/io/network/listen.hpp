@@ -7,6 +7,7 @@
 #include "arch/io/event_watcher.hpp"
 #include "arch/io/io_utils.hpp"
 #include "arch/io/network/buffered.hpp"
+#include "arch/io/network/exceptions.hpp"
 #include "arch/runtime/event_queue_types.hpp"
 #include "concurrency/auto_drainer.hpp"
 
@@ -14,7 +15,7 @@
 connections. Create a nonthrowing_tcp_listener_t with some port and then call set_callback();
 the provided callback will be called in a new coroutine every time something connects. */
 
-class nonthrowing_tcp_listener_t : private linux_event_callback_t {
+class nonthrowing_tcp_listener_t : private event_callback_t {
 public:
     nonthrowing_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int _port,
         const std::function<void(scoped_fd_t &&)> &callback);

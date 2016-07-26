@@ -2,20 +2,6 @@
 
 #include "utils.hpp"
 
-tcp_socket_exc_t::tcp_socket_exc_t(int errsv, int port) {
-    info = strprintf("TCP socket creation failed for port %d: %s",
-                     port, errno_string(errsv).c_str());
-}
-
-
-address_in_use_exc_t::address_in_use_exc_t(const char* hostname, int port) throw () {
-    if (port == 0) {
-        info = strprintf("Could not establish sockets on all selected local addresses using the same port");
-    } else {
-        info = strprintf("The address at %s:%d is reserved or already in use", hostname, port);
-    }
-}
-
 file_account_t::file_account_t(file_t *par, int pri, int outstanding_requests_limit) :
     parent(par),
     account(parent->create_account(pri, outstanding_requests_limit)) { }

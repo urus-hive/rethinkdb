@@ -58,7 +58,7 @@ private:
 class windows_event_watcher_t {
 public:
     // Assign a handle to the thread's IOCP. Should only be called once per handle.
-    windows_event_watcher_t(fd_t handle, linux_event_callback_t *eh);
+    windows_event_watcher_t(fd_t handle, event_callback_t *eh);
 
     // This destructor is a no-op: handle's cannot be removed from an IOCP
     ~windows_event_watcher_t();
@@ -75,7 +75,7 @@ public:
     const fd_t handle;
 
 private:
-    linux_event_callback_t *error_handler;
+    event_callback_t *error_handler;
     threadnum_t original_thread;
     threadnum_t current_thread_;
 };
@@ -90,10 +90,10 @@ typedef windows_event_watcher_t event_watcher_t;
 
 class linux_event_watcher_t :
     public home_thread_mixin_debug_only_t,
-    private linux_event_callback_t
+    private event_callback_t
 {
 public:
-    linux_event_watcher_t(fd_t f, linux_event_callback_t *eh);
+    linux_event_watcher_t(fd_t f, event_callback_t *eh);
     ~linux_event_watcher_t();
 
     /* To monitor for a specific event happening, instantiate `watch_t`. It will
@@ -116,7 +116,7 @@ public:
 
 private:
     fd_t fd;
-    linux_event_callback_t *error_handler;
+    event_callback_t *error_handler;
 
     watch_t **get_watch_slot(int event);
     watch_t *in_watcher;
