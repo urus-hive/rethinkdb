@@ -71,13 +71,13 @@ void async_connect(fd_t socket, sockaddr *sa, size_t sa_len,
     if (!res && error != ERROR_IO_PENDING) {
         op.set_cancel();
         logERR("connect failed: %s", winerr_string(error).c_str());
-        throw conn_t::connect_failed_exc_t(EIO);
+        throw bufferable_conn_t::connect_failed_exc_t(EIO);
     }
     winsock_debugf("waiting for connection on %x\n", socket);
     op.wait_interruptible(interuptor);
     if (op.error != NO_ERROR) {
         logERR("ConnectEx failed: %s", winerr_string(op.error).c_str());
-        throw conn_t::connect_failed_exc_t(EIO);
+        throw bufferable_conn_t::connect_failed_exc_t(EIO);
     }
     winsock_debugf("connected %x\n", socket);
 #else
@@ -94,13 +94,13 @@ void async_connect(fd_t socket, sockaddr *sa, size_t sa_len,
             socklen_t error_size = sizeof(error);
             int getsockoptres = getsockopt(socket, SOL_SOCKET, SO_ERROR, &error, &error_size);
             if (getsockoptres != 0) {
-                throw conn_t::connect_failed_exc_t(error);
+                throw bufferable_conn_t::connect_failed_exc_t(error);
             }
             if (error != 0) {
-                throw conn_t::connect_failed_exc_t(error);
+                throw bufferable_conn_t::connect_failed_exc_t(error);
             }
         } else {
-            throw conn_t::connect_failed_exc_t(get_errno());
+            throw bufferable_conn_t::connect_failed_exc_t(get_errno());
         }
     }
 #endif
@@ -173,7 +173,7 @@ fd_t create_socket_wrapper(int address_family) {
     if (res == INVALID_FD) {
         DWORD err = GetLastError();
         logERR("Failed to create socket: %s", winerr_string(err).c_str());
-        throw conn_t::connect_failed_exc_t(EIO);
+        throw bufferable_conn_t::connect_failed_exc_t(EIO);
     }
     return res;
 #else
@@ -184,7 +184,7 @@ fd_t create_socket_wrapper(int address_family) {
         if (get_errno() != EAFNOSUPPORT || address_family == AF_INET) {
             logERR("Failed to create socket: %s", errno_string(get_errno()).c_str());
         }
-        throw conn_t::connect_failed_exc_t(get_errno());
+        throw bufferable_conn_t::connect_failed_exc_t(get_errno());
     }
 #endif
     return res;
@@ -192,7 +192,7 @@ fd_t create_socket_wrapper(int address_family) {
 
 
 // Network connection object
-linux_tcp_conn_t::linux_tcp_conn_t(const ip_address_t &peer,
+tcp_conn_t::tcp_conn_t(const ip_address_t &peer,
                                    int port,
                                    signal_t *interruptor,
                                    int local_port) THROWS_ONLY(connect_failed_exc_t, interrupted_exc_t) :
@@ -224,7 +224,7 @@ linux_tcp_conn_t::linux_tcp_conn_t(const ip_address_t &peer,
     }
 }
 
-linux_tcp_conn_t::linux_tcp_conn_t(fd_t s) :
+tcp_conn_t::tcp_conn_t(fd_t s) :
        sock(s),
        event_watcher(new event_watcher_t(sock.get(), this)) {
     rassert(sock.get() != INVALID_FD);
@@ -235,7 +235,7 @@ linux_tcp_conn_t::linux_tcp_conn_t(fd_t s) :
 #endif
 }
 
-void linux_tcp_conn_t::enable_keepalive() {
+void tcp_conn_t::enable_keepalive() {
     int optval = 1;
 #ifdef _WIN32
     int res = setsockopt(fd_to_socket(sock.get()), SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<char*>(&optval), sizeof(optval));
@@ -246,7 +246,7 @@ void linux_tcp_conn_t::enable_keepalive() {
 }
 
 
-size_t linux_tcp_conn_t::read_internal(void *buffer, size_t size) THROWS_ONLY(tcp_conn_read_closed_exc_t) {
+size_t tcp_conn_t::read_internal(void *buffer, size_t size) THROWS_ONLY(tcp_conn_read_closed_exc_t) {
     assert_thread();
     rassert(!read_closed.is_pulsed());
 
@@ -318,7 +318,7 @@ size_t linux_tcp_conn_t::read_internal(void *buffer, size_t size) THROWS_ONLY(tc
 }
 
 
-void linux_tcp_conn_t::shutdown_read() {
+void tcp_conn_t::shutdown_read() {
     assert_thread();
 #ifdef _WIN32
     int res = ::shutdown(fd_to_socket(sock.get()), SD_RECEIVE);
@@ -334,19 +334,19 @@ void linux_tcp_conn_t::shutdown_read() {
     on_shutdown_read();
 }
 
-void linux_tcp_conn_t::on_shutdown_read() {
+void tcp_conn_t::on_shutdown_read() {
     assert_thread();
     rassert(!read_closed.is_pulsed());
     read_closed.pulse();
 }
 
-bool linux_tcp_conn_t::is_read_open() const {
+bool tcp_conn_t::is_read_open() const {
     assert_thread();
     return !read_closed.is_pulsed();
 }
 
 
-void linux_tcp_conn_t::perform_write(const void *buf, size_t size) {
+void tcp_conn_t::perform_write(const void *buf, size_t size) {
     assert_thread();
 
     if (write_closed.is_pulsed()) {
@@ -435,7 +435,7 @@ void linux_tcp_conn_t::perform_write(const void *buf, size_t size) {
 }
 
 
-void linux_tcp_conn_t::shutdown_write() {
+void tcp_conn_t::shutdown_write() {
     assert_thread();
 
 #ifdef _WIN32
@@ -453,7 +453,7 @@ void linux_tcp_conn_t::shutdown_write() {
     on_shutdown_write();
 }
 
-void linux_tcp_conn_t::on_shutdown_write() {
+void tcp_conn_t::on_shutdown_write() {
     assert_thread();
     rassert(!write_closed.is_pulsed());
     write_closed.pulse();
@@ -463,13 +463,13 @@ void linux_tcp_conn_t::on_shutdown_write() {
        no-ops, so in practice the write queue empties. */
 }
 
-bool linux_tcp_conn_t::is_write_open() const {
+bool tcp_conn_t::is_write_open() const {
     assert_thread();
     return !write_closed.is_pulsed();
 }
 
 
-void linux_tcp_conn_t::rethread(threadnum_t new_thread) {
+void tcp_conn_t::rethread(threadnum_t new_thread) {
     if (home_thread() == get_thread_id() && new_thread == INVALID_THREAD) {
         rassert(event_watcher.has());
 #ifdef _WIN32
@@ -487,7 +487,7 @@ void linux_tcp_conn_t::rethread(threadnum_t new_thread) {
 #endif
 
     } else {
-        crash("linux_tcp_conn_t can be rethread()ed from no thread to the current thread or "
+        crash("tcp_conn_t can be rethread()ed from no thread to the current thread or "
               "from the current thread to no thread, but no other combination is legal. The "
               "current thread is %" PRIi32 "; the old thread is %" PRIi32 "; the new thread "
               "is %" PRIi32 ".\n",
@@ -500,7 +500,7 @@ void linux_tcp_conn_t::rethread(threadnum_t new_thread) {
     write_closed.rethread(new_thread);
 }
 
-bool linux_tcp_conn_t::getpeername(ip_and_port_t *ip_and_port) {
+bool tcp_conn_t::getpeername(ip_and_port_t *ip_and_port) {
     struct sockaddr_storage addr;
     socklen_t addr_len = sizeof(addr);
 
@@ -513,7 +513,7 @@ bool linux_tcp_conn_t::getpeername(ip_and_port_t *ip_and_port) {
     return false;
 }
 
-void linux_tcp_conn_t::on_event(int /* events */) {
+void tcp_conn_t::on_event(int /* events */) {
     assert_thread();
 
     /* This is called by linux_event_watcher_t when error events occur. Ordinary
@@ -530,11 +530,11 @@ void linux_tcp_conn_t::on_event(int /* events */) {
     event_watcher->stop_watching_for_errors();
 }
 
-linux_event_watcher_t* linux_tcp_conn_t::get_event_watcher() {
+linux_event_watcher_t* tcp_conn_t::get_event_watcher() {
     return &*event_watcher;
 }
 
-scoped_signal_t linux_tcp_conn_t::rdhup_watcher() {
+scoped_signal_t tcp_conn_t::rdhup_watcher() {
     return make_scoped_signal<linux_event_watcher_t::watch_t>(&*event_watcher, poll_event_rdhup);
 }
 

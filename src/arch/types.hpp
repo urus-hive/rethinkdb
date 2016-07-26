@@ -16,9 +16,9 @@ struct iovec;
 #define DEFAULT_DISK_ACCOUNT (static_cast<file_account_t *>(0))
 #define UNLIMITED_OUTSTANDING_REQUESTS (-1)
 
-// TODO: Remove this from this header.
+// ATN TODO: Remove this from this header.
 
-// The linux_tcp_listener_t constructor can throw this exception
+// The tcp_listener_t constructor can throw this exception
 class address_in_use_exc_t : public std::exception {
 public:
     address_in_use_exc_t(const char* hostname, int port) throw ();
@@ -81,28 +81,17 @@ class file_account_t;
 class linux_iocallback_t;
 typedef linux_iocallback_t iocallback_t;
 
-class linux_tcp_bound_socket_t;
-typedef linux_tcp_bound_socket_t tcp_bound_socket_t;
+class tcp_bound_socket_t;
+class nonthrowing_tcp_listener_t;
+class tcp_listener_t;
+class repeated_nonthrowing_tcp_listener_t;
 
-class linux_nonthrowing_tcp_listener_t;
-typedef linux_nonthrowing_tcp_listener_t non_throwing_tcp_listener_t;
+class conn_descriptor_t;
+typedef conn_descriptor_t tcp_conn_descriptor_t;
 
-class linux_tcp_listener_t;
-typedef linux_tcp_listener_t tcp_listener_t;
-
-class linux_repeated_nonthrowing_tcp_listener_t;
-typedef linux_repeated_nonthrowing_tcp_listener_t repeated_nonthrowing_tcp_listener_t;
-
-class linux_tcp_conn_descriptor_t;
-typedef linux_tcp_conn_descriptor_t tcp_conn_descriptor_t;
-
-class linux_tcp_conn_t;
-typedef linux_tcp_conn_t tcp_conn_t;
-
-class linux_secure_tcp_conn_t;
-typedef linux_secure_tcp_conn_t secure_tcp_conn_t;
-
-class conn_t;
+class tcp_conn_t;
+class secure_tcp_conn_t;
+class bufferable_conn_t;
 class buffered_conn_t;
 
 enum class file_direct_io_mode_t {

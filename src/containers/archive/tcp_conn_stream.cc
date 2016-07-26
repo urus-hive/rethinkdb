@@ -12,9 +12,9 @@ tcp_conn_stream_t::tcp_conn_stream_t(
     conn_(make_scoped<buffered_conn_t>(
 #ifdef ENABLE_TLS
         (nullptr != tls_ctx) ?
-        scoped_ptr_t<conn_t>(new secure_tcp_conn_t(tls_ctx, host, port, interruptor, local_port)) :
+        scoped_ptr_t<bufferable_conn_t>(new secure_tcp_conn_t(tls_ctx, host, port, interruptor, local_port)) :
 #endif
-        scoped_ptr_t<conn_t>(new tcp_conn_t(host, port, interruptor, local_port))
+        scoped_ptr_t<bufferable_conn_t>(new tcp_conn_t(host, port, interruptor, local_port))
     )) { }
 
 tcp_conn_stream_t::tcp_conn_stream_t(buffered_conn_t *conn) : conn_(conn) {

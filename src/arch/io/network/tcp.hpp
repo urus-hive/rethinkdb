@@ -11,19 +11,19 @@
 #include "arch/types.hpp"
 
 // ATN rename tcp_conn_t
-class linux_tcp_conn_t :
-    public conn_t,
+class tcp_conn_t :
+    public bufferable_conn_t,
     public home_thread_mixin_t,
     private linux_event_callback_t {
 public:
-    friend class linux_tcp_conn_descriptor_t;
+    friend class conn_descriptor_t;
 
     scoped_signal_t rdhup_watcher();
 
     void enable_keepalive();
 
     // NB. interruptor cannot be nullptr.
-    linux_tcp_conn_t(
+    tcp_conn_t(
         const ip_address_t &host,
         int port,
         signal_t *interruptor,
@@ -44,11 +44,11 @@ public:
     void rethread(threadnum_t thread);
 
     // ATN outdated comment: Used by tcp_listener_t and any derived classes.
-    explicit linux_tcp_conn_t(fd_t sock);
+    explicit tcp_conn_t(fd_t sock);
 
 private:
 
-    friend class linux_secure_tcp_conn_t;
+    friend class secure_tcp_conn_t;
 
     // The underlying TCP socket file descriptor.
     scoped_fd_t sock;

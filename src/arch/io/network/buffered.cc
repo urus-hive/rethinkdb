@@ -1,6 +1,6 @@
 #include "arch/io/network/buffered.hpp"
 
-buffered_conn_t::buffered_conn_t(scoped_ptr_t<conn_t> conn) :
+buffered_conn_t::buffered_conn_t(scoped_ptr_t<bufferable_conn_t> conn) :
     base_conn(std::move(conn)),
     read_in_progress(false),
     write_in_progress(false),

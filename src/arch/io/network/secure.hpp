@@ -24,17 +24,17 @@ private:
     DISABLE_COPYING(tls_conn_wrapper_t);
 };
 
-class linux_secure_tcp_conn_t :
-    public conn_t {
+class secure_tcp_conn_t :
+    public bufferable_conn_t {
 public:
 
     // Client connection constructor.
-    linux_secure_tcp_conn_t(
+    secure_tcp_conn_t(
         SSL_CTX *tls_ctx, const ip_address_t &host, int port,
         signal_t *interruptor, int local_port = ANY_PORT
     ) THROWS_ONLY(connect_failed_exc_t, crypto::openssl_error_t, interrupted_exc_t);
 
-    ~linux_secure_tcp_conn_t() THROWS_NOTHING;
+    ~secure_tcp_conn_t() THROWS_NOTHING;
 
     /* shutdown_read() and shutdown_write() just close the socket rather than performing
     the full TLS shutdown procedure, because they're assumed not to block.
@@ -46,7 +46,7 @@ public:
     void rethread(threadnum_t thread);
 
     // Server connection constructor.
-    linux_secure_tcp_conn_t(
+    secure_tcp_conn_t(
         SSL_CTX *tls_ctx, fd_t _sock, signal_t *interruptor
     ) THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t);
 
@@ -79,7 +79,7 @@ private:
 
     bool is_open() const { return !closed.is_pulsed(); }
 
-    linux_tcp_conn_t transport;
+    tcp_conn_t transport;
 
     tls_conn_wrapper_t conn;
 

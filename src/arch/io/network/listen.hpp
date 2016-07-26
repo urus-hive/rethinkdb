@@ -8,30 +8,29 @@
 #include "arch/runtime/event_queue_types.hpp"
 #include "concurrency/auto_drainer.hpp"
 
-/* The linux_nonthrowing_tcp_listener_t is used to listen on a network port for incoming
-connections. Create a linux_nonthrowing_tcp_listener_t with some port and then call set_callback();
+/* The nonthrowing_tcp_listener_t is used to listen on a network port for incoming
+connections. Create a nonthrowing_tcp_listener_t with some port and then call set_callback();
 the provided callback will be called in a new coroutine every time something connects. */
 
-// ATN rename no linux_
-class linux_nonthrowing_tcp_listener_t : private linux_event_callback_t {
+class nonthrowing_tcp_listener_t : private linux_event_callback_t {
 public:
-    linux_nonthrowing_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int _port,
-        const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &callback);
+    nonthrowing_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int _port,
+        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
 
-    ~linux_nonthrowing_tcp_listener_t();
+    ~nonthrowing_tcp_listener_t();
 
     MUST_USE bool begin_listening();
     bool is_bound() const;
     int get_port() const;
 
 protected:
-    friend class linux_tcp_listener_t;
-    friend class linux_tcp_bound_socket_t;
+    friend class tcp_listener_t;
+    friend class tcp_bound_socket_t;
 
     void bind_sockets();
 
     // The callback to call when we get a connection
-    std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> callback;
+    std::function<void(scoped_ptr_t<conn_descriptor_t> &)> callback;
 
 private:
     static const uint32_t MAX_BIND_ATTEMPTS = 20;
@@ -78,35 +77,35 @@ private:
 };
 
 /* Used by the old style tcp listener */
-class linux_tcp_bound_socket_t {
+class tcp_bound_socket_t {
 public:
-    linux_tcp_bound_socket_t(const std::set<ip_address_t> &bind_addresses, int _port);
+    tcp_bound_socket_t(const std::set<ip_address_t> &bind_addresses, int _port);
     int get_port() const;
 private:
-    friend class linux_tcp_listener_t;
+    friend class tcp_listener_t;
 
-    scoped_ptr_t<linux_nonthrowing_tcp_listener_t> listener;
+    scoped_ptr_t<nonthrowing_tcp_listener_t> listener;
 };
 
 /* Replicates old constructor-exception-throwing style for backwards compaitbility */
-class linux_tcp_listener_t {
+class tcp_listener_t {
 public:
-    linux_tcp_listener_t(linux_tcp_bound_socket_t *bound_socket,
-        const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &callback);
-    linux_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
-        const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &callback);
+    tcp_listener_t(tcp_bound_socket_t *bound_socket,
+        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
+    tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
+        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
 
     int get_port() const;
 
 private:
-    scoped_ptr_t<linux_nonthrowing_tcp_listener_t> listener;
+    scoped_ptr_t<nonthrowing_tcp_listener_t> listener;
 };
 
 /* Like a linux tcp listener but repeatedly tries to bind to its port until successful */
-class linux_repeated_nonthrowing_tcp_listener_t {
+class repeated_nonthrowing_tcp_listener_t {
 public:
-    linux_repeated_nonthrowing_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
-        const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &callback);
+    repeated_nonthrowing_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
+        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
     void begin_repeated_listening_attempts();
 
     signal_t *get_bound_signal();
@@ -115,7 +114,7 @@ public:
 private:
     void retry_loop(auto_drainer_t::lock_t lock);
 
-    linux_nonthrowing_tcp_listener_t listener;
+    nonthrowing_tcp_listener_t listener;
     cond_t bound_cond;
     auto_drainer_t drainer;
 };

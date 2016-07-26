@@ -144,7 +144,7 @@ connectivity_cluster_t::connection_t::connection_t(
     flusher([&](signal_t *) {
         guarantee(this->conn != nullptr);
         // We need to acquire the send_mutex because flushing the buffer
-        // must not interleave with other writes (restriction of linux_tcp_conn_t).
+        // must not interleave with other writes (restriction of tcp_conn_t).
         mutex_t::acq_t acq(&this->send_mutex);
         // We ignore the return value of flush_buffer(). Closed connections
         // must be handled elsewhere.

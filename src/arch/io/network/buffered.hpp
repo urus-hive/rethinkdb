@@ -16,7 +16,7 @@
 class buffered_conn_t : public home_thread_mixin_t {
 public:
 
-    explicit buffered_conn_t(scoped_ptr_t<conn_t> conn);
+    explicit buffered_conn_t(scoped_ptr_t<bufferable_conn_t> conn);
 
     void enable_keepalive();
 
@@ -112,7 +112,7 @@ private:
 
     /* `read_op_wrapper_t` and `write_op_wrapper_t` are an attempt to factor out
     the boilerplate that would otherwise be at the top of every read- or write-
-    related method on `linux_tcp_conn_t`. They check that the connection is
+    related method on `tcp_conn_t`. They check that the connection is
     open, handle `closer`, etc. */
 
     class read_op_wrapper_t : private signal_t::subscription_t {
@@ -173,7 +173,7 @@ private:
         buffered_conn_t *parent;
     };
 
-    scoped_ptr_t<conn_t> base_conn;
+    scoped_ptr_t<bufferable_conn_t> base_conn;
 
     /* True if there is a pending read or write */
     bool read_in_progress, write_in_progress;

@@ -11,10 +11,9 @@
 #include "perfmon/perfmon.hpp"
 #include "threading.hpp"
 
-//ATN rename bufferable_conn_t
-class conn_t {
+class bufferable_conn_t {
 public:
-    conn_t() : write_perfmon(nullptr) { }
+    bufferable_conn_t() : write_perfmon(nullptr) { }
 
     class connect_failed_exc_t : public std::exception {
     public:
@@ -36,7 +35,7 @@ public:
 
     virtual void perform_write(const void *buffer, size_t size) = 0;
 
-    virtual ~conn_t() { }
+    virtual ~bufferable_conn_t() { }
 
     virtual void rethread(threadnum_t new_thread) = 0;
     virtual bool getpeername(ip_and_port_t *ip_and_port) = 0;

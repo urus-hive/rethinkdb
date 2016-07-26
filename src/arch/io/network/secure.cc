@@ -33,7 +33,7 @@ void tls_conn_wrapper_t::set_fd(fd_t sock)
 /* This is the client version of the constructor. The base class constructor
 will establish a TCP connection to the peer at the given host:port and then we
 wrap the tcp connection in TLS using the configuration in the given tls_ctx. */
-linux_secure_tcp_conn_t::linux_secure_tcp_conn_t(
+secure_tcp_conn_t::secure_tcp_conn_t(
         SSL_CTX *tls_ctx, const ip_address_t &host, int port,
         signal_t *interruptor, int local_port)
         THROWS_ONLY(connect_failed_exc_t, crypto::openssl_error_t, interrupted_exc_t) :
@@ -46,7 +46,7 @@ linux_secure_tcp_conn_t::linux_secure_tcp_conn_t(
 }
 
 /* This is the server version of the constructor */
-linux_secure_tcp_conn_t::linux_secure_tcp_conn_t(
+secure_tcp_conn_t::secure_tcp_conn_t(
         SSL_CTX *tls_ctx, fd_t _sock, signal_t *interruptor)
         THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t) :
     transport(_sock),
@@ -57,19 +57,19 @@ linux_secure_tcp_conn_t::linux_secure_tcp_conn_t(
     perform_handshake(interruptor);
 }
 
-linux_secure_tcp_conn_t::~linux_secure_tcp_conn_t() THROWS_NOTHING {
+secure_tcp_conn_t::~secure_tcp_conn_t() THROWS_NOTHING {
     transport.assert_thread();
 
     if (is_open()) shutdown();
 }
 
-void linux_secure_tcp_conn_t::rethread(threadnum_t thread) {
+void secure_tcp_conn_t::rethread(threadnum_t thread) {
     closed.rethread(thread);
 
     transport.rethread(thread);
 }
 
-void linux_secure_tcp_conn_t::perform_handshake(signal_t *interruptor)
+void secure_tcp_conn_t::perform_handshake(signal_t *interruptor)
         THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t) {
     // Perform TLS handshake.
     while (true) {
@@ -116,7 +116,7 @@ void linux_secure_tcp_conn_t::perform_handshake(signal_t *interruptor)
     }
 }
 
-size_t linux_secure_tcp_conn_t::read_internal(void *buffer, size_t size)
+size_t secure_tcp_conn_t::read_internal(void *buffer, size_t size)
     THROWS_ONLY(tcp_conn_read_closed_exc_t) {
     transport.assert_thread();
     rassert(!closed.is_pulsed());
@@ -174,7 +174,7 @@ size_t linux_secure_tcp_conn_t::read_internal(void *buffer, size_t size)
     }
 }
 
-void linux_secure_tcp_conn_t::perform_write(const void *buffer, size_t size) {
+void secure_tcp_conn_t::perform_write(const void *buffer, size_t size) {
     transport.assert_thread();
 
     if (closed.is_pulsed()) {
@@ -251,7 +251,7 @@ void linux_secure_tcp_conn_t::perform_write(const void *buffer, size_t size) {
 /* It is not possible to close only the read or write side of a TLS connection
 so we use only a single shutdown method which attempts to shutdown the TLS
 before shutting down the underlying tcp connection */
-void linux_secure_tcp_conn_t::shutdown() {
+void secure_tcp_conn_t::shutdown() {
     transport.assert_thread();
 
     // If something else already shut us down, abort immediately.
@@ -312,7 +312,7 @@ void linux_secure_tcp_conn_t::shutdown() {
     shutdown_socket();
 }
 
-void linux_secure_tcp_conn_t::shutdown_socket() {
+void secure_tcp_conn_t::shutdown_socket() {
     transport.assert_thread();
     rassert(!closed.is_pulsed());
     rassert(!transport.read_closed.is_pulsed());
@@ -331,15 +331,15 @@ void linux_secure_tcp_conn_t::shutdown_socket() {
     transport.on_shutdown_read();
 }
 
-bool linux_secure_tcp_conn_t::getpeername(ip_and_port_t *ip_and_port) {
+bool secure_tcp_conn_t::getpeername(ip_and_port_t *ip_and_port) {
     return transport.getpeername(ip_and_port);
 }
 
-void linux_secure_tcp_conn_t::enable_keepalive() {
+void secure_tcp_conn_t::enable_keepalive() {
     transport.enable_keepalive();
 }
 
-scoped_signal_t linux_secure_tcp_conn_t::rdhup_watcher() {
+scoped_signal_t secure_tcp_conn_t::rdhup_watcher() {
     return make_scoped_signal<cond_t>();
 }
 

@@ -29,9 +29,9 @@
 #endif
 
 /* Network listener object */
-linux_nonthrowing_tcp_listener_t::linux_nonthrowing_tcp_listener_t(
+nonthrowing_tcp_listener_t::nonthrowing_tcp_listener_t(
          const std::set<ip_address_t> &bind_addresses, int _port,
-         const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &cb) :
+         const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &cb) :
     callback(cb),
     local_addresses(bind_addresses),
     port(_port),
@@ -50,7 +50,7 @@ linux_nonthrowing_tcp_listener_t::linux_nonthrowing_tcp_listener_t(
     }
 }
 
-bool linux_nonthrowing_tcp_listener_t::begin_listening() {
+bool nonthrowing_tcp_listener_t::begin_listening() {
     if (!bound) {
         try {
             bind_sockets();
@@ -77,20 +77,20 @@ bool linux_nonthrowing_tcp_listener_t::begin_listening() {
     // Start the accept loop
     accept_loop_drainer.init(new auto_drainer_t);
     coro_t::spawn_sometime(std::bind(
-        &linux_nonthrowing_tcp_listener_t::accept_loop, this, auto_drainer_t::lock_t(accept_loop_drainer.get())));
+        &nonthrowing_tcp_listener_t::accept_loop, this, auto_drainer_t::lock_t(accept_loop_drainer.get())));
 
     return true;
 }
 
-bool linux_nonthrowing_tcp_listener_t::is_bound() const {
+bool nonthrowing_tcp_listener_t::is_bound() const {
     return bound;
 }
 
-int linux_nonthrowing_tcp_listener_t::get_port() const {
+int nonthrowing_tcp_listener_t::get_port() const {
     return port;
 }
 
-int linux_nonthrowing_tcp_listener_t::init_sockets() {
+int nonthrowing_tcp_listener_t::init_sockets() {
     event_watchers.reset();
     event_watchers.init(local_addresses.size());
     socks.reset();
@@ -227,7 +227,7 @@ void fallback_to_ipv4(std::set<ip_address_t> *addrs, int err, int port) {
            "falling back to IPv4 only", port);
 }
 
-void linux_nonthrowing_tcp_listener_t::bind_sockets() {
+void nonthrowing_tcp_listener_t::bind_sockets() {
     // It may take multiple attempts to get all the sockets onto the same port
     int local_port = port;
 
@@ -279,7 +279,7 @@ void linux_nonthrowing_tcp_listener_t::bind_sockets() {
 }
 
 #ifdef _WIN32
-void linux_nonthrowing_tcp_listener_t::accept_loop_single(
+void nonthrowing_tcp_listener_t::accept_loop_single(
        const auto_drainer_t::lock_t &lock,
        exponential_backoff_t backoff,
        windows_event_watcher_t *event_watcher) {
@@ -326,13 +326,13 @@ void linux_nonthrowing_tcp_listener_t::accept_loop_single(
             }
         } else {
             winsock_debugf("accepted %x from %x\n", new_sock, listening_sock);
-            coro_t::spawn_now_dangerously(std::bind(&linux_nonthrowing_tcp_listener_t::handle, this, new_sock));
+            coro_t::spawn_now_dangerously(std::bind(&nonthrowing_tcp_listener_t::handle, this, new_sock));
             backoff.success();
         }
     }
 }
 #else
-fd_t linux_nonthrowing_tcp_listener_t::wait_for_any_socket(const auto_drainer_t::lock_t &lock) {
+fd_t nonthrowing_tcp_listener_t::wait_for_any_socket(const auto_drainer_t::lock_t &lock) {
     scoped_array_t<scoped_ptr_t<linux_event_watcher_t::watch_t> > watches(event_watchers.size());
     wait_any_t waiter(lock.get_drain_signal());
 
@@ -362,7 +362,7 @@ fd_t linux_nonthrowing_tcp_listener_t::wait_for_any_socket(const auto_drainer_t:
 }
 #endif
 
-void linux_nonthrowing_tcp_listener_t::accept_loop(auto_drainer_t::lock_t lock) {
+void nonthrowing_tcp_listener_t::accept_loop(auto_drainer_t::lock_t lock) {
     exponential_backoff_t backoff(10, 160, 2.0, 0.5);
 
 #ifdef _WIN32
@@ -377,7 +377,7 @@ void linux_nonthrowing_tcp_listener_t::accept_loop(auto_drainer_t::lock_t lock) 
         fd_t new_sock = accept(active_fd, nullptr, nullptr);
 
         if (new_sock != INVALID_FD) {
-            coro_t::spawn_now_dangerously(std::bind(&linux_nonthrowing_tcp_listener_t::handle, this, new_sock));
+            coro_t::spawn_now_dangerously(std::bind(&nonthrowing_tcp_listener_t::handle, this, new_sock));
             backoff.success();
 
             /* Assume that if there was a problem before, it's gone now because accept()
@@ -409,47 +409,47 @@ void linux_nonthrowing_tcp_listener_t::accept_loop(auto_drainer_t::lock_t lock) 
 #endif
 }
 
-void linux_nonthrowing_tcp_listener_t::handle(fd_t socket) {
-    scoped_ptr_t<linux_tcp_conn_descriptor_t> nconn(new linux_tcp_conn_descriptor_t(socket));
+void nonthrowing_tcp_listener_t::handle(fd_t socket) {
+    scoped_ptr_t<conn_descriptor_t> nconn(new conn_descriptor_t(socket));
     callback(nconn);
 }
 
-linux_nonthrowing_tcp_listener_t::~linux_nonthrowing_tcp_listener_t() {
+nonthrowing_tcp_listener_t::~nonthrowing_tcp_listener_t() {
     /* Interrupt the accept loop */
     accept_loop_drainer.reset();
 
     // scoped_fd_t destructor will close() the socket
 }
 
-void linux_nonthrowing_tcp_listener_t::on_event(int) {
+void nonthrowing_tcp_listener_t::on_event(int) {
     /* This is only called in cases of error; normal input events are received
        via event_listener.watch(). */
 }
 
-void noop_fun(UNUSED const scoped_ptr_t<linux_tcp_conn_descriptor_t> &arg) { }
+void noop_fun(UNUSED const scoped_ptr_t<conn_descriptor_t> &arg) { }
 
-linux_tcp_bound_socket_t::linux_tcp_bound_socket_t(const std::set<ip_address_t> &bind_addresses, int port) :
-    listener(new linux_nonthrowing_tcp_listener_t(bind_addresses, port, noop_fun))
+tcp_bound_socket_t::tcp_bound_socket_t(const std::set<ip_address_t> &bind_addresses, int port) :
+    listener(new nonthrowing_tcp_listener_t(bind_addresses, port, noop_fun))
 {
     listener->bind_sockets();
 }
 
-int linux_tcp_bound_socket_t::get_port() const {
+int tcp_bound_socket_t::get_port() const {
     return listener->get_port();
 }
 
-linux_tcp_listener_t::linux_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
-    const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &callback) :
-        listener(new linux_nonthrowing_tcp_listener_t(bind_addresses, port, callback))
+tcp_listener_t::tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
+    const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback) :
+        listener(new nonthrowing_tcp_listener_t(bind_addresses, port, callback))
 {
     if (!listener->begin_listening()) {
         throw address_in_use_exc_t("localhost", listener->get_port());
     }
 }
 
-linux_tcp_listener_t::linux_tcp_listener_t(
-    linux_tcp_bound_socket_t *bound_socket,
-    const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &callback) :
+tcp_listener_t::tcp_listener_t(
+    tcp_bound_socket_t *bound_socket,
+    const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback) :
         listener(bound_socket->listener.release())
 {
     listener->callback = callback;
@@ -458,28 +458,28 @@ linux_tcp_listener_t::linux_tcp_listener_t(
     }
 }
 
-int linux_tcp_listener_t::get_port() const {
+int tcp_listener_t::get_port() const {
     return listener->get_port();
 }
 
-linux_repeated_nonthrowing_tcp_listener_t::linux_repeated_nonthrowing_tcp_listener_t(
+repeated_nonthrowing_tcp_listener_t::repeated_nonthrowing_tcp_listener_t(
     const std::set<ip_address_t> &bind_addresses,
     int port,
-    const std::function<void(scoped_ptr_t<linux_tcp_conn_descriptor_t> &)> &callback) :
+    const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback) :
         listener(bind_addresses, port, callback)
 { }
 
-int linux_repeated_nonthrowing_tcp_listener_t::get_port() const {
+int repeated_nonthrowing_tcp_listener_t::get_port() const {
     return listener.get_port();
 }
 
-void linux_repeated_nonthrowing_tcp_listener_t::begin_repeated_listening_attempts() {
+void repeated_nonthrowing_tcp_listener_t::begin_repeated_listening_attempts() {
     auto_drainer_t::lock_t lock(&drainer);
     coro_t::spawn_sometime(
-                           std::bind(&linux_repeated_nonthrowing_tcp_listener_t::retry_loop, this, lock));
+                           std::bind(&repeated_nonthrowing_tcp_listener_t::retry_loop, this, lock));
 }
 
-void linux_repeated_nonthrowing_tcp_listener_t::retry_loop(auto_drainer_t::lock_t lock) {
+void repeated_nonthrowing_tcp_listener_t::retry_loop(auto_drainer_t::lock_t lock) {
     try {
         bool bound = listener.begin_listening();
 
@@ -499,7 +499,7 @@ void linux_repeated_nonthrowing_tcp_listener_t::retry_loop(auto_drainer_t::lock_
     }
 }
 
-signal_t *linux_repeated_nonthrowing_tcp_listener_t::get_bound_signal() {
+signal_t *repeated_nonthrowing_tcp_listener_t::get_bound_signal() {
     return &bound_cond;
 }
 
