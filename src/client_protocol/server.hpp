@@ -113,7 +113,7 @@ public:
 
 private:
     void make_error_response(bool is_draining,
-                             const tcp_conn_t &conn,
+                             const buffered_conn_t &conn,
                              const std::string &err,
                              ql::response_t *response_out);
 
@@ -123,7 +123,7 @@ private:
 
     // This is templatized based on the wire protocol requested by the client
     template<class protocol_t>
-    void connection_loop(tcp_conn_t *conn,
+    void connection_loop(buffered_conn_t *conn,
                          size_t max_concurrent_queries,
                          ql::query_cache_t *query_cache,
                          signal_t *interruptor);

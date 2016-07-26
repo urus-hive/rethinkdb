@@ -115,7 +115,7 @@ http_res_t http_error_res(const std::string &content,
 class tcp_http_msg_parser_t {
 public:
     tcp_http_msg_parser_t() {}
-    bool parse(tcp_conn_t *conn, http_req_t *req, signal_t *closer) THROWS_ONLY(tcp_conn_read_closed_exc_t);
+    bool parse(buffered_conn_t *conn, http_req_t *req, signal_t *closer) THROWS_ONLY(tcp_conn_read_closed_exc_t);
 private:
     struct version_parser_t {
         std::string version;

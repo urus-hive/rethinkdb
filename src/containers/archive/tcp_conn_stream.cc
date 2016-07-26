@@ -7,20 +7,16 @@ tcp_conn_stream_t::tcp_conn_stream_t(
     tls_ctx_t *tls_ctx, const ip_address_t &host, int port,
     signal_t *interruptor, int local_port
 ) :
-    conn_(
+    conn_(make_scoped<buffered_conn_t>(
 #ifdef ENABLE_TLS
         (nullptr != tls_ctx) ?
-        new secure_tcp_conn_t(tls_ctx, host, port, interruptor, local_port) :
+        scoped_ptr_t<conn_t>(new secure_tcp_conn_t(tls_ctx, host, port, interruptor, local_port)) :
 #endif
-        new tcp_conn_t(host, port, interruptor, local_port)
-    ) { }
+        scoped_ptr_t<conn_t>(new tcp_conn_t(host, port, interruptor, local_port))
+    )) { }
 
-tcp_conn_stream_t::tcp_conn_stream_t(tcp_conn_t *conn) : conn_(conn) {
-    rassert(conn_ != nullptr);
-}
-
-tcp_conn_stream_t::~tcp_conn_stream_t() {
-    delete conn_;
+tcp_conn_stream_t::tcp_conn_stream_t(buffered_conn_t *conn) : conn_(conn) {
+    rassert(conn_.has());
 }
 
 int64_t tcp_conn_stream_t::read(void *p, int64_t n) {
@@ -109,7 +105,7 @@ keepalive_tcp_conn_stream_t::keepalive_tcp_conn_stream_t(
     tcp_conn_stream_t(tls_ctx, host, port, interruptor, local_port),
     keepalive_callback(NULL) { }
 
-keepalive_tcp_conn_stream_t::keepalive_tcp_conn_stream_t(tcp_conn_t *conn) :
+keepalive_tcp_conn_stream_t::keepalive_tcp_conn_stream_t(buffered_conn_t *conn) :
     tcp_conn_stream_t(conn),
     keepalive_callback(nullptr) { }
 

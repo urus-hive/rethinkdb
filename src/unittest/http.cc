@@ -145,7 +145,7 @@ private:
     void http_get() {
         cond_t non_interruptor;
         ip_address_t loopback("127.0.0.1");
-        tcp_conn_t http_conn(loopback, server->get_port(), &non_interruptor);
+        buffered_conn_t http_conn(make_scoped<tcp_conn_t>(loopback, server->get_port(), &non_interruptor));
 
         // Send the get request
         std::string buffer = strprintf("GET %s HTTP/1.1\r\n\r\n%s\r\n",

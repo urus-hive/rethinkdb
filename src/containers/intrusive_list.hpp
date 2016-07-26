@@ -200,5 +200,16 @@ private:
     DISABLE_COPYING(intrusive_list_t);
 };
 
+template <class T>
+class deleting_intrusive_list_t : public intrusive_list_t<T> {
+public:
+    // Beware: ~intrusive_list_t() is not virtual
+    ~deleting_intrusive_list_t() {
+        while (T *x = this->head()) {
+            this->pop_front();
+            delete x;
+        }
+    }
+};
 
 #endif // CONTAINERS_INTRUSIVE_LIST_HPP_

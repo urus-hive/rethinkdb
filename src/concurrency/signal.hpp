@@ -118,4 +118,15 @@ private:
     DISABLE_COPYING(signal_t);
 };
 
+class scoped_signal_t : public std::unique_ptr<signal_t, void(*)(signal_t*)> {
+public:
+    template <class T>
+    scoped_signal_t(T *p) : unique_ptr(p, [](signal_t *p){ delete (T*)p; }) { }
+};
+
+template <class T, class... Args>
+scoped_signal_t make_scoped_signal(Args&&... a) {
+    return scoped_signal_t(new T(std::forward<Args>(a)...));
+}
+
 #endif /* CONCURRENCY_SIGNAL_HPP_ */

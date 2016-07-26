@@ -7,7 +7,7 @@
 // Types that are used, in particular, by poll.hpp and epoll.hpp.
 
 // Event queue callback
-struct linux_event_callback_t {
+struct linux_event_callback_t { // ATN no linux_
     virtual void on_event(int events) = 0;
     virtual ~linux_event_callback_t() {}
 };

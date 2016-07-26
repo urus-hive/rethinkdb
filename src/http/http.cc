@@ -388,7 +388,7 @@ std::string human_readable_status(http_status_code_t code) {
     }
 }
 
-void write_http_msg(tcp_conn_t *conn, const http_res_t &res, signal_t *closer) THROWS_ONLY(tcp_conn_write_closed_exc_t) {
+void write_http_msg(buffered_conn_t *conn, const http_res_t &res, signal_t *closer) THROWS_ONLY(tcp_conn_write_closed_exc_t) {
     conn->writef(closer, "HTTP/%s %" PRIu32 " %s\r\n",
                  res.version.c_str(),
                  static_cast<uint32_t>(res.code),
@@ -401,7 +401,7 @@ void write_http_msg(tcp_conn_t *conn, const http_res_t &res, signal_t *closer) T
 }
 
 void http_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn, auto_drainer_t::lock_t keepalive) {
-    scoped_ptr_t<tcp_conn_t> conn;
+    scoped_ptr_t<buffered_conn_t> conn;
 
     try {
         nconn->make_server_connection(tls_ctx, &conn, keepalive.get_drain_signal());
@@ -453,7 +453,7 @@ void http_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn
 }
 
 // Parse a http request off of the tcp conn and stuff it into the http_req_t object. Returns parse success.
-bool tcp_http_msg_parser_t::parse(tcp_conn_t *conn, http_req_t *req, signal_t *closer) THROWS_ONLY(tcp_conn_read_closed_exc_t) {
+bool tcp_http_msg_parser_t::parse(buffered_conn_t *conn, http_req_t *req, signal_t *closer) THROWS_ONLY(tcp_conn_read_closed_exc_t) {
     line_parser_t parser(conn);
 
     std::string method = parser.readWord(closer);

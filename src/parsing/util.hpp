@@ -11,14 +11,14 @@
 // Parses CRLF terminated lines from a TCP connection
 class line_parser_t {
 private:
-    tcp_conn_t *conn;
+    buffered_conn_t *conn;
 
     const char *start_position;
     unsigned bytes_read;
     const char *end_position;
 
 public:
-    explicit line_parser_t(tcp_conn_t *conn_);
+    explicit line_parser_t(buffered_conn_t *conn_);
 
     // Returns a charslice to the next CRLF line in the TCP conn's buffer
     // blocks until a full line is available

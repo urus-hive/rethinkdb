@@ -309,7 +309,7 @@ void connectivity_cluster_t::run_t::on_new_connection(
     parent->assert_thread();
 
     // conn gets owned by the keepalive_tcp_conn_stream_t.
-    tcp_conn_t *conn;
+    buffered_conn_t *conn;
 
     try {
         nconn->make_server_connection(tls_ctx, &conn, lock.get_drain_signal());

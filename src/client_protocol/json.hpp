@@ -25,7 +25,7 @@ public:
             ql::query_cache_t *query_cache, int64_t token,
             ql::response_t *error_out);
 
-    static scoped_ptr_t<ql::query_params_t> parse_query(tcp_conn_t *conn,
+    static scoped_ptr_t<ql::query_params_t> parse_query(buffered_conn_t *conn,
                                                         signal_t *interruptor,
                                                         ql::query_cache_t *query_cache);
 
@@ -35,7 +35,7 @@ public:
 
     static void send_response(ql::response_t *response,
                               int64_t token,
-                              tcp_conn_t *conn,
+                              buffered_conn_t *conn,
                               signal_t *interruptor);
 };
 

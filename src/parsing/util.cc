@@ -2,7 +2,7 @@
 #include "parsing/util.hpp"
 #include "arch/io/network.hpp"
 
-line_parser_t::line_parser_t(tcp_conn_t *_conn) : conn(_conn) {
+line_parser_t::line_parser_t(buffered_conn_t *_conn) : conn(_conn) {
     peek();
     bytes_read = 0;
 }

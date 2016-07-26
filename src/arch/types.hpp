@@ -49,12 +49,14 @@ private:
     std::string info;
 };
 
+// ATN no tcp_
 class tcp_conn_read_closed_exc_t : public std::exception {
     const char *what() const throw () {
         return "Network connection read end closed";
     }
 };
 
+// ATN no tcp_
 struct tcp_conn_write_closed_exc_t : public std::exception {
     const char *what() const throw () {
         return "Network connection write end closed";
@@ -99,6 +101,9 @@ typedef linux_tcp_conn_t tcp_conn_t;
 
 class linux_secure_tcp_conn_t;
 typedef linux_secure_tcp_conn_t secure_tcp_conn_t;
+
+class conn_t;
+class buffered_conn_t;
 
 enum class file_direct_io_mode_t {
     direct_desired,
