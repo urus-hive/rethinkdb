@@ -40,16 +40,20 @@ secure_tcp_conn_t::secure_tcp_conn_t(
     transport(host, port, interruptor, local_port),
     conn(tls_ctx) {
 
+#ifdef _WIN32
+    #error not implemented
+#else
     conn.set_fd(transport.sock.get());
+#endif
     SSL_set_connect_state(conn.get());
     perform_handshake(interruptor);
 }
 
 /* This is the server version of the constructor */
 secure_tcp_conn_t::secure_tcp_conn_t(
-        SSL_CTX *tls_ctx, fd_t _sock, signal_t *interruptor)
+        SSL_CTX *tls_ctx, scoped_fd_t &&_sock, signal_t *interruptor)
         THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t) :
-    transport(_sock),
+    transport(std::move(_sock)),
     conn(tls_ctx) {
 
     conn.set_fd(transport.sock.get());

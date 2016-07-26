@@ -150,9 +150,9 @@ tcp_conn_t::tcp_conn_t(const ip_address_t &peer,
     }
 }
 
-tcp_conn_t::tcp_conn_t(fd_t s) :
-       sock(s),
-       event_watcher(new event_watcher_t(sock.get(), this)) {
+tcp_conn_t::tcp_conn_t(scoped_fd_t &&s) :
+    sock(std::move(s)),
+    event_watcher(new event_watcher_t(sock.get(), this)) {
     rassert(sock.get() != INVALID_FD);
 }
 

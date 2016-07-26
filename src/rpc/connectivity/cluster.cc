@@ -11,6 +11,7 @@
 #include "errors.hpp"
 #include <boost/optional.hpp>
 
+#include "arch/io/network/tcp.hpp"
 #include "arch/io/network/buffered.hpp"
 #include "arch/io/network/listen.hpp"
 #include "arch/timing.hpp"
@@ -304,7 +305,7 @@ void connectivity_cluster_t::run_t::join(
 }
 
 void connectivity_cluster_t::run_t::on_new_connection(
-        const scoped_ptr_t<tcp_conn_descriptor_t> &nconn,
+        scoped_fd_t &&sock,
         const int join_delay_secs,
         auto_drainer_t::lock_t lock) THROWS_NOTHING {
     parent->assert_thread();
@@ -313,7 +314,7 @@ void connectivity_cluster_t::run_t::on_new_connection(
     scoped_ptr_t<buffered_conn_t> conn;
 
     try {
-        nconn->make_server_connection(tls_ctx, &conn, lock.get_drain_signal());
+        conn = make_scoped<buffered_conn_t>(tls_ctx, std::move(sock), lock.get_drain_signal());
     } catch (const interrupted_exc_t &) {
         // TLS handshake was interrupted.
         return;

@@ -20,7 +20,6 @@ class tcp_conn_t :
     public home_thread_mixin_t,
     private linux_event_callback_t {
 public:
-    friend class conn_descriptor_t;
 
     scoped_signal_t rdhup_watcher();
 
@@ -47,8 +46,7 @@ public:
 
     void rethread(threadnum_t thread);
 
-    // Used by tcp_listener_t and any derived classes.
-    explicit tcp_conn_t(fd_t sock);
+    explicit tcp_conn_t(scoped_fd_t &&sock);
 
 private:
 
@@ -86,7 +84,6 @@ private:
 
     bool getpeername(ip_and_port_t *ip_and_port);
 
-    [[deprecated]] // ATN is this needed
     event_watcher_t *get_event_watcher();
 };
 

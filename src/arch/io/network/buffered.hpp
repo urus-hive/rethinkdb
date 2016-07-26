@@ -2,7 +2,10 @@
 #define ARCH_IO_NETWORK_BUFFERED_HPP_
 
 #include "arch/types.hpp"
+#include "arch/io/io_utils.hpp"
 #include "arch/io/network/bufferable.hpp"
+#include "arch/io/openssl.hpp"
+#include "crypto/error.hpp"
 #include "concurrency/auto_drainer.hpp"
 #include "concurrency/cond_var.hpp"
 #include "concurrency/coro_pool.hpp"
@@ -10,10 +13,14 @@
 #include "concurrency/semaphore.hpp"
 #include "containers/lazy_erase_vector.hpp"
 #include "containers/scoped.hpp"
+#include "crypto/error.hpp"
 #include "threading.hpp"
 
 class buffered_conn_t : public home_thread_mixin_t {
 public:
+
+    buffered_conn_t(tls_ctx_t *tls_ctx, scoped_fd_t &&sock, signal_t *closer)
+        THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t);
 
     explicit buffered_conn_t(scoped_ptr_t<bufferable_conn_t> conn);
 

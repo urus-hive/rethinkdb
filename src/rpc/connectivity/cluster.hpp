@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "arch/types.hpp"
+#include "arch/io/io_utils.hpp"
 #include "arch/io/openssl.hpp"
 #include "concurrency/auto_drainer.hpp"
 #include "concurrency/mutex.hpp"
@@ -230,7 +231,7 @@ public:
             DISABLE_COPYING(variable_setter_t);
         };
 
-        void on_new_connection(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn,
+        void on_new_connection(scoped_fd_t &&sock,
                 const int join_delay_secs,
                 auto_drainer_t::lock_t lock) THROWS_NOTHING;
 

@@ -85,10 +85,6 @@ class tcp_bound_socket_t;
 class nonthrowing_tcp_listener_t;
 class tcp_listener_t;
 class repeated_nonthrowing_tcp_listener_t;
-
-class conn_descriptor_t;
-typedef conn_descriptor_t tcp_conn_descriptor_t;
-
 class tcp_conn_t;
 class secure_tcp_conn_t;
 class bufferable_conn_t;

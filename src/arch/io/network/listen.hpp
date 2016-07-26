@@ -4,7 +4,9 @@
 #include <set>
 
 #include "arch/address.hpp"
-#include "arch/io/network/descriptor.hpp"
+#include "arch/io/event_watcher.hpp"
+#include "arch/io/io_utils.hpp"
+#include "arch/io/network/buffered.hpp"
 #include "arch/runtime/event_queue_types.hpp"
 #include "concurrency/auto_drainer.hpp"
 
@@ -15,7 +17,7 @@ the provided callback will be called in a new coroutine every time something con
 class nonthrowing_tcp_listener_t : private linux_event_callback_t {
 public:
     nonthrowing_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int _port,
-        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
+        const std::function<void(scoped_fd_t &&)> &callback);
 
     ~nonthrowing_tcp_listener_t();
 
@@ -30,7 +32,7 @@ protected:
     void bind_sockets();
 
     // The callback to call when we get a connection
-    std::function<void(scoped_ptr_t<conn_descriptor_t> &)> callback;
+    std::function<void(scoped_fd_t &&)> callback;
 
 private:
     static const uint32_t MAX_BIND_ATTEMPTS = 20;
@@ -91,9 +93,9 @@ private:
 class tcp_listener_t {
 public:
     tcp_listener_t(tcp_bound_socket_t *bound_socket,
-        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
+        const std::function<void(scoped_fd_t &&)> &callback);
     tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
-        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
+        const std::function<void(scoped_fd_t &&)> &callback);
 
     int get_port() const;
 
@@ -105,7 +107,7 @@ private:
 class repeated_nonthrowing_tcp_listener_t {
 public:
     repeated_nonthrowing_tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
-        const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback);
+        const std::function<void(scoped_fd_t &&)> &callback);
     void begin_repeated_listening_attempts();
 
     signal_t *get_bound_signal();

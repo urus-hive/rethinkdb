@@ -1,6 +1,7 @@
 // Copyright 2010-2012 RethinkDB, all rights reserved.
 #include "containers/archive/tcp_conn_stream.hpp"
 
+#include "arch/io/io_utils.hpp"
 #include "arch/io/network/secure.hpp"
 #include "arch/io/network/tcp.hpp"
 #include "arch/io/network/buffered.hpp"

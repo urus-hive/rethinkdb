@@ -118,7 +118,7 @@ private:
                              ql::response_t *response_out);
 
     // For the client driver socket
-    void handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn,
+    void handle_conn(scoped_fd_t &&sock,
                      auto_drainer_t::lock_t);
 
     // This is templatized based on the wire protocol requested by the client

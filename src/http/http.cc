@@ -351,13 +351,12 @@ http_server_t::http_server_t(
     application(_application),
     tls_ctx(_tls_ctx) {
     try {
+        auto_drainer_t::lock_t keepalive(&auto_drainer);
         tcp_listener.init(new tcp_listener_t(
             local_addresses, port,
-            boost::bind(
-                &http_server_t::handle_conn, this, _1,
-                auto_drainer_t::lock_t(&auto_drainer)
-            )
-        ));
+            [this, keepalive](scoped_fd_t &&sock){
+                handle_conn(std::move(sock), keepalive);
+            }));
     } catch (const address_in_use_exc_t &ex) {
         throw address_in_use_exc_t(
             strprintf("Could not bind to http port: %s", ex.what()));
@@ -401,11 +400,11 @@ void write_http_msg(buffered_conn_t *conn, const http_res_t &res, signal_t *clos
     conn->write(res.body.c_str(), res.body.size(), closer);
 }
 
-void http_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn, auto_drainer_t::lock_t keepalive) {
+void http_server_t::handle_conn(scoped_fd_t &&sock, auto_drainer_t::lock_t keepalive) {
     scoped_ptr_t<buffered_conn_t> conn;
 
     try {
-        nconn->make_server_connection(tls_ctx, &conn, keepalive.get_drain_signal());
+        conn = make_scoped<buffered_conn_t>(tls_ctx, std::move(sock), keepalive.get_drain_signal());
     } catch (const interrupted_exc_t &) {
         // TLS handshake was interrupted.
         return;

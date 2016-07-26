@@ -250,7 +250,7 @@ ql::datum_t read_datum(buffered_conn_t *connection, signal_t *interruptor) {
     }
 }
 
-void query_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &nconn,
+void query_server_t::handle_conn(scoped_fd_t &&sock,
                                  auto_drainer_t::lock_t keepalive) {
     threadnum_t chosen_thread = threadnum_t(next_thread);
     next_thread = (next_thread + 1) % get_num_db_threads();
@@ -261,7 +261,7 @@ void query_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &ncon
     scoped_ptr_t<buffered_conn_t> conn;
 
     try {
-        nconn->make_server_connection(tls_ctx, &conn, &ct_keepalive);
+        conn = make_scoped<buffered_conn_t>(tls_ctx, std::move(sock), &ct_keepalive);
     } catch (const interrupted_exc_t &) {
         // TLS handshake was interrupted.
         return;

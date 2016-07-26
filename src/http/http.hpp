@@ -14,6 +14,7 @@
 #include <boost/optional.hpp>
 
 #include "arch/address.hpp"
+#include "arch/io/io_utils.hpp"
 #include "arch/io/openssl.hpp"
 #include "arch/types.hpp"
 #include "concurrency/auto_drainer.hpp"
@@ -159,7 +160,7 @@ public:
     ~http_server_t();
     int get_port() const;
 private:
-    void handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &conn, auto_drainer_t::lock_t);
+    void handle_conn(scoped_fd_t &&sock, auto_drainer_t::lock_t);
     http_app_t *application;
     auto_drainer_t auto_drainer;
     scoped_ptr_t<tcp_listener_t> tcp_listener;

@@ -1,5 +1,23 @@
 #include "arch/io/network/buffered.hpp"
 
+#include "arch/io/io_utils.hpp"
+#include "arch/io/network/secure.hpp"
+#include "arch/io/network/tcp.hpp"
+
+scoped_ptr_t<bufferable_conn_t> make_conn(tls_ctx_t *tls_ctx, scoped_fd_t &&sock, signal_t *closer) {
+#ifdef ENABLE_TLS
+    if (tls_ctx != nullptr) {
+        return make_scoped<secure_tcp_conn_t>(tls_ctx, std::move(sock), closer);
+    }
+#endif
+    return make_scoped<tcp_conn_t>(std::move(sock));
+}
+
+buffered_conn_t::buffered_conn_t(tls_ctx_t *tls_ctx, scoped_fd_t &&sock, signal_t *closer) 
+    THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t) :
+        buffered_conn_t(make_conn(tls_ctx, std::move(sock), closer)) { }
+
+
 buffered_conn_t::buffered_conn_t(scoped_ptr_t<bufferable_conn_t> conn) :
     base_conn(std::move(conn)),
     read_in_progress(false),
@@ -9,9 +27,7 @@ buffered_conn_t::buffered_conn_t(scoped_ptr_t<bufferable_conn_t> conn) :
     write_queue_limiter(WRITE_QUEUE_MAX_SIZE),
     write_coro_pool(1, &write_queue, &write_handler),
     current_write_buffer(get_write_buffer()),
-    drainer(new auto_drainer_t){
-
-}
+    drainer(new auto_drainer_t) { }
 
 buffered_conn_t::write_buffer_t * buffered_conn_t::get_write_buffer() {
     write_buffer_t *buffer;

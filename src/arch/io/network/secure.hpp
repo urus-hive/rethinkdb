@@ -47,7 +47,7 @@ public:
 
     // Server connection constructor.
     secure_tcp_conn_t(
-        SSL_CTX *tls_ctx, fd_t _sock, signal_t *interruptor
+        SSL_CTX *tls_ctx, scoped_fd_t &&_sock, signal_t *interruptor
     ) THROWS_ONLY(crypto::openssl_error_t, interrupted_exc_t);
 
     bool getpeername(ip_and_port_t *ip_and_port);

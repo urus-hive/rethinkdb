@@ -31,7 +31,7 @@
 /* Network listener object */
 nonthrowing_tcp_listener_t::nonthrowing_tcp_listener_t(
          const std::set<ip_address_t> &bind_addresses, int _port,
-         const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &cb) :
+         const std::function<void(scoped_fd_t&&)> &cb) :
     callback(cb),
     local_addresses(bind_addresses),
     port(_port),
@@ -410,8 +410,7 @@ void nonthrowing_tcp_listener_t::accept_loop(auto_drainer_t::lock_t lock) {
 }
 
 void nonthrowing_tcp_listener_t::handle(fd_t socket) {
-    scoped_ptr_t<conn_descriptor_t> nconn(new conn_descriptor_t(socket));
-    callback(nconn);
+    callback(scoped_fd_t(socket));
 }
 
 nonthrowing_tcp_listener_t::~nonthrowing_tcp_listener_t() {
@@ -426,7 +425,7 @@ void nonthrowing_tcp_listener_t::on_event(int) {
        via event_listener.watch(). */
 }
 
-void noop_fun(UNUSED const scoped_ptr_t<conn_descriptor_t> &arg) { }
+void noop_fun(scoped_fd_t &&) { }
 
 tcp_bound_socket_t::tcp_bound_socket_t(const std::set<ip_address_t> &bind_addresses, int port) :
     listener(new nonthrowing_tcp_listener_t(bind_addresses, port, noop_fun))
@@ -439,7 +438,7 @@ int tcp_bound_socket_t::get_port() const {
 }
 
 tcp_listener_t::tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int port,
-    const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback) :
+    const std::function<void(scoped_fd_t &&)> &callback) :
         listener(new nonthrowing_tcp_listener_t(bind_addresses, port, callback))
 {
     if (!listener->begin_listening()) {
@@ -449,7 +448,7 @@ tcp_listener_t::tcp_listener_t(const std::set<ip_address_t> &bind_addresses, int
 
 tcp_listener_t::tcp_listener_t(
     tcp_bound_socket_t *bound_socket,
-    const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback) :
+    const std::function<void(scoped_fd_t &&)> &callback) :
         listener(bound_socket->listener.release())
 {
     listener->callback = callback;
@@ -465,7 +464,7 @@ int tcp_listener_t::get_port() const {
 repeated_nonthrowing_tcp_listener_t::repeated_nonthrowing_tcp_listener_t(
     const std::set<ip_address_t> &bind_addresses,
     int port,
-    const std::function<void(scoped_ptr_t<conn_descriptor_t> &)> &callback) :
+    const std::function<void(scoped_fd_t &&)> &callback) :
         listener(bind_addresses, port, callback)
 { }
 

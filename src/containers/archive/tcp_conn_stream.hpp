@@ -11,7 +11,6 @@
 
 class signal_t;
 
-// ATN rename
 class tcp_conn_stream_t : public read_stream_t, public write_stream_t {
 public:
     tcp_conn_stream_t(
