@@ -1,86 +1,21 @@
-// ATN: split into windows and nixish
-
 #include "arch/io/network/tcp.hpp"
 
-#include <fcntl.h>
-#include <sys/types.h>
+#ifdef TCP_IMPLEMENTATION_NIX
 
-#ifdef _WIN32
-#include "windows.hpp"
-#include <ws2tcpip.h> // NOLINT
-#include <iphlpapi.h> // NOLINT
-#else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <net/if.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#endif
+#include <sys/types.h>
 
 #include "concurrency/wait_any.hpp"
 #include "logger.hpp"
 
-
-#ifdef _WIN32
-#include "concurrency/pmap.hpp"
-#endif
-
-#ifdef TRACE_WINSOCK
-#define winsock_debugf(...) debugf("winsock: " __VA_ARGS__)
-#else
-#define winsock_debugf(...) ((void)0)
-#endif
-
-#ifdef _WIN32
-LPFN_CONNECTEX get_ConnectEx(fd_t s) {
-    static THREAD_LOCAL LPFN_CONNECTEX ConnectEx = nullptr;
-    if (ConnectEx == nullptr) {
-        DWORD size = 0;
-        GUID id = WSAID_CONNECTEX;
-        DWORD res = WSAIoctl(fd_to_socket(s), SIO_GET_EXTENSION_FUNCTION_POINTER,
-                             &id, sizeof(id), &ConnectEx, sizeof(ConnectEx),
-                             &size, nullptr, nullptr);
-        guarantee_winerr(res == 0, "WSAIoctl failed");
-    }
-    return ConnectEx;
-}
-
-LPFN_ACCEPTEX get_AcceptEx(fd_t s) {
-    static THREAD_LOCAL LPFN_ACCEPTEX AcceptEx = nullptr;
-    if (AcceptEx == nullptr) {
-        DWORD size = 0;
-        GUID id = WSAID_ACCEPTEX;
-        DWORD res = WSAIoctl(fd_to_socket(s), SIO_GET_EXTENSION_FUNCTION_POINTER,
-                             &id, sizeof(id), &AcceptEx, sizeof(AcceptEx),
-                             &size, nullptr, nullptr);
-        guarantee_winerr(res == 0, "WSAIoctl failed");
-    }
-    return AcceptEx;
-}
-#endif
-
 void async_connect(fd_t socket, sockaddr *sa, size_t sa_len,
                    event_watcher_t *event_watcher, signal_t *interuptor) {
-#ifdef _WIN32
-    overlapped_operation_t op(event_watcher);
-    winsock_debugf("connecting socket %x\n", socket);
-    DWORD bytes_sent;
-    BOOL res = get_ConnectEx(socket)(fd_to_socket(socket), sa, sa_len, nullptr, 0, &bytes_sent, &op.overlapped);
-    DWORD error = GetLastError();
-    if (!res && error != ERROR_IO_PENDING) {
-        op.set_cancel();
-        logERR("connect failed: %s", winerr_string(error).c_str());
-        throw bufferable_conn_t::connect_failed_exc_t(EIO);
-    }
-    winsock_debugf("waiting for connection on %x\n", socket);
-    op.wait_interruptible(interuptor);
-    if (op.error != NO_ERROR) {
-        logERR("ConnectEx failed: %s", winerr_string(op.error).c_str());
-        throw bufferable_conn_t::connect_failed_exc_t(EIO);
-    }
-    winsock_debugf("connected %x\n", socket);
-#else
     int res;
     do {
         res = connect(socket, sa, sa_len);
@@ -103,7 +38,6 @@ void async_connect(fd_t socket, sockaddr *sa, size_t sa_len,
             throw bufferable_conn_t::connect_failed_exc_t(get_errno());
         }
     }
-#endif
 }
 
 void connect_ipv4_internal(fd_t socket, int local_port, const in_addr &addr, int port, event_watcher_t *event_watcher, signal_t *interuptor) {
@@ -112,15 +46,6 @@ void connect_ipv4_internal(fd_t socket, int local_port, const in_addr &addr, int
     memset(&sa, 0, sa_len);
     sa.sin_family = AF_INET;
 
-#ifdef _WIN32
-    sa.sin_port = htons(local_port);
-    sa.sin_addr.s_addr = INADDR_ANY;
-    // TODO WINDOWS: can bind block when called like this?
-    winsock_debugf("binding socket for connect %x\n", socket);
-    if (bind(fd_to_socket(socket), reinterpret_cast<sockaddr *>(&sa), sa_len) != 0) {
-        logWRN("Failed to bind to local port %d: %s", local_port, winerr_string(GetLastError()).c_str());
-    }
-#else
     if (local_port != 0) {
         sa.sin_port = htons(local_port);
         sa.sin_addr.s_addr = INADDR_ANY;
@@ -128,7 +53,6 @@ void connect_ipv4_internal(fd_t socket, int local_port, const in_addr &addr, int
             logWRN("Failed to bind to local port %d: %s", local_port, errno_string(get_errno()).c_str());
         }
     }
-#endif
 
     sa.sin_port = htons(port);
     sa.sin_addr = addr;
@@ -142,14 +66,6 @@ void connect_ipv6_internal(fd_t socket, int local_port, const in6_addr &addr, in
     memset(&sa, 0, sa_len);
     sa.sin6_family = AF_INET6;
 
-#ifdef _WIN32
-    sa.sin6_port = htons(local_port);
-    sa.sin6_addr = in6addr_any;
-    winsock_debugf("binding socket for connect %x\n", socket);
-    if (bind(fd_to_socket(socket), reinterpret_cast<sockaddr *>(&sa), sa_len) != 0) {
-        logWRN("Failed to bind to local port %d: %s", local_port, winerr_string(GetLastError()).c_str());
-    }
-#else
     if (local_port != 0) {
         sa.sin6_port = htons(local_port);
         sa.sin6_addr = in6addr_any;
@@ -157,7 +73,6 @@ void connect_ipv6_internal(fd_t socket, int local_port, const in6_addr &addr, in
             logWRN("Failed to bind to local port %d: %s", local_port, errno_string(get_errno()).c_str());
         }
     }
-#endif
 
     sa.sin6_port = htons(port);
     sa.sin6_addr = addr;
@@ -167,16 +82,6 @@ void connect_ipv6_internal(fd_t socket, int local_port, const in6_addr &addr, in
 }
 
 fd_t create_socket_wrapper(int address_family) {
-#ifdef _WIN32
-    fd_t res = socket_to_fd(socket(address_family, SOCK_STREAM, IPPROTO_TCP));
-    winsock_debugf("new socket %x\n", res);
-    if (res == INVALID_FD) {
-        DWORD err = GetLastError();
-        logERR("Failed to create socket: %s", winerr_string(err).c_str());
-        throw bufferable_conn_t::connect_failed_exc_t(EIO);
-    }
-    return res;
-#else
     fd_t res = socket(address_family, SOCK_STREAM, 0);
     if (res == INVALID_FD) {
         // Let the user know something is wrong - except in the case where
@@ -186,7 +91,6 @@ fd_t create_socket_wrapper(int address_family) {
         }
         throw bufferable_conn_t::connect_failed_exc_t(get_errno());
     }
-#endif
     return res;
 }
 
@@ -199,9 +103,7 @@ tcp_conn_t::tcp_conn_t(const ip_address_t &peer,
         sock(create_socket_wrapper(peer.get_address_family())),
         event_watcher(new event_watcher_t(sock.get(), this)) {
 
-#ifndef _WIN32
     guarantee_err(fcntl(sock.get(), F_SETFL, O_NONBLOCK) == 0, "Could not make socket non-blocking");
-#endif
 
     if (local_port != 0) {
         // Set the socket to reusable so we don't block out other sockets from this port
@@ -229,19 +131,13 @@ tcp_conn_t::tcp_conn_t(fd_t s) :
        event_watcher(new event_watcher_t(sock.get(), this)) {
     rassert(sock.get() != INVALID_FD);
 
-#ifndef _WIN32
     int res = fcntl(sock.get(), F_SETFL, O_NONBLOCK);
     guarantee_err(res == 0, "Could not make socket non-blocking");
-#endif
 }
 
 void tcp_conn_t::enable_keepalive() {
     int optval = 1;
-#ifdef _WIN32
-    int res = setsockopt(fd_to_socket(sock.get()), SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<char*>(&optval), sizeof(optval));
-#else
     int res = setsockopt(sock.get(), SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval));
-#endif
     guarantee(res != -1, "Could not set SO_KEEPALIVE option.");
 }
 
@@ -250,33 +146,6 @@ size_t tcp_conn_t::read_internal(void *buffer, size_t size) THROWS_ONLY(tcp_conn
     assert_thread();
     rassert(!read_closed.is_pulsed());
 
-#ifdef _WIN32
-    overlapped_operation_t op(event_watcher.get());
-    winsock_debugf("request read %d bytes on %x\n", size, sock.get());
-    // TODO WINDOWS: WSARecv may be more efficient
-    BOOL res = ReadFile(sock.get(), buffer, size, nullptr, &op.overlapped);
-    DWORD error = GetLastError();
-    if (res || error == ERROR_IO_PENDING) {
-        op.wait_abortable(&read_closed);
-        error = op.error;
-    } else {
-        op.set_result(0, error);
-    }
-    if (read_closed.is_pulsed()) {
-        throw tcp_conn_read_closed_exc_t();
-    }
-    if (op.nb_bytes == 0 || error == ERROR_HANDLE_EOF) {
-        on_shutdown_read();
-        throw tcp_conn_read_closed_exc_t();
-    } else if (error != NO_ERROR) {
-        logERR("Could not read from socket: %s", winerr_string(error).c_str());
-        on_shutdown_read();
-        throw tcp_conn_read_closed_exc_t();
-    } else {
-        winsock_debugf("read complete, %d/%d on %x\n", op.nb_bytes, size, sock.get());
-        return op.nb_bytes;
-    }
-#else
     while (true) {
         ssize_t res = ::read(sock.get(), buffer, size);
 
@@ -314,23 +183,15 @@ size_t tcp_conn_t::read_internal(void *buffer, size_t size) THROWS_ONLY(tcp_conn
             return res;
         }
     }
-#endif
 }
 
 
 void tcp_conn_t::shutdown_read() {
     assert_thread();
-#ifdef _WIN32
-    int res = ::shutdown(fd_to_socket(sock.get()), SD_RECEIVE);
-    if (res != 0 && GetLastError() != WSAENOTCONN) {
-        logERR("Could not shutdown socket for reading: %s", winerr_string(GetLastError()).c_str());
-    }
-#else
     int res = ::shutdown(sock.get(), SHUT_RD);
     if (res != 0 && get_errno() != ENOTCONN) {
         logERR("Could not shutdown socket for reading: %s", errno_string(get_errno()).c_str());
     }
-#endif
     on_shutdown_read();
 }
 
@@ -356,34 +217,6 @@ void tcp_conn_t::perform_write(const void *buf, size_t size) {
         return;
     }
 
-#ifdef _WIN32
-    overlapped_operation_t op(event_watcher.get());
-    WSABUF wsabuf;
-    wsabuf.len = size;
-    wsabuf.buf = const_cast<char*>(reinterpret_cast<const char*>(buf));
-    DWORD flags = 0;
-    winsock_debugf("write on %x\n", sock.get());
-    int res = WSASend(fd_to_socket(sock.get()), &wsabuf, 1, nullptr, flags, &op.overlapped, nullptr);
-    DWORD error = GetLastError();
-    if (res == 0 || error == ERROR_IO_PENDING) {
-        op.wait_abortable(&write_closed);
-        error = op.error;
-    } else {
-        op.set_result(0, error);
-    }
-    if (write_closed.is_pulsed()) {
-        return;
-    }
-    if (error != NO_ERROR) {
-        logERR("Could not write to socket %x: %s", sock.get(), winerr_string(error).c_str());
-        on_shutdown_write();
-    } else if (op.nb_bytes == 0) {
-        on_shutdown_write();
-    } else {
-        if (write_perfmon) write_perfmon->record(op.nb_bytes);
-        rassert(op.nb_bytes == size);  // TODO WINDOWS: does windows guarantee this?
-    }
-#else
     while (size > 0) {
         ssize_t res = ::write(sock.get(), buf, size);
 
@@ -431,24 +264,16 @@ void tcp_conn_t::perform_write(const void *buf, size_t size) {
             }
         }
     }
-#endif
 }
 
 
 void tcp_conn_t::shutdown_write() {
     assert_thread();
 
-#ifdef _WIN32
-    int res = ::shutdown(fd_to_socket(sock.get()), SD_SEND);
-    if (res != 0 && GetLastError() != WSAENOTCONN) {
-        logERR("Could not shutdown socket for writing: %s", winerr_string(GetLastError()).c_str());
-    }
-#else
     int res = ::shutdown(sock.get(), SHUT_WR);
     if (res != 0 && get_errno() != ENOTCONN) {
         logERR("Could not shutdown socket for writing: %s", errno_string(get_errno()).c_str());
     }
-#endif
 
     on_shutdown_write();
 }
@@ -472,19 +297,11 @@ bool tcp_conn_t::is_write_open() const {
 void tcp_conn_t::rethread(threadnum_t new_thread) {
     if (home_thread() == get_thread_id() && new_thread == INVALID_THREAD) {
         rassert(event_watcher.has());
-#ifdef _WIN32
-        event_watcher->rethread(new_thread);
-#else
         event_watcher.reset();
-#endif
 
     } else if (home_thread() == INVALID_THREAD && new_thread == get_thread_id()) {
-#ifdef _WIN32
-        event_watcher->rethread(new_thread);
-#else
         rassert(!event_watcher.has());
         event_watcher.init(new event_watcher_t(sock.get(), this));
-#endif
 
     } else {
         crash("tcp_conn_t can be rethread()ed from no thread to the current thread or "
@@ -538,3 +355,4 @@ scoped_signal_t tcp_conn_t::rdhup_watcher() {
     return make_scoped_signal<linux_event_watcher_t::watch_t>(&*event_watcher, poll_event_rdhup);
 }
 
+#endif // TCP_IMPLEMENTATION_NIX

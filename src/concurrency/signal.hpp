@@ -123,7 +123,7 @@ private:
 class scoped_signal_t : public std::unique_ptr<signal_t, void(*)(void*)> {
 public:
     template <class T>
-    scoped_signal_t(T *p) : unique_ptr(p, [](void *p){ delete reinterpret_cast<T*>(p); }) { }
+    scoped_signal_t(T *p) : unique_ptr(p, [](void *p_){ delete reinterpret_cast<T*>(p_); }) { }
 };
 
 template <class T, class... Args>

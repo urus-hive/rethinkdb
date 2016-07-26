@@ -1,16 +1,20 @@
 #ifndef ARCH_IO_NETWORK_TCP_HPP_
 #define ARCH_IO_NETWORK_TCP_HPP_
 
-// ATN sort
-#include "arch/runtime/event_queue_types.hpp"
-#include "arch/io/io_utils.hpp"
 #include "arch/io/event_watcher.hpp"
+#include "arch/io/io_utils.hpp"
 #include "arch/io/network/bufferable.hpp"
-#include "concurrency/interruptor.hpp"
-#include "concurrency/cond_var.hpp"
+#include "arch/runtime/event_queue_types.hpp"
 #include "arch/types.hpp"
+#include "concurrency/cond_var.hpp"
+#include "concurrency/interruptor.hpp"
 
-// ATN rename tcp_conn_t
+#ifdef _WIN32
+#define TCP_IMPLEMENTATION_WINDOWS
+#else
+#define TCP_IMPLEMENTATION_NIX
+#endif
+
 class tcp_conn_t :
     public bufferable_conn_t,
     public home_thread_mixin_t,
@@ -43,7 +47,7 @@ public:
 
     void rethread(threadnum_t thread);
 
-    // ATN outdated comment: Used by tcp_listener_t and any derived classes.
+    // Used by tcp_listener_t and any derived classes.
     explicit tcp_conn_t(fd_t sock);
 
 private:
