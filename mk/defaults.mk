@@ -131,7 +131,10 @@ UGLIFY ?= 1
 NO_OMIT_FRAME_POINTER ?= 0
 
 # Check the hash of fetched archives
-VERIFY_FETCH_HASH=1
+VERIFY_FETCH_HASH ?= 1
+
+# Build newer cc files first
+BUILD_NEW_FIRST ?= 1
 
 # TODO: Document these variables
 STATIC_LIBGCC ?= 0

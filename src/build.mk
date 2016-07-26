@@ -243,6 +243,9 @@ RT_CXXFLAGS += -I$(PROTO_DIR)
 #### Finding what to build
 
 SOURCES := $(shell find $(SOURCE_DIR) -name '*.cc' -not -name '\.*')
+ifeq ($(BUILD_NEW_FIRST),1)
+  SOURCES := $(shell ls -t $(SOURCES) 2>/dev/null || { echo warning: BUILD_NEW_FIRST failed. >&2; echo $(SOURCES); })
+endif
 
 SERVER_EXEC_SOURCES := $(filter-out $(SOURCE_DIR)/unittest/%,$(SOURCES))
 
