@@ -219,12 +219,14 @@ private:
     to improve GC efficiency on drives with slow random access. */
     struct gc_index_write_t {
         std::vector<counted_t<ls_block_token_pointee_t> >
-            *old_block_tokens;
+            old_block_tokens;
         std::vector<counted_t<ls_block_token_pointee_t> >
-            *new_block_tokens;
-        std::vector<gc_write_t> *writes;
+            new_block_tokens;
+        std::vector<gc_write_t> writes;
         gc_state_t *gc_state;
-        scoped_device_block_aligned_ptr_t<char> *gc_blocks;
+        scoped_device_block_aligned_ptr_t<char> gc_blocks;
+
+        MOVABLE_BUT_NOT_COPYABLE(gc_index_write_t);
     };
     std::vector<gc_index_write_t> collected_gc_index_writes;
     pump_coro_t gc_index_write_pumper;
