@@ -393,6 +393,9 @@ data_block_manager_t::data_block_manager_t(
       serializer(_serializer),
       gc_index_write_pumper(std::bind(
           &data_block_manager_t::flush_gc_index_writes, this, std::placeholders::_1)),
+      /* The capacity of the gc_index_write_semaphore will be scaled
+      based on the active number of GC threads. */
+      gc_index_write_semaphore(1),
       gc_stats(stats)
 {
     rassert(static_config != nullptr);
@@ -993,6 +996,7 @@ void data_block_manager_t::start_gc() {
         coro_t::spawn_sometime(std::bind(&data_block_manager_t::run_gc, this,
                                          new_gc_state));
     }
+    gc_index_write_semaphore.set_capacity(std::max<int64_t>(1, active_gcs.size()));
 }
 
 struct block_write_cond_t : public cond_t, public iocallback_t {
@@ -1009,6 +1013,8 @@ void data_block_manager_t::run_gc(gc_state_t *gc_state) {
 
         if (state == state_shutting_down) {
             active_gcs.remove(gc_state);
+            gc_index_write_semaphore.set_capacity(
+                std::max<int64_t>(1, active_gcs.size()));
             delete gc_state;
             if (active_gcs.empty()) {
                 actually_shutdown();
@@ -1018,6 +1024,7 @@ void data_block_manager_t::run_gc(gc_state_t *gc_state) {
     }
 
     active_gcs.remove(gc_state);
+    gc_index_write_semaphore.set_capacity(std::max<int64_t>(1, active_gcs.size()));
     delete gc_state;
 }
 
@@ -1040,6 +1047,14 @@ void data_block_manager_t::gc_one_extent(gc_state_t *gc_state) {
         int refcount;
     };
     gc_read_cb_t read_cb;
+
+    // Let the gc_index_write_semaphore "know" that we're planning
+    // to perform an index_write later.
+    // (note that we must NOT BLOCK here, so we only get in line but
+    // don't wait for the acquisition. That's sufficient for what we
+    // want to achieve.)
+    new_semaphore_in_line_t index_write_semaphore_acq(
+        &gc_index_write_semaphore, 1);
 
     // 1: Grab an entry and read the data
     {
@@ -1167,7 +1182,11 @@ void data_block_manager_t::gc_one_extent(gc_state_t *gc_state) {
             }
             guarantee(gc_writes.size() == num_writes);
         }
-        write_gcs(std::move(gc_writes), gc_state, std::move(gc_blocks));
+        write_gcs(
+            std::move(gc_writes),
+            gc_state,
+            std::move(gc_blocks),
+            std::move(index_write_semaphore_acq));
     }
 
     /* We need to do this here so that we don't
@@ -1195,7 +1214,8 @@ void data_block_manager_t::gc_one_extent(gc_state_t *gc_state) {
 void data_block_manager_t::write_gcs(
         std::vector<gc_write_t> &&writes,
         gc_state_t *gc_state,
-        scoped_device_block_aligned_ptr_t<char> &&gc_blocks) {
+        scoped_device_block_aligned_ptr_t<char> &&gc_blocks,
+        new_semaphore_in_line_t &&index_write_semaphore_acq) {
     guarantee(gc_state->current_entry != nullptr);
 
     block_write_cond_t block_write_cond;
@@ -1239,19 +1259,6 @@ void data_block_manager_t::write_gcs(
     // there's no way the current entry could have become NULL.
     guarantee(gc_state->current_entry != nullptr);
 
-    // Because the number of concurrent GCs is bounded, we will often
-    // get sequences of MAX_CONCURRENT_GCS-1 GCs being in one
-    // index write, followed by a single GC being in one index write and
-    // so on.
-    // We wait one round if there are already MAX_CONCURRENT_GCS / 2
-    // GC index write queued up to even things out and improving
-    // overall GC concurrency (the other half of GC coros can perform
-    // data reads/writes while this half is in the index write)
-    if (collected_gc_index_writes.size() > MAX_CONCURRENT_GCS / 2) {
-        cond_t non_interruptor;
-        gc_index_write_pumper.flush(&non_interruptor);
-    }
-
     // Step 3: Collect index writes from multiple GC runs to reduce the total
     // number of index writes, and increase their efficiency.
     collected_gc_index_writes.push_back(
@@ -1261,14 +1268,30 @@ void data_block_manager_t::write_gcs(
                          gc_state,
                          std::move(gc_blocks)});
 
-    // `write_gcs` steps continue in `flush_gc_index_writes`
+    // We're ready for the index_write. Notify the gc_index_write_pumper
+    // and release our spot in the gc_index_write_semaphore.
     gc_index_write_pumper.notify();
+    index_write_semaphore_acq.reset();
+
     cond_t non_interruptor;
     gc_index_write_pumper.flush(&non_interruptor);
+    // `write_gcs` steps continue in `flush_gc_index_writes`
 }
 
 void data_block_manager_t::flush_gc_index_writes(signal_t *) {
-    // WARNING: Nothing in this function must block until we reach `index_write`!
+    // Acquire half the tickets from the `index_write_semaphore`.
+    // This means that if all tickets in the semaphore are currently
+    // acquired, we'll wait until this many GC threads have lined
+    // up for the index_write.
+    // If not all of them have been acquired, we might flush earlier.
+    new_semaphore_in_line_t index_write_semaphore_acq(
+        &gc_index_write_semaphore,
+        std::max<int64_t>(1, gc_index_write_semaphore.capacity() / 2));
+    index_write_semaphore_acq.acquisition_signal()->wait_lazily_unordered();
+    gc_index_write_pumper.include_latest_notifications();
+
+    // WARNING: Nothing in this function from here on must block until
+    // we reach `index_write`!
 
     // See `write_gcs` for steps 1 and 2.
 
@@ -1280,8 +1303,8 @@ void data_block_manager_t::flush_gc_index_writes(signal_t *) {
         ASSERT_NO_CORO_WAITING;
 
         for (auto &&iw : collected_gc_index_writes) {
-            for (size_t i = 0; i < iw.writes->size(); ++i) {
-                auto const &write = (*iw.writes)[i];
+            for (size_t i = 0; i < iw.writes.size(); ++i) {
+                auto const &write = iw.writes[i];
                 unsigned int block_index
                     = iw.gc_state->current_entry->block_index(write.old_offset);
 
@@ -1292,7 +1315,7 @@ void data_block_manager_t::flush_gc_index_writes(signal_t *) {
                         index_write_op_t(block_id,
                             to_standard_block_token(
                                 block_id,
-                                (*iw.new_block_tokens)[i])));
+                                iw.new_block_tokens[i])));
                 }
 
                 // (If we don't have an i_array entry, the block is referenced
@@ -1301,12 +1324,12 @@ void data_block_manager_t::flush_gc_index_writes(signal_t *) {
             }
 
             // Free the buffers to free memory a bit earlier
-            for (auto &&write : *iw.writes) {
+            for (auto &&write : iw.writes) {
                 // Null out buffer pointer so we can catch use-after-free bugs
                 // more easily
                 write.buf = nullptr;
             }
-            iw.gc_blocks->reset();
+            iw.gc_blocks.reset();
 
             // Step 3B: Remap tokens to new offsets.  It is important
             // that we do this _just before_ calling index_write.
@@ -1316,17 +1339,17 @@ void data_block_manager_t::flush_gc_index_writes(signal_t *) {
             // returns in Step 3D below, resulting in i_array entries
             // that point to the current entry.  This should empty out
             // all the t_array bits.
-            for (size_t i = 0; i < iw.writes->size(); ++i) {
-                serializer->remap_block_to_new_offset((*iw.writes)[i].old_offset,
-                    (*iw.new_block_tokens)[i]->offset());
+            for (size_t i = 0; i < iw.writes.size(); ++i) {
+                serializer->remap_block_to_new_offset(iw.writes[i].old_offset,
+                    iw.new_block_tokens[i]->offset());
             }
 
             // Step 3C: Now that the block tokens have been remapped
             // to a new offset, destroying these tokens will update
             // the bits in the t_array of the new offset (if they're
             // the last token).
-            iw.old_block_tokens->clear();
-            iw.new_block_tokens->clear();
+            iw.old_block_tokens.clear();
+            iw.new_block_tokens.clear();
         }
     }
     collected_gc_index_writes.clear();

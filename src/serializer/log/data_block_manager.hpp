@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "arch/types.hpp"
+#include "concurrency/new_semaphore.hpp"
 #include "concurrency/pump_coro.hpp"
 #include "containers/intrusive_list.hpp"
 #include "containers/priority_queue.hpp"
@@ -124,7 +125,8 @@ private:
     void write_gcs(
         std::vector<gc_write_t> &&writes,
         gc_state_t *gc_state,
-        scoped_device_block_aligned_ptr_t<char> &&gc_blocks);
+        scoped_device_block_aligned_ptr_t<char> &&gc_blocks,
+        new_semaphore_in_line_t &&index_write_semaphore_acq);
 
     void flush_gc_index_writes(signal_t *);
 
@@ -230,6 +232,17 @@ private:
     };
     std::vector<gc_index_write_t> collected_gc_index_writes;
     pump_coro_t gc_index_write_pumper;
+
+    /* This semaphore is there to maximize the number of GC
+    threads that get combined into a given index_write.
+    GC threads get in line on this semaphore, and drop their
+    semaphore acquisition just when they start waiting on the
+    index write. The index write (`flush_gc_index_writes`)
+    on the other hand tries to acquire a certain number of
+    "tickets" from the semaphore, thereby making it more likely
+    that that number of GC threads get into the single index_write
+    (which in turn makes it more efficient). */
+    new_semaphore_t gc_index_write_semaphore;
 
 
     struct gc_stats_t {
