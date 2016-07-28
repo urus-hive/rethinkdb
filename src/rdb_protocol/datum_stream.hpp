@@ -88,8 +88,8 @@ public:
     virtual void add_transformation(transform_variant_t &&tv, backtrace_id_t bt) = 0;
     virtual bool add_stamp(changefeed_stamp_t stamp);
     virtual boost::optional<active_state_t> get_active_state();
-    void add_grouping(transform_variant_t &&tv,
-                      backtrace_id_t bt);
+    virtual void add_grouping(transform_variant_t &&tv,
+                              backtrace_id_t bt);
 
     scoped_ptr_t<val_t> run_terminal(env_t *env, const terminal_variant_t &tv);
     virtual scoped_ptr_t<val_t> to_array(env_t *env);
@@ -122,22 +122,22 @@ public:
     virtual void accumulate_all(env_t *env, eager_acc_t *acc) = 0;
 
     virtual counted_t<datum_stream_t> get_source() {
-        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "1 This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual raw_term_t get_reduction_function() {
-        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "2 This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual raw_term_t get_emit_function() {
-        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "3 This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual raw_term_t get_reverse_function() {
-        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "4 This function should only be used by lazy_reduction_datum_stream.");
     }
-    virtual raw_term_t get_base() {
-        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+    virtual datum_t get_base() {
+        rfail(ql::base_exc_t::LOGIC, "5 This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual scoped_ptr_t<val_t> as_val(env_t *) {
-        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "6 This function should only be used by lazy_reduction_datum_stream.");
     }
 
 protected:
@@ -1013,28 +1013,33 @@ private:
     scoped_ptr_t<reader_t> reader;
 };
 
-template<class T>
 class lazy_reduction_datum_stream_t : public datum_stream_t {
 public:
     lazy_reduction_datum_stream_t(
         backtrace_id_t _bt,
         counted_t<datum_stream_t> &&_source,
-        counted_t<const func_t> _func,
+        terminal_variant_t _terminal,
         raw_term_t raw_func,
         raw_term_t raw_reverse,
         raw_term_t raw_emit,
-        raw_term_t _base) :
+        datum_t _base) :
         datum_stream_t(_bt),
         source(std::move(_source)),
-        reduction_function(_func),
+        terminal(_terminal),
         reduction_function_term(raw_func),
         reverse_function_term(raw_reverse),
         emit_function_term(raw_emit),
         base_term(_base),
         bt(_bt),
-        has_result(true) {
-        fprintf(stderr, "\n\n\nINITIALIZING LAZY_REDUCTION_DATUM_STREAM_T\n");
-    }
+        has_result(true) { }
+
+    lazy_reduction_datum_stream_t(
+        backtrace_id_t _bt,
+        counted_t<datum_stream_t> &&_source) :
+        datum_stream_t(_bt),
+        source(std::move(_source)),
+        bt(_bt),
+        has_result(true) { }
 
     bool is_datum() { return true; }
 
@@ -1051,7 +1056,7 @@ public:
     raw_term_t get_emit_function() {
         return emit_function_term;
     }
-    raw_term_t get_base() {
+    datum_t get_base() {
         return base_term;
     }
 
@@ -1065,6 +1070,10 @@ public:
         }
         return source->is_grouped();
     }
+    void add_grouping(transform_variant_t &&tv,
+                      backtrace_id_t _bt) {
+       source->add_grouping(std::move(tv), _bt);
+    }
 
     virtual feed_type_t cfeed_type() const {
         return feed_type_t::stream;
@@ -1076,51 +1085,14 @@ public:
         return true;
     }
 
-    virtual scoped_ptr_t<val_t> as_val(env_t *env) {
-        fprintf(stderr, "AS_VAL\n");
-        if (reduction_function.has()) {
-            return source->run_terminal(
-                env,
-                T(bt, reduction_function));
-        } else {
-            return source->run_terminal(env, T(bt));
-        }
-    }
-
     virtual std::string test() {
         return "THIS IS THE CORRECT TEST VALUE";
     }
 
-    virtual datum_t as_array(env_t *env) {
-        fprintf(stderr, "AS_ARRAY\n");
-        if (has_result) {
-            has_result = false;
-            if (reduction_function.has()) {
-                fprintf(stderr, "Has reduction function\n");
-                saved_result = source->run_terminal(
-                    env,
-                    T(bt, reduction_function))->as_datum();
-            } else {
-                saved_result = source->run_terminal(env, T(bt))->as_datum();
-            }
-            return saved_result;
-        } else if (saved_result.has()) {
-            return saved_result;
-        }
-        return datum_t();
-    }
+    virtual datum_t as_array(env_t *env);
+    virtual scoped_ptr_t<val_t> to_array(env_t* env);
 
-    virtual scoped_ptr_t<val_t> to_array(env_t* env) {
-        // Why are to_array and as_array different?
-        fprintf(stderr, "TO ARRAY\n");
-        if (reduction_function.has()) {
-            return source->run_terminal(
-                env,
-                T(bt, reduction_function));
-        } else {
-            return source->run_terminal(env, T(bt));
-        }
-    }
+    virtual scoped_ptr_t<val_t> as_val(env_t *env);
 
     virtual void accumulate(
         env_t *, eager_acc_t *, const terminal_variant_t &) {
@@ -1139,35 +1111,13 @@ public:
         return boost::none;
     }
 
-private:
+protected:
     virtual std::vector<changespec_t> get_changespecs() {
         return std::vector<changespec_t>{changespec_t(true)};
     }
 
     std::vector<datum_t >
-    next_batch_impl(env_t *env, UNUSED const batchspec_t &batchspec) {
-        fprintf(stderr, "NEXT_BATCH_IMPL\n");
-        std::vector<datum_t> batch;
-        if (has_result) {
-            if (reduction_function.has()) {
-                batch.push_back(
-                    source->run_terminal(env, T(bt,
-                                                reduction_function))->as_datum());
-            } else {
-                batch.push_back(
-                    source->run_terminal(env, T(bt))->as_datum());
-            }
-        }
-        has_result = false;
-        return batch;
-    }
-    // We use these to cache a batch so that `next` works.  There are a lot of
-    // things that are most easily written in terms of `next` that would
-    // otherwise have to do this caching themselves.
-    size_t current_batch_offset;
-    std::vector<datum_t> current_batch;
-
-    scoped_ptr_t<reader_t> reader;
+    next_batch_impl(env_t *env, UNUSED const batchspec_t &batchspec);
     counted_t<datum_stream_t> source;
 
     terminal_variant_t terminal;
@@ -1175,10 +1125,24 @@ private:
     raw_term_t reduction_function_term;
     raw_term_t reverse_function_term;
     raw_term_t emit_function_term;
-    raw_term_t base_term;
+    datum_t base_term;
     backtrace_id_t bt;
     bool has_result;
     datum_t saved_result;
+};
+
+class lazy_to_object_datum_stream_t : public lazy_reduction_datum_stream_t {
+public:
+    lazy_to_object_datum_stream_t(backtrace_id_t _bt,
+                                 counted_t<datum_stream_t> &&_source);
+    virtual datum_t as_array(env_t *env);
+    virtual scoped_ptr_t<val_t> to_array(env_t* env);
+    datum_t to_object(env_t *env);
+
+    virtual scoped_ptr_t<val_t> as_val(env_t *env);
+private:
+    std::vector<datum_t >
+    next_batch_impl(env_t *env, UNUSED const batchspec_t &batchspec);
 };
 
 class vector_datum_stream_t : public eager_datum_stream_t {

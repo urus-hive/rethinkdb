@@ -196,7 +196,8 @@ public:
             SINGLE_SELECTION = 5, // table, datum (object)
             DATUM            = 6, // datum
             FUNC             = 7, // func
-            GROUPED_DATA     = 8  // grouped_data
+            GROUPED_DATA     = 8,  // grouped_data
+            SINGLE_SEQUENCE  = 10
         };
         type_t(raw_type_t _raw_type);  // NOLINT(runtime/explicit)
         bool is_convertible(type_t rhs) const;

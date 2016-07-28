@@ -17,6 +17,7 @@
 #include "rdb_protocol/geo/s2/s2latlngrect.h"
 #include "rdb_protocol/geo/s2/s2polygon.h"
 #include "rdb_protocol/geo/s2/s2polyline.h"
+#include "rdb_protocol/minidriver.hpp"
 #include "rdb_protocol/term.hpp"
 #include "rdb_protocol/val.hpp"
 #include "utils.hpp"
@@ -1497,6 +1498,118 @@ datum_t eager_datum_stream_t::as_array(env_t *env) {
     return std::move(arr).to_datum();
 }
 
+// LAZY_REDUCTION_DATUM_STREAM_T
+
+scoped_ptr_t<val_t> lazy_reduction_datum_stream_t::as_val(env_t *env) {
+    return source->run_terminal(
+        env,
+        terminal);
+}
+
+datum_t lazy_reduction_datum_stream_t::as_array(env_t *env) {
+    if (has_result) {
+        has_result = false;
+        saved_result = source->run_terminal(
+            env,
+            terminal)->as_datum();
+        return saved_result;
+    } else if (saved_result.has()) {
+        return saved_result;
+    }
+    return datum_t();
+}
+
+scoped_ptr_t<val_t> lazy_reduction_datum_stream_t::to_array(env_t* env) {
+    // Why are to_array and as_array different?
+    fprintf(stderr, "TO ARRAY\n");
+    return source->run_terminal(env, terminal);
+}
+
+std::vector<datum_t >
+lazy_reduction_datum_stream_t::next_batch_impl(
+    env_t *env,
+    UNUSED const batchspec_t &batchspec) {
+    fprintf(stderr, "NEXT_BATCH_IMPL\n");
+    std::vector<datum_t> batch;
+
+    batch.push_back(
+        source->run_terminal(env, terminal)->as_datum());
+
+    has_result = false;
+    return batch;
+}
+
+// LAZY_TO_OBJECT_DATUM_STREAM_T
+
+lazy_to_object_datum_stream_t::lazy_to_object_datum_stream_t(
+    backtrace_id_t _bt,
+    counted_t<datum_stream_t> &&_source) :
+    lazy_reduction_datum_stream_t( _bt, std::move(_source)) {
+    minidriver_t r(backtrace());
+    auto a = minidriver_t::dummy_var_t::INC_REDUCTION_A;
+    auto b = minidriver_t::dummy_var_t::INC_REDUCTION_B;
+    auto c = minidriver_t::dummy_var_t::INC_REDUCTION_C;
+    auto d = minidriver_t::dummy_var_t::INC_REDUCTION_D;
+    auto e = minidriver_t::dummy_var_t::INC_REDUCTION_E;
+
+    reduction_function_term = r.fun(
+        a,
+        b,
+        r.expr(a).merge(r.expr(r.array(r.expr(b)).coerce_to("object")).nth(0))
+    ).root_term();
+    reverse_function_term = r.fun(
+        c,
+        d,
+        r.expr(c).without(r.expr(d).nth(0))).root_term();
+    emit_function_term = r.fun(e, r.expr(e)).root_term();
+    base_term = datum_t::empty_object();
+}
+
+datum_t lazy_to_object_datum_stream_t::to_object(env_t *env) {
+    datum_object_builder_t obj;
+    batchspec_t batchspec
+        = batchspec_t::user(batch_type_t::TERMINAL, env);
+    {
+        profile::sampler_t sampler("Coercing to object.", env->trace);
+        datum_t pair;
+        while (pair = source->next(env, batchspec), pair.has()) {
+            rcheck(pair.arr_size() == 2,
+                   base_exc_t::LOGIC,
+                   strprintf("Expected array of size 2, but got size %zu.",
+                             pair.arr_size()));
+            datum_string_t key = pair.get(0).as_str();
+            datum_t keyval = pair.get(1);
+            bool b = obj.add(key, keyval);
+            rcheck(!b, base_exc_t::LOGIC,
+                   strprintf("Duplicate key %s in coerced object.  "
+                             "(got %s and %s as values)",
+                             datum_t(key).print().c_str(),
+                             obj.at(key).trunc_print().c_str(),
+                             keyval.trunc_print().c_str()));
+            sampler.new_sample();
+        }
+    }
+    return std::move(obj).to_datum();
+}
+scoped_ptr_t<val_t> lazy_to_object_datum_stream_t::as_val(env_t *env) {
+    return make_scoped<val_t>(to_object(env), backtrace());
+}
+datum_t lazy_to_object_datum_stream_t::as_array(env_t *env) {
+    return to_object(env);
+}
+scoped_ptr_t<val_t> lazy_to_object_datum_stream_t::to_array(env_t* env) {
+    return as_val(env);
+}
+std::vector<datum_t >
+lazy_to_object_datum_stream_t::next_batch_impl(
+    env_t *env,
+    UNUSED const batchspec_t &batchspec) {
+    std::vector<datum_t> batch;
+
+    batch.push_back(to_object(env));
+
+    return batch;
+}
 // LAZY_DATUM_STREAM_T
 
 lazy_datum_stream_t::lazy_datum_stream_t(scoped_ptr_t<reader_t> &&_reader,
@@ -2415,39 +2528,41 @@ fold_datum_stream_t::next_raw_batch(env_t *env, const batchspec_t &batchspec) {
            "(`reduce`, `count`, etc.) or coerce it to an array.");
 
     std::vector<datum_t> batch;
-    batcher_t batcher = batchspec.to_batcher();
 
-    // TODO: Create an inner batchspec as in `map_datum_stream_t`
-    // when we add folding over multiple streams.
+    do {
+        fprintf(stderr, "Reading next batch\n");
+        std::vector<datum_t> input_batch = stream->next_batch(env, batchspec);
+        fprintf(stderr, "Entering `while` loop\n");
+        for (const datum_t &row : input_batch) {
+            //fprintf(stderr, "%s\n", acc_func->print_js_function().c_str());
+            fprintf(stderr, "ACC: %s ROW: %s\n", acc.print().c_str(), row.print().c_str());
+            datum_t new_acc = acc_func->call(
+                env,
+                std::vector<datum_t>{acc, row})->as_datum();
 
-    while (!is_exhausted() && !batcher.should_send_batch()) {
-        datum_t row = stream->next(env, batchspec);
-        if (!row.has()) {
-            // This can happen if `stream` is a changefeed.
-            break;
+            r_sanity_check(new_acc.has());
+
+            datum_t emit_elem = emit_func->call(
+                env,
+                std::vector<datum_t>{acc, row, new_acc})->as_datum();
+
+            r_sanity_check(emit_elem.has());
+
+            for (size_t i = 0; i < emit_elem.arr_size(); ++i) {
+                datum_t emit_item = emit_elem.get(i);
+                fprintf(stderr, "Noted el\n");
+                batch.push_back(std::move(emit_item));
+            }
+
+            acc = std::move(new_acc);
         }
-        //fprintf(stderr, "%s\n", acc_func->print_js_function().c_str());
-        //fprintf(stderr, "ACC: %s ROW: %s\n", acc.print().c_str(), row.print().c_str());
-        datum_t new_acc = acc_func->call(
-            env,
-            std::vector<datum_t>{acc, row})->as_datum();
-
-        r_sanity_check(new_acc.has());
-
-        datum_t emit_elem = emit_func->call(
-            env,
-            std::vector<datum_t>{acc, row, new_acc})->as_datum();
-
-        r_sanity_check(emit_elem.has());
-
-        for (size_t i = 0; i < emit_elem.arr_size(); ++i) {
-            datum_t emit_item = emit_elem.get(i);
-            batcher.note_el(emit_item);
-            batch.push_back(std::move(emit_item));
-        }
-
-        acc = std::move(new_acc);
-    }
+        fprintf(stderr, "Leaving loop\n");
+    } while (!is_exhausted() &&
+             batch.empty() &&
+             ((env->return_empty_normal_batches == return_empty_normal_batches_t::NO &&
+               batchspec.get_batch_type() == batch_type_t::NORMAL) ||
+              !is_infinite_fold));
+    fprintf(stderr, "Left `do ... while` loop\n");
 
     if (is_exhausted() && do_final_emit) {
         std::vector<datum_t> final_emit_args;
@@ -2458,7 +2573,6 @@ fold_datum_stream_t::next_raw_batch(env_t *env, const batchspec_t &batchspec) {
 
         for (size_t i = 0; i< final_emit_elem.arr_size(); ++i) {
             datum_t final_emit_item = final_emit_elem.get(i);
-            batcher.note_el(final_emit_item);
             batch.push_back(std::move(final_emit_item));
         }
 

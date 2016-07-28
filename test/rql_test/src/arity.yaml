@@ -157,7 +157,9 @@ tests:
         js: err("ReqlCompileError", "Expected 1 argument (not including options) but found 0.", [])
 
     - cd: tbl.reduce()
-      ot: err("ReqlCompileError", "Expected 2 arguments but found 1.", [])
+      ot:
+        cd: err("ReqlCompileError", "Expected 2 arguments but found 1.", [])
+        js: err("ReqlDriverCompileError", "Expected 1 argument (not including options) but found 0.", [])
 
     - cd: tbl.eq_join()
       ot:

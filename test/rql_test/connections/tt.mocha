@@ -59,7 +59,7 @@ var ttToExampleTerm = {
   WITHOUT:          r([]).without(),
   MERGE:            r({}).merge(),
   BETWEEN:          r([]).between(0, 1),
-  REDUCE:           r([]).reduce(),
+  REDUCE:           r([]).reduce(function(){return 0;}),
   MAP:              r([]).map({}),
   FILTER:           r([]).filter({}),
   CONCAT_MAP:       r([]).concatMap({}),

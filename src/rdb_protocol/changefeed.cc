@@ -183,12 +183,14 @@ public:
 class nonsquashing_queue_t final : public maybe_squashing_queue_t {
     void add(change_val_t change_val) final {
         queue.push_back(std::move(change_val));
+        fprintf(stderr, "ADD - Queue size: %d\n", queue.size());
     }
     size_t size() const final {
         return queue.size();
     }
     void clear() final {
         queue.clear();
+        fprintf(stderr, "CLEAR - Queue size: %d\n", queue.size());
     }
     const change_val_t &peek() final {
         guarantee(size() != 0);
@@ -198,6 +200,7 @@ class nonsquashing_queue_t final : public maybe_squashing_queue_t {
         guarantee(size() != 0);
         auto ret = std::move(queue.front());
         queue.pop_front();
+        fprintf(stderr, "SUB - Queue size: %d\n", queue.size());
         return ret;
     }
     void purge_below(std::map<uuid_u, uint64_t> stamps) final {

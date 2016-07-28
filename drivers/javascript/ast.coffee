@@ -180,7 +180,7 @@ class RDBVal extends TermBase
 
     merge: (args...) -> new Merge {}, @, args.map(funcWrap)...
     between: aropt (left, right, opts) -> new Between opts, @, left, right
-    reduce: (args...) -> new Reduce {}, @, args.map(funcWrap)...
+    reduce: aropt (func, opts) -> new Reduce opts, @, funcWrap(func)
     map: varar 1, null, (args..., funcArg) -> new Map {}, @, args..., funcWrap(funcArg)
     fold: aropt (baseArg, accFuncArg, opts) -> new Fold opts, @, baseArg, funcWrap(accFuncArg)
     filter: aropt (predicate, opts) -> new Filter opts, @, funcWrap(predicate)

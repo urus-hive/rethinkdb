@@ -11,6 +11,7 @@
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/func.hpp"
 #include "rdb_protocol/math_utils.hpp"
+#include "rdb_protocol/minidriver.hpp"
 #include "rdb_protocol/op.hpp"
 
 namespace ql {
@@ -35,6 +36,7 @@ static const int SINGLE_SELECTION_TYPE = val_t::type_t::SINGLE_SELECTION * MAX_T
 static const int DATUM_TYPE = val_t::type_t::DATUM * MAX_TYPE;
 static const int FUNC_TYPE = val_t::type_t::FUNC * MAX_TYPE;
 static const int GROUPED_DATA_TYPE = val_t::type_t::GROUPED_DATA * MAX_TYPE;
+static const int SINGLE_SEQUENCE_TYPE = val_t::type_t::SINGLE_SEQUENCE * MAX_TYPE;
 
 static const int R_NULL_TYPE = val_t::type_t::DATUM * MAX_TYPE + datum_t::R_NULL;
 static const int R_BINARY_TYPE = val_t::type_t::DATUM * MAX_TYPE + datum_t::R_BINARY;
@@ -59,6 +61,8 @@ public:
         map["DATUM"] = DATUM_TYPE;
         map["FUNCTION"] = FUNC_TYPE;
         map["GROUPED_DATA"] = GROUPED_DATA_TYPE;
+        map["SINGLE_SEQUENCE"] = SINGLE_SEQUENCE_TYPE;
+
         CT_ASSERT(val_t::type_t::GROUPED_DATA < MAX_TYPE);
 
         map["NULL"] = R_NULL_TYPE;
@@ -114,6 +118,7 @@ private:
         case val_t::type_t::DATUM:
         case val_t::type_t::FUNC:
         case val_t::type_t::GROUPED_DATA:
+        case val_t::type_t::SINGLE_SEQUENCE:
         default: break;
         }
         switch (t2) {
@@ -240,7 +245,6 @@ private:
                     }
                 }
             }
-            // TODO: Object to sequence?
         }
 
         if (opaque_start_type.is_convertible(val_t::type_t::SEQUENCE)
@@ -262,30 +266,14 @@ private:
 
             // SEQUENCE -> OBJECT
             if (end_type == R_OBJECT_TYPE) {
-                datum_object_builder_t obj;
-                batchspec_t batchspec
-                    = batchspec_t::user(batch_type_t::TERMINAL, env->env);
-                {
-                    profile::sampler_t sampler("Coercing to object.", env->env->trace);
-                    datum_t pair;
-                    while (pair = ds->next(env->env, batchspec), pair.has()) {
-                        rcheck(pair.arr_size() == 2,
-                               base_exc_t::LOGIC,
-                               strprintf("Expected array of size 2, but got size %zu.",
-                                         pair.arr_size()));
-                        datum_string_t key = pair.get(0).as_str();
-                        datum_t keyval = pair.get(1);
-                        bool b = obj.add(key, keyval);
-                        rcheck(!b, base_exc_t::LOGIC,
-                               strprintf("Duplicate key %s in coerced object.  "
-                                         "(got %s and %s as values)",
-                                         datum_t(key).print().c_str(),
-                                         obj.at(key).trunc_print().c_str(),
-                                         keyval.trunc_print().c_str()));
-                        sampler.new_sample();
-                    }
-                }
-                return new_val(std::move(obj).to_datum());
+                counted_t<datum_stream_t> stream =
+                    make_counted<lazy_to_object_datum_stream_t>(
+                        backtrace(),
+                        std::move(ds));
+                return make_scoped<val_t>(
+                    env->env,
+                    stream,
+                    backtrace());
             }
         }
 
@@ -339,6 +327,9 @@ datum_t typename_of(const scoped_ptr_t<val_t> &v, scope_env_t *env) {
     } else if (v->get_type().get_raw_type() == val_t::type_t::SEQUENCE
                && v->as_seq(env->env)->is_grouped()) {
         return datum_t(datum_string_t("GROUPED_STREAM"));
+    } else if (v->get_type().get_raw_type() == val_t::type_t::SINGLE_SEQUENCE
+               && v->as_seq(env->env)->is_grouped()) {
+        return datum_t(datum_string_t("GROUPED_DATA"));
     } else {
         return datum_t(datum_string_t(get_name(val_type(v))));
     }
@@ -475,6 +466,12 @@ private:
                           val_info(env, new_val(v->as_selection(env->env)->table)));
         } break;
         case SEQUENCE_TYPE: {
+            if (v->as_seq(env->env)->is_grouped()) {
+                bool res = info.add("type", datum_t("GROUPED_STREAM"));
+                r_sanity_check(res);
+            }
+        } break;
+        case SINGLE_SEQUENCE_TYPE: {
             if (v->as_seq(env->env)->is_grouped()) {
                 bool res = info.add("type", datum_t("GROUPED_STREAM"));
                 r_sanity_check(res);

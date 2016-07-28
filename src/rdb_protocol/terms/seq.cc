@@ -54,7 +54,7 @@ protected:
     raw_term_t reduction_func;
     raw_term_t reverse_func;
     raw_term_t emit_func;
-    raw_term_t reduction_base;
+    datum_t reduction_base;
 };
 
 // Similar to the map_acc_term_t, but allows for lazy fold based changefeeds.
@@ -80,10 +80,10 @@ protected:
             } else {
                 fprintf(stderr, "BLAH: %s\n", v->print().c_str());
                 counted_t<datum_stream_t> stream =
-                    make_counted<lazy_reduction_datum_stream_t<T> >(
+                    make_counted<lazy_reduction_datum_stream_t >(
                         backtrace(),
                         v->as_seq(env->env),
-                        func,
+                        T(backtrace()),
                         reduction_func,
                         reverse_func,
                         emit_func,
@@ -95,10 +95,10 @@ protected:
             }
         } else if (func.has() && !idx.has()) {
             counted_t<datum_stream_t> stream =
-                make_counted<lazy_reduction_datum_stream_t<T> >(
+                make_counted<lazy_reduction_datum_stream_t >(
                     backtrace(),
                     v->as_seq(env->env),
-                    func,
+                    T(backtrace(), func),
                     reduction_func,
                     reverse_func,
                     emit_func,
@@ -121,7 +121,7 @@ protected:
     raw_term_t reduction_func;
     raw_term_t reverse_func;
     raw_term_t emit_func;
-    raw_term_t reduction_base;
+    datum_t reduction_base;
 };
 
 template<class T>
@@ -150,7 +150,7 @@ public:
         reduction_func = r.fun(a, b, r.expr(a) + r.expr(b)).root_term();
         reverse_func = r.fun(c, d, r.expr(c) - r.expr(d)).root_term();
         emit_func = r.fun(e, r.expr(e)).root_term();
-        reduction_base = r.expr(0).root_term();
+        reduction_base = datum_t(0.0);
     }
 private:
     virtual const char *name() const { return "sum"; }
@@ -170,7 +170,7 @@ public:
         reduction_func = r.fun(a, b, r.expr(a) + 1).root_term();
         reverse_func = r.fun(c, d, r.expr(c) - 1).root_term();
         emit_func = r.fun(e, r.expr(e)).root_term();
-        reduction_base = r.expr(0).root_term();
+        reduction_base = datum_t(0.0);
 }
         virtual scoped_ptr_t<val_t> eval_impl(scope_env_t *env, args_t *args,
                                           eval_flags_t) const {
@@ -192,13 +192,11 @@ public:
                     break;
                 }
             }
-            fprintf(stderr, "OPTION 1\n");
-            counted_t<func_t> dummy_func;
             counted_t<datum_stream_t> stream =
-                make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
+                make_counted<lazy_reduction_datum_stream_t>(
                     backtrace(),
                     v0->as_seq(env->env),
-                    dummy_func,
+                    count_wire_func_t(backtrace()),
                     reduction_func,
                     reverse_func,
                     emit_func,
@@ -211,15 +209,14 @@ public:
             counted_t<datum_stream_t> input_stream = v0->as_seq(env->env);
             scoped_ptr_t<val_t> v1 = args->arg(env, 1);
             if (v1->get_type().is_convertible(val_t::type_t::FUNC)) {
-                fprintf(stderr, "OPTION 2\n");
                 input_stream->add_transformation(
                     filter_wire_func_t(v1->as_func(), boost::none),
                     backtrace());
                 counted_t<datum_stream_t> stream =
-                    make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
+                    make_counted<lazy_reduction_datum_stream_t>(
                         backtrace(),
                         std::move(input_stream),
-                        v1->as_func(),
+                        count_wire_func_t(backtrace(), v1->as_func()),
                         reduction_func,
                         reverse_func,
                         emit_func,
@@ -229,17 +226,16 @@ public:
                     stream,
                     backtrace());
             } else {
-                fprintf(stderr, "OPTION 3\n");
                 counted_t<const func_t> f =
                     new_eq_comparison_func(v1->as_datum(), backtrace());
                 input_stream->add_transformation(
                     filter_wire_func_t(f, boost::none),
                     backtrace());
                 counted_t<datum_stream_t> stream =
-                    make_counted<lazy_reduction_datum_stream_t<count_wire_func_t> >(
+                    make_counted<lazy_reduction_datum_stream_t>(
                         backtrace(),
                         std::move(input_stream),
-                        f,
+                        count_wire_func_t(backtrace(), f),
                         reduction_func,
                         reverse_func,
                         emit_func,
@@ -283,9 +279,10 @@ public:
                                       0,
                                       r.expr(e)["sum"] / r.expr(e)["num_el"])).root_term();
 
-        reduction_base = r.object(r.optarg("num_el", 0),
-                                  r.optarg("sum", 0)).root_term();
-}
+        reduction_base = datum_t(std::map<datum_string_t, datum_t>{
+                {datum_string_t("num_el"), datum_t(0.0)},
+                    {datum_string_t("sum"), datum_t(0.0)}});
+    }
 private:
     virtual const char *name() const { return "avg"; }
 };
@@ -622,19 +619,44 @@ private:
             // Make a lazy reduction stream to do the reduce
 
             minidriver_t r(backtrace());
+            auto a = minidriver_t::dummy_var_t::INC_REDUCTION_A;
+            auto b = minidriver_t::dummy_var_t::INC_REDUCTION_B;
+            auto c = minidriver_t::dummy_var_t::INC_REDUCTION_C;
+            auto d = minidriver_t::dummy_var_t::INC_REDUCTION_D;
             auto e = minidriver_t::dummy_var_t::INC_REDUCTION_E;
 
-            raw_term_t reduction_func = get_src().arg(1);
-            raw_term_t emit_func = r.fun(e, r.expr(e)).root_term();
-            raw_term_t reduction_base = r.null().root_term();
+            minidriver_t::reql_t forward =
+                r.expr(get_src().arg(1))(r.expr(a)["value"], r.expr(b));
 
+            raw_term_t reduction_func =
+                r.fun(a,
+                      b,
+                      r.branch(r.expr(a)["count"] == 0,
+                               r.object(r.optarg("count", 1),
+                                        r.optarg("value", r.expr(b))),
+                               r.object(r.optarg("count", r.expr(a)["count"] + 1),
+                                        r.optarg("value", forward)))).root_term();
+
+
+            raw_term_t reverse_func =
+                r.fun(c,
+                      d,
+                      r.branch(r.expr(c)["count"] == 1,
+                               r.object(r.optarg("count", 0),
+                                        r.optarg("value", r.null())),
+                               r.object(r.optarg("count", r.expr(c)["count"] - 1),
+                                        r.optarg("value", r.expr(reverse_arg.get())(r.expr(c)["value"], d))))).root_term();
+            raw_term_t emit_func = r.fun(e, r.expr(e)["value"]).root_term();
+            datum_t reduction_base = datum_t(std::map<datum_string_t, datum_t>{
+                    {datum_string_t("count"), datum_t(0.0)},
+                        {datum_string_t("value"), datum_t::null()}});
             counted_t<datum_stream_t> stream =
-                make_counted<lazy_reduction_datum_stream_t<reduce_wire_func_t> >(
+                make_counted<lazy_reduction_datum_stream_t>(
                     backtrace(),
                     args->arg(env, 0)->as_seq(env->env),
-                    args->arg(env, 1)->as_func(),
+                    reduce_wire_func_t(args->arg(env, 1)->as_func()),
                     reduction_func,
-                    reverse_arg.get(),
+                    reverse_func,
                     emit_func,
                     reduction_base);
             return make_scoped<val_t>(
@@ -768,6 +790,11 @@ private:
             include_offsets = v->as_bool();
         }
 
+        fprintf(stderr, "#####\n");
+        fprintf(stderr, "Include States: %d\n", include_states);
+        fprintf(stderr, "Include Initial: %d\n", include_initial);
+        fprintf(stderr, "Include Offsets: %d\n", include_offsets);
+
         scoped_ptr_t<val_t> v = args->arg(env, 0);
         configured_limits_t limits = env->env->limits_with_changefeed_queue_size(
                 args->optarg(env, "changefeed_queue_size"));
@@ -791,19 +818,13 @@ private:
                 raw_term_t reverse_function = seq->get_reverse_function();
                 raw_term_t apply_function = seq->get_reduction_function();
                 raw_term_t emit_function = seq->get_emit_function();
-                raw_term_t base_term = seq->get_base();
+                datum_t base_term = seq->get_base();
 
                 compile_env_t compile_env(env->scope.compute_visibility());
 
-                datum_t f_acc_base = base_term.datum();
-                if (!f_acc_base.has()) {
-                    f_acc_base = make_make_obj_term(&compile_env, base_term)->eval(env)->as_datum();
-                }
-
-                guarantee(f_acc_base.has());
-                fprintf(stderr, "Fold base: %s\n", debug_str(f_acc_base).c_str());
+                fprintf(stderr, "Fold base: %s\n", debug_str(base_term).c_str());
                 datum_t fold_base(std::map<datum_string_t, datum_t>{
-                        {datum_string_t("f_acc"), f_acc_base},
+                        {datum_string_t("f_acc"), base_term},
                             {datum_string_t("is_initialized"), datum_t::boolean(false)}});
 
                 fprintf(stderr, "Fold base datum: %s\n", fold_base.print().c_str());
@@ -833,10 +854,15 @@ private:
 
                 minidriver_t::reql_t emit_state = r.boolean(false);
                 if (include_states) {
-                    emit_state =
-                        r.expr(row).has_fields("state") &&
-                        (!r.boolean(include_initial)
-                         || r.expr(row)["state"] != r.expr("ready"));
+                    if (include_initial) {
+                        emit_state =
+                            r.expr(row).has_fields("state")  &&
+                            (r.expr(row)["state"] != "ready");
+                    } else {
+                        emit_state =
+                            r.expr(row).has_fields("state")  &&
+                            (r.expr(row)["state"] == "ready");
+                    }
                 }
 
                 minidriver_t::reql_t emit_update =
@@ -857,10 +883,10 @@ private:
                                        r.object(r.optarg("old_val", oldval),
                                                 r.optarg("new_val", newval))),
                                    emit_initial,
-                                   r.branch(r.expr(include_states),
+                                   r.branch(r.boolean(include_states),
                                             r.array(
                                                 r.object(r.optarg("new_val", newval)),
-                                                r.object(r.optarg("state", "ready"))),
+                                                r.object(r.optarg("state2", "ready"))),
                                             r.array(
                                                 r.object(r.optarg("new_val", newval)))),
                                    r.array()

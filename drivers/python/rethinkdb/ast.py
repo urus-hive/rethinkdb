@@ -404,8 +404,11 @@ class RqlQuery(object):
     def limit(self, *args):
         return Limit(self, *args)
 
-    def reduce(self, *args):
-        return Reduce(self, *[func_wrap(arg) for arg in args])
+    def reduce(self, *args, **kwargs):
+        kwfuncargs = {}
+        for arg_name in kwargs:
+            kwfuncargs[arg_name] = func_wrap(kwargs[arg_name])
+        return Reduce(self, *[func_wrap(arg) for arg in args], **kwfuncargs)
 
     def sum(self, *args):
         return Sum(self, *[func_wrap(arg) for arg in args])

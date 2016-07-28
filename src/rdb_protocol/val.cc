@@ -554,7 +554,8 @@ bool raw_type_is_convertible(val_t::type_t::raw_type_t _t1,
         SINGLE_SELECTION = val_t::type_t::SINGLE_SELECTION,
         DATUM            = val_t::type_t::DATUM,
         FUNC             = val_t::type_t::FUNC,
-        GROUPED_DATA     = val_t::type_t::GROUPED_DATA;
+        GROUPED_DATA     = val_t::type_t::GROUPED_DATA,
+        SINGLE_SEQUENCE  = val_t::type_t::SINGLE_SEQUENCE;
     switch (t1) {
     case DB:               return t2 == DB;
     case TABLE:            return t2 == TABLE || t2 == TABLE_SLICE
@@ -566,6 +567,7 @@ bool raw_type_is_convertible(val_t::type_t::raw_type_t _t1,
     case DATUM:            return t2 == DATUM || t2 == SEQUENCE;
     case FUNC:             return t2 == FUNC;
     case GROUPED_DATA:     return t2 == GROUPED_DATA;
+    case SINGLE_SEQUENCE:  return t2 == SINGLE_SEQUENCE || t2 == SEQUENCE;
     default: unreachable();
     }
 }
@@ -584,6 +586,7 @@ const char *val_t::type_t::name() const {
     case DATUM: return "DATUM";
     case FUNC: return "FUNCTION";
     case GROUPED_DATA: return "GROUPED_DATA";
+    case SINGLE_SEQUENCE: return "SINGLE_SEQUENCE";
     default: unreachable();
     }
 }
@@ -620,15 +623,11 @@ val_t::val_t(env_t *env, counted_t<datum_stream_t> _sequence,
       type(type_t::SEQUENCE),
       u(_sequence) {
     guarantee(sequence().has());
-    // Some streams are lazy reduction streams
 
+    // Some streams are lazy reduction streams
     // TODO change the name of is_datum
     if (sequence()->is_datum()) {
-        if (!sequence()->is_grouped()) {
-            fprintf(stderr, "NOT GROUPED\n");
-        } else {
-            fprintf(stderr, "===GROUPED\n");
-        }
+        type = type_t::SINGLE_SEQUENCE;
     } else {
         // Some streams are really arrays in disguise.
         datum_t arr = sequence()->as_array(env);
@@ -688,11 +687,9 @@ datum_t val_t::as_datum() const {
         return datum();
     } else if (type.raw_type == type_t::SINGLE_SELECTION) {
         return single_selection()->get();
-    } else if (type.raw_type == type_t::SEQUENCE) {
-        if (sequence()->is_datum()) {
-            scoped_ptr_t<val_t> delayed = sequence()->as_val(env_);
-            return delayed->as_datum();
-        }
+    } else if (type.raw_type == type_t::SINGLE_SEQUENCE) {
+        scoped_ptr_t<val_t> delayed = sequence()->as_val(env_);
+        return delayed->as_datum();
     }
     rcheck_literal_type(type_t::DATUM);
     unreachable();
@@ -712,8 +709,8 @@ counted_t<table_slice_t> val_t::as_table_slice() {
 }
 
 counted_t<datum_stream_t> val_t::as_seq(env_t *env) {
-    if (type.raw_type == type_t::SEQUENCE) {
-        fprintf(stderr, "%s\n", sequence()->test().c_str());
+    if (type.raw_type == type_t::SEQUENCE ||
+        type.raw_type == type_t::SINGLE_SEQUENCE) {
         return sequence();
     } else if (type.raw_type == type_t::SELECTION) {
         return selection()->seq;
@@ -732,7 +729,8 @@ counted_t<grouped_data_t> val_t::as_grouped_data() {
 }
 
 counted_t<grouped_data_t> val_t::as_promiscuous_grouped_data(env_t *env) {
-    return ((type.raw_type == type_t::SEQUENCE) && sequence()->is_grouped())
+    return ((type.raw_type == type_t::SEQUENCE ||
+             type.raw_type == type_t::SINGLE_SEQUENCE) && sequence()->is_grouped())
         ? sequence()->to_array(env)->as_grouped_data()
         : as_grouped_data();
 }
@@ -744,7 +742,8 @@ counted_t<grouped_data_t> val_t::maybe_as_grouped_data() {
 }
 
 counted_t<grouped_data_t> val_t::maybe_as_promiscuous_grouped_data(env_t *env) {
-    return ((type.raw_type == type_t::SEQUENCE) && sequence()->is_grouped())
+    return ((type.raw_type == type_t::SEQUENCE ||
+             type.raw_type == type_t::SINGLE_SEQUENCE) && sequence()->is_grouped())
         ? sequence()->to_array(env)->as_grouped_data()
         : maybe_as_grouped_data();
 }
@@ -872,9 +871,9 @@ datum_string_t val_t::as_str() const {
 
 void val_t::rcheck_literal_type(type_t::raw_type_t expected_raw_type) const {
     if (type.raw_type != expected_raw_type) {
-        fprintf(stderr, "VAL WRONG TYPE\n");
+        fprintf(stderr, "OH NOES\n");
     }
-     rcheck_typed_target(
+    rcheck_typed_target(
         this, type.raw_type == expected_raw_type,
         strprintf("Expected type %s but found %s:\n%s",
                   type_t(expected_raw_type).name(), type.name(), print().c_str()));
