@@ -886,7 +886,7 @@ private:
                                    r.branch(r.boolean(include_states),
                                             r.array(
                                                 r.object(r.optarg("new_val", newval)),
-                                                r.object(r.optarg("state2", "ready"))),
+                                                r.object(r.optarg("state", "ready"))),
                                             r.array(
                                                 r.object(r.optarg("new_val", newval)))),
                                    r.array()
