@@ -1501,18 +1501,21 @@ datum_t eager_datum_stream_t::as_array(env_t *env) {
 // LAZY_REDUCTION_DATUM_STREAM_T
 
 scoped_ptr_t<val_t> lazy_reduction_datum_stream_t::as_val(env_t *env) {
+    has_result = false;
     return source->run_terminal(
         env,
         terminal);
 }
 
 datum_t lazy_reduction_datum_stream_t::as_array(env_t *env) {
+    has_result = false;
     return source->run_terminal(
         env,
         terminal)->as_datum();
 }
 
 scoped_ptr_t<val_t> lazy_reduction_datum_stream_t::to_array(env_t* env) {
+    has_result = false;
     return source->run_terminal(env, terminal);
 }
 
@@ -1521,7 +1524,7 @@ lazy_reduction_datum_stream_t::next_batch_impl(
     env_t *env,
     UNUSED const batchspec_t &batchspec) {
     std::vector<datum_t> batch;
-
+    has_result = false;
     batch.push_back(
         source->run_terminal(env, terminal)->as_datum());
 

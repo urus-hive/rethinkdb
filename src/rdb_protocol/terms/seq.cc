@@ -794,8 +794,6 @@ private:
         if (v->get_type().is_convertible(val_t::type_t::SEQUENCE)) {
             counted_t<datum_stream_t> seq = v->as_seq(env->env);
             std::vector<counted_t<datum_stream_t> > streams;
-            std::vector<changespec_t> changespecs = seq->get_changespecs();
-            r_sanity_check(changespecs.size() >= 1);
             if (seq->is_single_stream()) {
 
                 minidriver_t r(backtrace());
@@ -942,6 +940,9 @@ private:
                 return new_val(env->env, fold_datum_stream);
 
             }
+            std::vector<changespec_t> changespecs = seq->get_changespecs();
+            r_sanity_check(changespecs.size() >= 1);
+
             for (auto &&changespec : changespecs) {
                 if (include_initial) {
                     r_sanity_check(changespec.stream.has());
