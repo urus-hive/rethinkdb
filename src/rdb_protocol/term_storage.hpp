@@ -45,6 +45,7 @@ struct generated_term_t : public slow_atomic_countable_t<generated_term_t> {
 // format.
 class raw_term_t {
 public:
+    raw_term_t();
     explicit raw_term_t(const term_variant_t &source);
     raw_term_t(const raw_term_t &) = default;
 
@@ -82,7 +83,6 @@ public:
     backtrace_id_t bt() const;
     term_variant_t get_src() const;
 
-    raw_term_t();
 private:
     void init_json(const rapidjson::Value *src);
 

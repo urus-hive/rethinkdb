@@ -799,7 +799,6 @@ private:
             if (changespecs[0].lazy_reduction_changespec) {
 
                 minidriver_t r(backtrace());
-                // TODO actually do this
 
                 auto acc = minidriver_t::dummy_var_t::INC_REDUCTION_ACC;
                 auto el = minidriver_t::dummy_var_t::INC_REDUCTION_EL;
@@ -836,12 +835,13 @@ private:
                                    )
                           );
 
-                // TODO: use r.do to eliminate double usage of new_val and old_val
-
-                minidriver_t::reql_t newval =
+                minidriver_t::reql_t newval_term =
                     r.expr(emit_function)(r.expr(new_acc)["f_acc"]);
-                minidriver_t::reql_t oldval =
+                minidriver_t::reql_t oldval_term =
                     r.expr(emit_function)(r.expr(old_acc)["f_acc"]);
+
+                auto newval = minidriver_t::dummy_var_t::INC_REDUCTION_NEW_VAL;
+                auto oldval = minidriver_t::dummy_var_t::INC_REDUCTION_OLD_VAL;
 
                 minidriver_t::reql_t emit_state = r.boolean(false);
                 if (include_states) {
@@ -869,6 +869,7 @@ private:
 
                 minidriver_t::reql_t fold_emit =
                     r.fun(old_acc, row, new_acc,
+                          newval_term.do_(newval, oldval_term.do_(oldval,
                           r.branch(emit_state, r.array(row),
                                    emit_update, r.array(
                                        r.object(r.optarg("old_val", oldval),
@@ -881,7 +882,7 @@ private:
                                             r.array(
                                                 r.object(r.optarg("new_val", newval)))),
                                    r.array()
-                          ));
+                          ))));
 
                 counted_t<func_term_t> fold_acc_term =
                     make_counted<func_term_t>(&compile_env, fold_acc.root_term());
