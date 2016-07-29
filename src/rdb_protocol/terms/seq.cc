@@ -46,7 +46,6 @@ private:
                   name());
         }
     }
-
     virtual bool uses_idx() const = 0;
     virtual scoped_ptr_t<val_t> on_idx(
         env_t *env, counted_t<table_t> tbl, scoped_ptr_t<val_t> idx) const = 0;
@@ -78,7 +77,6 @@ protected:
             if (uses_idx() && v->get_type().is_convertible(val_t::type_t::TABLE)) {
                 return on_idx(env->env, v->as_table(), std::move(idx));
             } else {
-                fprintf(stderr, "BLAH: %s\n", v->print().c_str());
                 counted_t<datum_stream_t> stream =
                     make_counted<lazy_reduction_datum_stream_t >(
                         backtrace(),
@@ -790,11 +788,6 @@ private:
             include_offsets = v->as_bool();
         }
 
-        fprintf(stderr, "#####\n");
-        fprintf(stderr, "Include States: %d\n", include_states);
-        fprintf(stderr, "Include Initial: %d\n", include_initial);
-        fprintf(stderr, "Include Offsets: %d\n", include_offsets);
-
         scoped_ptr_t<val_t> v = args->arg(env, 0);
         configured_limits_t limits = env->env->limits_with_changefeed_queue_size(
                 args->optarg(env, "changefeed_queue_size"));
@@ -822,12 +815,10 @@ private:
 
                 compile_env_t compile_env(env->scope.compute_visibility());
 
-                fprintf(stderr, "Fold base: %s\n", debug_str(base_term).c_str());
                 datum_t fold_base(std::map<datum_string_t, datum_t>{
                         {datum_string_t("f_acc"), base_term},
                             {datum_string_t("is_initialized"), datum_t::boolean(false)}});
 
-                fprintf(stderr, "Fold base datum: %s\n", fold_base.print().c_str());
                 minidriver_t::reql_t fold_acc =
                     r.fun(acc, el,
                           r.object(r.optarg("f_acc",

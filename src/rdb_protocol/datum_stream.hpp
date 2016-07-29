@@ -78,9 +78,6 @@ struct changespec_t {
 class datum_stream_t : public single_threaded_countable_t<datum_stream_t>,
                        public bt_rcheckable_t {
 public:
-    virtual std::string test() {
-        return "Datum stream test";
-    }
     virtual ~datum_stream_t() { }
     virtual void set_notes(response_t *) const { }
 
@@ -122,22 +119,22 @@ public:
     virtual void accumulate_all(env_t *env, eager_acc_t *acc) = 0;
 
     virtual counted_t<datum_stream_t> get_source() {
-        rfail(ql::base_exc_t::LOGIC, "1 This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual raw_term_t get_reduction_function() {
-        rfail(ql::base_exc_t::LOGIC, "2 This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual raw_term_t get_emit_function() {
-        rfail(ql::base_exc_t::LOGIC, "3 This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual raw_term_t get_reverse_function() {
-        rfail(ql::base_exc_t::LOGIC, "4 This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual datum_t get_base() {
-        rfail(ql::base_exc_t::LOGIC, "5 This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
     virtual scoped_ptr_t<val_t> as_val(env_t *) {
-        rfail(ql::base_exc_t::LOGIC, "6 This function should only be used by lazy_reduction_datum_stream.");
+        rfail(ql::base_exc_t::LOGIC, "This function should only be used by lazy_reduction_datum_stream.");
     }
 
 protected:
@@ -1065,9 +1062,6 @@ public:
     }
 
     bool is_grouped() const {
-        if (source->is_grouped()) {
-            fprintf(stderr, "IS_GROUPED() called: %d.\n", source->is_grouped());
-        }
         return source->is_grouped();
     }
     void add_grouping(transform_variant_t &&tv,
@@ -1083,10 +1077,6 @@ public:
     }
     virtual bool is_array() const {
         return true;
-    }
-
-    virtual std::string test() {
-        return "THIS IS THE CORRECT TEST VALUE";
     }
 
     virtual datum_t as_array(env_t *env);

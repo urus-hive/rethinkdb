@@ -870,9 +870,6 @@ datum_string_t val_t::as_str() const {
 }
 
 void val_t::rcheck_literal_type(type_t::raw_type_t expected_raw_type) const {
-    if (type.raw_type != expected_raw_type) {
-        fprintf(stderr, "OH NOES\n");
-    }
     rcheck_typed_target(
         this, type.raw_type == expected_raw_type,
         strprintf("Expected type %s but found %s:\n%s",

@@ -75,9 +75,6 @@ class make_obj_term_t : public term_t {
 public:
     make_obj_term_t(compile_env_t *env, const raw_term_t &term)
         : term_t(term) {
-        if (term.num_args() != 0) {
-            fprintf(stderr, "THIS IS STUPID\n");
-        }
         // An F.Y.I. for driver developers.
         rcheck(term.num_args() == 0,
                base_exc_t::LOGIC,

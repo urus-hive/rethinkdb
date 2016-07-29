@@ -1520,8 +1520,6 @@ datum_t lazy_reduction_datum_stream_t::as_array(env_t *env) {
 }
 
 scoped_ptr_t<val_t> lazy_reduction_datum_stream_t::to_array(env_t* env) {
-    // Why are to_array and as_array different?
-    fprintf(stderr, "TO ARRAY\n");
     return source->run_terminal(env, terminal);
 }
 
@@ -1529,7 +1527,6 @@ std::vector<datum_t >
 lazy_reduction_datum_stream_t::next_batch_impl(
     env_t *env,
     UNUSED const batchspec_t &batchspec) {
-    fprintf(stderr, "NEXT_BATCH_IMPL\n");
     std::vector<datum_t> batch;
 
     batch.push_back(
@@ -2530,12 +2527,8 @@ fold_datum_stream_t::next_raw_batch(env_t *env, const batchspec_t &batchspec) {
     std::vector<datum_t> batch;
 
     do {
-        fprintf(stderr, "Reading next batch\n");
         std::vector<datum_t> input_batch = stream->next_batch(env, batchspec);
-        fprintf(stderr, "Entering `while` loop\n");
         for (const datum_t &row : input_batch) {
-            //fprintf(stderr, "%s\n", acc_func->print_js_function().c_str());
-            fprintf(stderr, "ACC: %s ROW: %s\n", acc.print().c_str(), row.print().c_str());
             datum_t new_acc = acc_func->call(
                 env,
                 std::vector<datum_t>{acc, row})->as_datum();
@@ -2550,19 +2543,16 @@ fold_datum_stream_t::next_raw_batch(env_t *env, const batchspec_t &batchspec) {
 
             for (size_t i = 0; i < emit_elem.arr_size(); ++i) {
                 datum_t emit_item = emit_elem.get(i);
-                fprintf(stderr, "Noted el\n");
                 batch.push_back(std::move(emit_item));
             }
 
             acc = std::move(new_acc);
         }
-        fprintf(stderr, "Leaving loop\n");
     } while (!is_exhausted() &&
              batch.empty() &&
              ((env->return_empty_normal_batches == return_empty_normal_batches_t::NO &&
                batchspec.get_batch_type() == batch_type_t::NORMAL) ||
               !is_infinite_fold));
-    fprintf(stderr, "Left `do ... while` loop\n");
 
     if (is_exhausted() && do_final_emit) {
         std::vector<datum_t> final_emit_args;
