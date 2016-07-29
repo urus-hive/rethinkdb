@@ -1,0 +1,121 @@
+desc: Test incremental reduction changefeeds
+table_variable_name: tbl
+tests:
+
+    # count changefeeds
+    - cd: number = tbl.count().changes()
+
+    - cd: tbl.insert([{'id':1}, {'id':2}])
+      ot: partial({'errors':0, 'inserted':2})
+    - cd: fetch(number, 2)
+      ot: bag([{'old_val':0, 'new_val':1}, {'old_val':1, 'new_val':2}])
+
+    - py: number2 = tbl.count().changes(include_initial=True)
+    - rb: number2 = tbl.count().changes(include_initial:true)
+    - js: number2 = tbl.count().changes({includeInitial:true})
+
+    - cd: fetch(number2, 1)
+      ot: bag([{'new_val':2}])
+    - cd: tbl.insert([{'id':3}, {'id':4}])
+      ot: partial({'errors':0, 'inserted':2})
+    - cd: fetch(number2, 2)
+      ot: bag([{'old_val':2, 'new_val':3}, {'old_val':3, 'new_val':4}])
+
+    - py: number3 = tbl.count().changes(include_states=true)
+    - rb: number3 = tbl.count().changes(include_states:true)
+    - js: number3 = tbl.count().changes({includeStates:true})
+
+    - cd: fetch(number3, 1)
+      ot: bag([{'state':'ready'}])
+    - cd: tbl.insert([{'id':5}, {'id':6}])
+      ot: partial({'errors':0, 'inserted':2})
+    - cd: fetch(number3, 2)
+      ot: bag([{'old_val':4, 'new_val':5}, {'old_val':5, 'new_val':6}])
+
+    - py: number4 = tbl.count().changes(include_states=true, include_initial=true)
+    - rb: number4 = tbl.count().changes(include_states:true, include_initial:true)
+    - js: number4 = tbl.count().changes({includeStates:true, includeInitial:true})
+
+    - cd: fetch(number4, 3)
+      ot: bag([{'state':'initializing'}, {'new_val':6}, {'state': 'ready'}])
+    - cd: tbl.insert([{'id':7}, {'id':8}])
+      ot: partial({'errors':0, 'inserted':2})
+    - cd: fetch(number4, 2)
+      ot: bag([{'old_val':6, 'new_val':7}, {'old_val':7, 'new_val':8}])
+
+    - cd: tbl.get(1).delete()
+      ot: partial({'errors':0, 'deleted':1})
+
+    - cd: fetch(number4, 1)
+      ot: bag([{'old_val':8, 'new_val':7}])
+
+    # sum changefeeds
+    - py: sum = tbl['id'].sum().changes(include_initial=true)
+    - rb: sum = tbl['id'].sum().changes(include_initial:true)
+    - js: sum = tbl('id').sum().changes({includeInitial:true})
+
+    - cd: fetch(sum, 1)
+      ot: bag([{'new_val':35}])
+
+    - cd: tbl.get(7).delete()
+    - cd: fetch(sum, 1)
+      ot: bag([{'new_val':28, 'old_val':35}])
+
+# avg changefeeds
+    - py: avg = tbl['id'].sum().changes(include_initial=true)
+    - rb: avg = tbl['id'].sum().changes(include_initial:true)
+    - js: avg = tbl('id').sum().changes({includeInitial:true})
+
+    - cd: fetch(avg, 1)
+      ot: bag([{'new_val': 28}])
+
+    - cd: tbl.insert({'id':123})
+      ot: partial({'errors':0, 'inserted':1})
+
+    - cd: fetch(avg, 1)
+      ot: bag([{'new_val':151, 'old_val':28}])
+
+    # arbitrary reduction changefeeds
+
+    # sum of twice every element
+    - py: arb = tbl.map(lambda a: a["id"]).reduce(lambda a,b: a+b*2, reverse=lambda a,b:a-b*2).changes(include_initial=true)
+    - py: fetch(arb, 1)
+      ot: bag([{'new_val':298}])
+
+    - cd: tbl.get(6).delete()
+      ot: partial({'errors':0, 'deleted':1})
+    - py: fetch(arb, 1)
+      ot: bag([{'old_val':298, 'new_val':286}])
+
+    # Clear
+    - cd: tbl.delete()
+      ot: partial({'errors':0, 'deleted':6})
+
+    # coerce_to object
+    - py: obj = tbl.map(lambda x: x["obj"]).coerce_to("object").changes(include_initial=True)
+    - py: fetch(obj, 1)
+      ot: [{'new_val': {}}]
+    - py: tbl.insert([{'obj':['key1', 1]}])
+      ot: partial({'errors':0, 'inserted':1})
+    - py: fetch(obj, 1)
+      ot: bag([{'new_val': {'key1': 1}, 'old_val': {}}])
+    - py: tbl.insert([{'obj':['key2', 2]}])
+      ot: partial({'errors':0, 'inserted':1})
+    - py: fetch(obj, 1)
+      ot: bag([{'new_val': {'key2': 2, 'key1': 1}, 'old_val': {'key1':1}}])
+    - py: tbl.delete()
+      ot: partial({'errors':0, 'deleted':2})
+
+    # Large test
+    - py: number5 = tbl.count().changes()
+    - py: tbl.insert([{'num':i} for i in range(0,1000)])
+      ot: partial({'errors':0, 'inserted':1000})
+
+    - py: fetch(number5, 1000, timeout=3)
+      ot: bag([{'old_val':x, 'new_val':x+1} for x in range(0,1000)])
+
+    - py: tbl.delete()
+    - pt: fetch(number5, 1000, timeout=3)
+      ot: bag([{'old_val':x, 'new_val':x-1} for x in range(1000, 1, -1)])
+
+
