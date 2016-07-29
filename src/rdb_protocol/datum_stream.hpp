@@ -65,14 +65,9 @@ struct changespec_t {
     changespec_t(changefeed::keyspec_t _keyspec,
                  counted_t<datum_stream_t> _stream)
         : keyspec(std::move(_keyspec)),
-          stream(std::move(_stream)),
-          lazy_reduction_changespec(false) { }
-    explicit changespec_t(bool b)
-        : keyspec{false},
-          lazy_reduction_changespec{b} { }
+          stream(std::move(_stream)) { }
     changefeed::keyspec_t keyspec;
     counted_t<datum_stream_t> stream;
-     bool lazy_reduction_changespec;
 };
 
 class datum_stream_t : public single_threaded_countable_t<datum_stream_t>,
@@ -1103,7 +1098,7 @@ public:
 
 protected:
     virtual std::vector<changespec_t> get_changespecs() {
-        return std::vector<changespec_t>{changespec_t(true)};
+        return std::vector<changespec_t>{};
     }
 
     std::vector<datum_t >

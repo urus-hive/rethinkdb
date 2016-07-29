@@ -796,7 +796,7 @@ private:
             std::vector<counted_t<datum_stream_t> > streams;
             std::vector<changespec_t> changespecs = seq->get_changespecs();
             r_sanity_check(changespecs.size() >= 1);
-            if (changespecs[0].lazy_reduction_changespec) {
+            if (seq->is_single_stream()) {
 
                 minidriver_t r(backtrace());
 
