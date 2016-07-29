@@ -1507,16 +1507,9 @@ scoped_ptr_t<val_t> lazy_reduction_datum_stream_t::as_val(env_t *env) {
 }
 
 datum_t lazy_reduction_datum_stream_t::as_array(env_t *env) {
-    if (has_result) {
-        has_result = false;
-        saved_result = source->run_terminal(
-            env,
-            terminal)->as_datum();
-        return saved_result;
-    } else if (saved_result.has()) {
-        return saved_result;
-    }
-    return datum_t();
+    return source->run_terminal(
+        env,
+        terminal)->as_datum();
 }
 
 scoped_ptr_t<val_t> lazy_reduction_datum_stream_t::to_array(env_t* env) {
@@ -1532,7 +1525,6 @@ lazy_reduction_datum_stream_t::next_batch_impl(
     batch.push_back(
         source->run_terminal(env, terminal)->as_datum());
 
-    has_result = false;
     return batch;
 }
 
@@ -1589,12 +1581,15 @@ datum_t lazy_to_object_datum_stream_t::to_object(env_t *env) {
     return std::move(obj).to_datum();
 }
 scoped_ptr_t<val_t> lazy_to_object_datum_stream_t::as_val(env_t *env) {
+    has_result = false;
     return make_scoped<val_t>(to_object(env), backtrace());
 }
 datum_t lazy_to_object_datum_stream_t::as_array(env_t *env) {
+    has_result = false;
     return to_object(env);
 }
 scoped_ptr_t<val_t> lazy_to_object_datum_stream_t::to_array(env_t* env) {
+    has_result = false;
     return as_val(env);
 }
 std::vector<datum_t >
@@ -1603,6 +1598,7 @@ lazy_to_object_datum_stream_t::next_batch_impl(
     UNUSED const batchspec_t &batchspec) {
     std::vector<datum_t> batch;
 
+    has_result = false;
     batch.push_back(to_object(env));
 
     return batch;

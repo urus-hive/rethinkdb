@@ -90,7 +90,7 @@ public:
 
     scoped_ptr_t<val_t> run_terminal(env_t *env, const terminal_variant_t &tv);
     virtual scoped_ptr_t<val_t> to_array(env_t *env);
-    virtual bool is_datum() { return false; }
+    virtual bool is_single_stream() { return false; }
 
     // stream -> stream (always eager)
     counted_t<datum_stream_t> slice(size_t l, size_t r);
@@ -1038,7 +1038,7 @@ public:
         bt(_bt),
         has_result(true) { }
 
-    bool is_datum() { return true; }
+    bool is_single_stream() { return true; }
 
     counted_t<datum_stream_t> get_source() {
         return source;
@@ -1118,7 +1118,6 @@ protected:
     datum_t base_term;
     backtrace_id_t bt;
     bool has_result;
-    datum_t saved_result;
 };
 
 class lazy_to_object_datum_stream_t : public lazy_reduction_datum_stream_t {

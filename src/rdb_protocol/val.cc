@@ -625,8 +625,7 @@ val_t::val_t(env_t *env, counted_t<datum_stream_t> _sequence,
     guarantee(sequence().has());
 
     // Some streams are lazy reduction streams
-    // TODO change the name of is_datum
-    if (sequence()->is_datum()) {
+    if (sequence()->is_single_stream()) {
         type = type_t::SINGLE_SEQUENCE;
     } else {
         // Some streams are really arrays in disguise.
