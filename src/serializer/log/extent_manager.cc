@@ -137,9 +137,15 @@ public:
 
         extent_reference_t extent_ref = make_extent_reference(extent);
 
-        const int64_t old_file_size = dbfile->get_file_size();
-        dbfile->set_file_size_at_least(extent + extent_size);
-        stats->pm_file_size_bytes += dbfile->get_file_size() - old_file_size;
+        {
+            ASSERT_NO_CORO_WAITING;
+            // `perfmon_counter_t` only allows relative modifications due to
+            // the way it handles multi-threading.
+            // So we calculate the *change* in file size and update it accordingly.
+            const int64_t old_file_size = dbfile->get_file_size();
+            dbfile->set_file_size_at_least(extent + extent_size);
+            stats->pm_file_size_bytes += dbfile->get_file_size() - old_file_size;
+        }
 
         return extent_ref;
     }
@@ -163,9 +169,15 @@ public:
         }
 
         if (shrink_file) {
-            const int64_t old_file_size = dbfile->get_file_size();
-            dbfile->set_file_size(extents.size() * extent_size);
-            stats->pm_file_size_bytes += dbfile->get_file_size() - old_file_size;
+            {
+                ASSERT_NO_CORO_WAITING;
+                // `perfmon_counter_t` only allows relative modifications due to
+                // the way it handles multi-threading.
+                // So we calculate the *change* in file size and update it accordingly.
+                const int64_t old_file_size = dbfile->get_file_size();
+                dbfile->set_file_size(extents.size() * extent_size);
+                stats->pm_file_size_bytes += dbfile->get_file_size() - old_file_size;
+            }
 
             // Prevent the existence of a relatively large free queue after the file
             // size shrinks.
