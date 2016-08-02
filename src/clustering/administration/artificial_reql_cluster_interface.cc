@@ -439,6 +439,25 @@ bool artificial_reql_cluster_interface_t::grant_table(
         error_out);
 }
 
+bool artificial_reql_cluster_interface_t::modifier_create(
+        auth::user_context_t const &,
+        counted_t<const ql::db_t> ,
+        const name_string_t &,
+        const modifier_config_t &,
+        signal_t *,
+        admin_err_t *) {
+    return false; // TODO
+}
+
+bool artificial_reql_cluster_interface_t::modifier_drop(
+        auth::user_context_t const &,
+        counted_t<const ql::db_t> ,
+        const name_string_t &,
+        signal_t *,
+        admin_err_t *) {
+    return false; //TODO
+}
+
 bool artificial_reql_cluster_interface_t::sindex_create(
         auth::user_context_t const &user_context,
         counted_t<const ql::db_t> db,

@@ -29,6 +29,10 @@ wire_func_t::wire_func_t(const raw_term_t &body,
 wire_func_t::wire_func_t(const wire_func_t &copyee)
     : func(copyee.func) { }
 
+
+std::string wire_func_t::print_source() const {
+    return func->print_source();
+}
 wire_func_t &wire_func_t::operator=(const wire_func_t &assignee) {
     func = assignee.func;
     return *this;

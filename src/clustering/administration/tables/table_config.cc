@@ -317,6 +317,15 @@ ql::datum_t convert_sindexes_to_datum(
     return std::move(sindexes_builder).to_datum();
 }
 
+ql::datum_t convert_modifier_to_datum(
+    const boost::optional<modifier_config_t> &modifier) {
+    ql::datum_array_builder_t modifier_builder(ql::configured_limits_t::unlimited);
+    if (modifier) {
+        modifier_builder.add(convert_string_to_datum(modifier->func.print_source()));
+    }
+    return std::move(modifier_builder).to_datum();
+}
+
 bool convert_sindexes_from_datum(
         ql::datum_t datum,
         std::set<std::string> *indexes_out,
@@ -343,6 +352,7 @@ ql::datum_t convert_table_config_to_datum(
     builder.overwrite("db", db_name_or_uuid);
     builder.overwrite("id", convert_uuid_to_datum(table_id));
     builder.overwrite("indexes", convert_sindexes_to_datum(config.sindexes));
+    builder.overwrite("indexes", convert_modifier_to_datum(config.modifier));
     builder.overwrite("primary_key", convert_string_to_datum(config.basic.primary_key));
     builder.overwrite("shards",
         convert_vector_to_datum<table_config_t::shard_t>(

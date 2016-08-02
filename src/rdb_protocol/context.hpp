@@ -79,6 +79,22 @@ public:
 };
 RDB_DECLARE_SERIALIZABLE(sindex_config_t);
 
+class modifier_config_t {
+public:
+    modifier_config_t() { }
+    modifier_config_t(const ql::map_wire_func_t &_func, reql_version_t _func_version) :
+        func(_func), func_version(_func_version) { }
+
+    bool operator==(const modifier_config_t &o) const;
+    bool operator!=(const modifier_config_t &o) const {
+        return !(*this == o);
+    }
+
+    ql::map_wire_func_t func;
+    reql_version_t func_version;
+};
+RDB_DECLARE_SERIALIZABLE(modifier_config_t);
+
 class sindex_status_t {
 public:
     sindex_status_t() :
@@ -379,6 +395,19 @@ public:
             ql::datum_t *result_out,
             admin_err_t *error_out) = 0;
 
+    virtual bool modifier_create(
+            auth::user_context_t const &user_context,
+            counted_t<const ql::db_t> db,
+            const name_string_t &table,
+            const modifier_config_t &config,
+            signal_t *interruptor,
+            admin_err_t *error_out) = 0;
+    virtual bool modifier_drop(
+            auth::user_context_t const &user_context,
+            counted_t<const ql::db_t> db,
+            const name_string_t &table,
+            signal_t *interruptor,
+            admin_err_t *error_out) = 0;
     virtual bool sindex_create(
             auth::user_context_t const &user_context,
             counted_t<const ql::db_t> db,

@@ -207,6 +207,20 @@ public:
             ql::datum_t *result_out,
             admin_err_t *error_out);
 
+    bool modifier_create(
+            auth::user_context_t const &user_context,
+            counted_t<const ql::db_t> db,
+            const name_string_t &table,
+            const modifier_config_t &config,
+            signal_t *interruptor,
+            admin_err_t *error_out);
+    bool modifier_drop(
+            auth::user_context_t const &user_context,
+            counted_t<const ql::db_t> db,
+            const name_string_t &table,
+            signal_t *interruptor,
+            admin_err_t *error_out);
+
     bool sindex_create(
             auth::user_context_t const &user_context,
             counted_t<const ql::db_t> db,
