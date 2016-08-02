@@ -13,7 +13,7 @@ def print_debug(message)
     end
 end
 
-DRIVER_PORT = (ARGV[0] || ENV['RDB_DRIVER_PORT'] || 28015)).to_i
+DRIVER_PORT = (ARGV[0] || ENV['RDB_DRIVER_PORT'] || 28015).to_i
 SERVER_HOST = ENV['RDB_SERVER_HOST'] || 'localhost'
 print_debug("Using driver port #{DRIVER_PORT}")
 
