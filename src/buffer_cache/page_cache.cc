@@ -1364,7 +1364,8 @@ void page_cache_t::do_flush_changes(page_cache_t *page_cache,
                         }
                     }
 
-                    // Clear `changes` to release the buffer references in there.
+                    // Clear `changes`, since we are going to evict the pages
+                    // that it has pointers to in the next step.
                     changes.clear();
                     for (auto &txn : txns) {
                         for (size_t i = 0, e = txn->snapshotted_dirtied_pages_.size();
