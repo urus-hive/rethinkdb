@@ -14,7 +14,7 @@ pkg_install-include () {
 pkg_install () (
     pkg_copy_src_to_build
 
-    configure_flags=
+    configure_flags="--libdir=${install_dir}/lib"
 
     if [[ "$CROSS_COMPILING" = 1 ]]; then
         cross_build_dir=$build_dir/cross_build
@@ -27,13 +27,6 @@ pkg_install () (
                 in_dir "$cross_build_dir" make
             )
         fi
-    fi
-
-    if [[ "$OS" = "Darwin" ]]; then
-        # TODO: is this necessary?
-        export CXX=clang++
-        export CXXFLAGS='-std=c++11 -stdlib=libc++'
-        export LDFLAGS=-lc++
     fi
 
     pkg_configure --prefix="$(niceabspath "$install_dir")" $configure_flags --enable-static --disable-shared
