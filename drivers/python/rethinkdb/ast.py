@@ -1158,6 +1158,12 @@ class Table(RqlQuery):
     def get_all(self, *args, **kwargs):
         return GetAll(self, *args, **kwargs)
 
+    def modifier_create(self, *args, **kwargs):
+        return ModifierCreate(self, *args, **kwargs)
+
+    def modifier_drop(self, *args, **kwargs):
+        return ModifierDrop(self, *args, **kwargs)
+
     def index_create(self, *args, **kwargs):
         if len(args) > 1:
             args = [args[0]] + [func_wrap(arg) for arg in args[1:]]
@@ -1448,6 +1454,14 @@ class TableListTL(RqlTopLevelQuery):
     tt = pTerm.TABLE_LIST
     st = "table_list"
 
+
+class ModifierCreate(RqlMethodQuery):
+    tt = pTerm.MODIFIER_CREATE
+    st = 'modifier_create'
+
+class ModifierDrop(RqlMethodQuery):
+    tt = pTerm.MODIFIER_DROP
+    st = 'modifier_drop'
 
 class IndexCreate(RqlMethodQuery):
     tt = pTerm.INDEX_CREATE

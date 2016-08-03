@@ -715,16 +715,34 @@ void store_t::protocol_read(const read_t &_read,
 
 class func_replacer_t : public btree_batched_replacer_t {
 public:
-    func_replacer_t(ql::env_t *_env, const ql::wire_func_t &wf, return_changes_t _return_changes)
-        : env(_env), f(wf.compile_wire_func()), return_changes(_return_changes) { }
+    func_replacer_t(ql::env_t *_env,
+                    const ql::wire_func_t &wf,
+                    counted_t<const ql::func_t> mf,
+                    return_changes_t _return_changes)
+        : env(_env),
+          f(wf.compile_wire_func()),
+          modifier(mf),
+          return_changes(_return_changes) { }
     ql::datum_t replace(
         const ql::datum_t &d, size_t) const {
-        return f->call(env, d, ql::LITERAL_OK)->as_datum();
+        fprintf(stderr, "FUNC REPLACER\n");
+        ql::datum_t res = f->call(env, d, ql::LITERAL_OK)->as_datum();
+        if (res.get_type() == ql::datum_t::type_t::R_NULL) {
+            return res;
+        }
+        if (modifier.has()) {
+            res = modifier->call(env, d, res)->as_datum();
+            rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
+                            ql::base_exc_t::OP_FAILED,
+                            "Modifier function returned null value.");
+        }
+        return res;
     }
     return_changes_t should_return_changes() const { return return_changes; }
 private:
     ql::env_t *const env;
     const counted_t<const ql::func_t> f;
+    const counted_t<const ql::func_t> modifier;
     const return_changes_t return_changes;
 };
 
@@ -740,26 +758,43 @@ public:
         if (bi.conflict_func) {
             conflict_func = bi.conflict_func->compile_wire_func();
         }
+        if (bi.modifier) {
+            modifier = bi.modifier->compile_wire_func();
+        }
     }
     ql::datum_t replace(const ql::datum_t &d,
                         size_t index) const {
+        fprintf(stderr, "DATUM REPLACER\n");
         guarantee(index < datums->size());
         ql::datum_t newd = (*datums)[index];
-        return resolve_insert_conflict(env,
-                                       pkey,
-                                       d,
-                                       newd,
-                                       conflict_behavior,
-                                       conflict_func);
+        ql::datum_t res =resolve_insert_conflict(env,
+                                             pkey,
+                                             d,
+                                             newd,
+                                             conflict_behavior,
+                                             conflict_func);
+        if (res.get_type() == ql::datum_t::type_t::R_NULL) {
+            return res;
+        }
+        if (modifier.has()) {
+            res = modifier->call(env, d, res)->as_datum();
+            rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
+                            ql::base_exc_t::OP_FAILED,
+                            "Modifier function returned null value.");
+        }
+        return res;
     }
     return_changes_t should_return_changes() const { return return_changes; }
 private:
     ql::env_t *env;
+
+    counted_t<const ql::func_t> modifier;
+
     const std::vector<ql::datum_t> *const datums;
     const conflict_behavior_t conflict_behavior;
     const std::string pkey;
     const return_changes_t return_changes;
-boost::optional<counted_t<const ql::func_t> > conflict_func;
+    boost::optional<counted_t<const ql::func_t> > conflict_func;
 };
 
 struct rdb_write_visitor_t : public boost::static_visitor<void> {
@@ -774,7 +809,17 @@ struct rdb_write_visitor_t : public boost::static_visitor<void> {
         rdb_modification_report_cb_t sindex_cb(
             store, &sindex_block,
             auto_drainer_t::lock_t(&store->drainer));
-        func_replacer_t replacer(&ql_env, br.f, br.return_changes);
+
+        counted_t<const ql::func_t> modifier;
+        if (br.modifier) {
+            modifier = br.modifier->compile_wire_func();
+            fprintf(stderr, "Has modifier\n");
+        }
+
+        func_replacer_t replacer(&ql_env,
+                                 br.f,
+                                 modifier,
+                                 br.return_changes);
 
         response->response =
             rdb_batched_replace(

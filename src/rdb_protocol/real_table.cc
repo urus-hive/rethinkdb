@@ -222,6 +222,18 @@ ql::datum_t real_table_t::write_batched_replace(
     return_changes_t return_changes,
     durability_requirement_t durability) {
 
+    // Get modifier function
+    boost::optional<counted_t<const ql::func_t> > modifier;
+    table_config_and_shards_t config;
+    cond_t bogus;
+
+    m_table_meta_client->get_config(uuid, &bogus, &config);
+
+    if (config.config.modifier) {
+        modifier = config.config.modifier->func.compile_wire_func();
+        fprintf(stderr, "Got modifier function: %s\n", (*modifier)->print_source().c_str());
+    }
+
     std::vector<store_key_t> store_keys;
     store_keys.reserve(keys.size());
     for (auto it = keys.begin(); it != keys.end(); it++) {
@@ -234,10 +246,12 @@ ql::datum_t real_table_t::write_batched_replace(
     bool batch_succeeded = false;
     for (auto &&batch : batches) {
         try {
+            fprintf(stderr, "Initializing batched_replace_t\n");
             batched_replace_t write(
                 std::move(batch),
                 pkey,
                 func,
+                modifier,
                 env->get_all_optargs(),
                 env->get_user_context(),
                 return_changes);
@@ -275,6 +289,18 @@ ql::datum_t real_table_t::write_batched_insert(
     return_changes_t return_changes,
     durability_requirement_t durability) {
 
+    // Get modifier function
+    boost::optional<counted_t<const ql::func_t> > modifier;
+    table_config_and_shards_t config;
+    cond_t bogus;
+
+    m_table_meta_client->get_config(uuid, &bogus, &config);
+
+    if (config.config.modifier) {
+        modifier = config.config.modifier->func.compile_wire_func();
+        fprintf(stderr, "Got modifier function: %s\n", (*modifier)->print_source().c_str());
+    }
+
     ql::datum_t stats((std::map<datum_string_t, ql::datum_t>()));
     std::set<std::string> conditions;
     std::vector<std::vector<ql::datum_t> > batches = split(std::move(inserts));
@@ -282,6 +308,7 @@ ql::datum_t real_table_t::write_batched_insert(
         batched_insert_t write(
             std::move(batch),
             pkey,
+            modifier,
             conflict_behavior,
             conflict_func,
             env->limits(),

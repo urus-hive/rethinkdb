@@ -42,10 +42,10 @@ public:
 
     bool is_simple_selector() const;
     std::string print_source() const;
-private:
-    friend class maybe_wire_func_t;  // for has().
 
+private:
     bool has() const { return func.has(); }
+    friend class maybe_wire_func_t;  // for has().
 
     counted_t<const func_t> func;
 };

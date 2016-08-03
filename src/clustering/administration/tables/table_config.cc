@@ -326,6 +326,19 @@ ql::datum_t convert_modifier_to_datum(
     return std::move(modifier_builder).to_datum();
 }
 
+bool convert_modifier_from_datum(
+        ql::datum_t datum,
+        std::set<std::string> *modifier_out,
+        admin_err_t *error_out) {
+    if (!convert_set_from_datum<std::string>(
+            &convert_string_from_datum, false, datum, modifier_out, error_out)) {
+        error_out->msg = "In `modifier`: " + error_out->msg;
+        return false;
+    }
+
+    return true;
+}
+
 bool convert_sindexes_from_datum(
         ql::datum_t datum,
         std::set<std::string> *indexes_out,
@@ -555,6 +568,31 @@ bool convert_table_config_and_name_from_datum(
         }
     } else {
         config_out->durability = write_durability_t::HARD;
+    }
+
+    if (converter.has("modifier")) {
+        ql::datum_t modifier_datum;
+        if (!converter.get("modifier", &modifier_datum, error_out)) {
+            return false;
+        }
+        if (modifier_datum.arr_size() > 0) {
+            fprintf(stderr, "1: %s \n\n\n1: %s",
+                    modifier_datum.get(0).as_str().to_std().c_str(),
+                    old_config.config.modifier->func.print_source().c_str());
+            if (!old_config.config.modifier ||
+                modifier_datum.get(0).as_str().to_std()
+                != old_config.config.modifier->func.print_source()) {
+                error_out->msg = "The `modifier` field is read-only and can't" \
+                    "be used to create or drop a modifier function.";
+                return false;
+            }
+        }
+        config_out->modifier = old_config.config.modifier;
+    } else {
+        if (existed_before) {
+            error_out->msg = "Expected a field named `modifier`.";
+            return false;
+        }
     }
 
     if (!converter.check_no_extra_keys(error_out)) {
