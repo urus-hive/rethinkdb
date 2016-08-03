@@ -213,6 +213,7 @@ kv_location_set(keyvalue_location_t *kv_location,
 }
 
 batched_replace_response_t rdb_replace_and_return_superblock(
+    ql::env_t *env,
     const btree_loc_info_t &info,
     const btree_point_replacer_t *replacer,
     const deletion_context_t *deletion_context,
@@ -336,6 +337,7 @@ private:
 };
 
 void do_a_replace_from_batched_replace(
+    ql::env_t *env,
     auto_drainer_t::lock_t,
     fifo_enforcer_sink_t *batched_replaces_fifo_sink,
     const fifo_enforcer_write_token_t &batched_replaces_fifo_token,
@@ -359,6 +361,7 @@ void do_a_replace_from_batched_replace(
     rdb_live_deletion_context_t deletion_context;
     rdb_modification_report_t mod_report(*info.key);
     ql::datum_t res = rdb_replace_and_return_superblock(
+        env,
         info, &one_replace, &deletion_context, superblock_promise, &mod_report.info,
         trace);
     *stats_out = (*stats_out).merge(res, ql::stats_merge, limits, conditions);

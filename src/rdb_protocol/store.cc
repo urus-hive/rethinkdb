@@ -713,7 +713,6 @@ void store_t::protocol_read(const read_t &_read,
     response->event_log.push_back(profile::stop_t());
 }
 
-
 class func_replacer_t : public btree_batched_replacer_t {
 public:
     func_replacer_t(ql::env_t *_env, const ql::wire_func_t &wf, return_changes_t _return_changes)

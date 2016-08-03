@@ -724,6 +724,8 @@ static void pprint_update_reminder() {
     case Term::REBALANCE:
     case Term::SYNC:
     case Term::GRANT:
+    case Term::MODIFIER_CREATE:
+    case Term::MODIFIER_DROP:
     case Term::INDEX_CREATE:
     case Term::INDEX_DROP:
     case Term::INDEX_WAIT:

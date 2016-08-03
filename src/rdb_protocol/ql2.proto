@@ -576,6 +576,11 @@ message Term {
         // Renames the given index to a new name
         INDEX_RENAME = 156; // Table, STRING, STRING, {overwrite:BOOL} -> OBJECT
 
+        // * Modifier Function OPs
+        // Creates a new modifier function with a particular definition
+        MODIFIER_CREATE = 189; // Table, Function(2)
+        // Drops a modifier function
+        MODIFIER_DROP = 190; // Table
         // * Control Operators
         // Calls a function on data
         FUNCALL  = 64; // Function(*), DATUM... -> DATUM

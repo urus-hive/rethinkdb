@@ -82,7 +82,7 @@ RDB_DECLARE_SERIALIZABLE(sindex_config_t);
 class modifier_config_t {
 public:
     modifier_config_t() { }
-    modifier_config_t(const ql::map_wire_func_t &_func, reql_version_t _func_version) :
+    modifier_config_t(const ql::wire_func_t &_func, reql_version_t _func_version) :
         func(_func), func_version(_func_version) { }
 
     bool operator==(const modifier_config_t &o) const;
@@ -90,7 +90,7 @@ public:
         return !(*this == o);
     }
 
-    ql::map_wire_func_t func;
+    ql::wire_func_t func;
     reql_version_t func_version;
 };
 RDB_DECLARE_SERIALIZABLE(modifier_config_t);

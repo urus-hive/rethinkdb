@@ -2,6 +2,8 @@
 #include "rdb_protocol/real_table.hpp"
 
 #include "clustering/administration/auth/permission_error.hpp"
+#include "clustering/administration/tables/table_metadata.hpp"
+#include "clustering/table_manager/table_meta_client.hpp"
 #include "math.hpp"
 #include "rdb_protocol/geo/ellipsoid.hpp"
 #include "rdb_protocol/geo/distances.hpp"

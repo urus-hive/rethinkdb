@@ -440,22 +440,38 @@ bool artificial_reql_cluster_interface_t::grant_table(
 }
 
 bool artificial_reql_cluster_interface_t::modifier_create(
-        auth::user_context_t const &,
-        counted_t<const ql::db_t> ,
-        const name_string_t &,
-        const modifier_config_t &,
-        signal_t *,
-        admin_err_t *) {
-    return false; // TODO
+        auth::user_context_t const &user_context,
+        counted_t<const ql::db_t> db,
+        const name_string_t &table,
+        const modifier_config_t &config,
+        signal_t *interruptor,
+        admin_err_t *error_out) {
+    if (db->name == m_database) {
+        *error_out = admin_err_t{
+            strprintf("Database `%s` is special; you can't create modifier "
+                      "functions on the tables in it.", m_database.c_str()),
+            query_state_t::FAILED};
+        return false;
+    }
+    return m_next->modifier_create(
+        user_context, db, table, config, interruptor, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::modifier_drop(
-        auth::user_context_t const &,
-        counted_t<const ql::db_t> ,
-        const name_string_t &,
-        signal_t *,
-        admin_err_t *) {
-    return false; //TODO
+        auth::user_context_t const &user_context,
+        counted_t<const ql::db_t> db,
+        const name_string_t &table,
+        signal_t *interruptor,
+        admin_err_t *error_out) {
+    if (db->name == m_database) {
+        *error_out = admin_err_t{
+            strprintf("Modifier function does not exist on table `%s.%s`.",
+                      db->name.c_str(), table.c_str()),
+            query_state_t::FAILED};
+        return false;
+    }
+    return m_next->modifier_drop(
+        user_context, db, table, interruptor, error_out);
 }
 
 bool artificial_reql_cluster_interface_t::sindex_create(
