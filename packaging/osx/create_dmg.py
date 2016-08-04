@@ -53,7 +53,7 @@ def getSigningIdentity(signingName, signingType):
 	assert signingType in ("Application", "Installer")
 	command = ['/usr/bin/security', 'find-identity', '-p', 'macappstore', '-v']
 	process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-	output = process.communicate()
+	output, _ = process.communicate()
 	if process.returncode != 0:
 	   raise subprocess.CalledProcessError(process.returncode, command)
 	for line in output.splitlines():
