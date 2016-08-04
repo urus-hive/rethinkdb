@@ -948,13 +948,26 @@ class Server(object):
         assert res['errors'] == 0, 'Failed removing permissions from %s: %s' % (self.__server.name, res)
         
         # insert inital users/permissions
-        res = r.db('rethinkdb').table('users').insert(expectedUsers.values(), conflict='update').run(self.conn)
-        assert res['errors'] == 0, 'Failed adding existing users: %s' % res
-        assert res['inserted'] + res['replaced'] + res['unchanged'] == len(expectedUsers), 'The correct number of users (%d) were not restored: %s' % (len(expectedUsers), res)
+        existingUsers = dict((x['id'], x) for x in r.db('rethinkdb').table('users').run(self.conn))
+        for username, userinfo in expectedUsers.items():
+            if username in existingUsers:
+                if existingUsers[username] != userinfo:
+                     res = r.db('rethinkdb').table('users').get(username).update(userinfo).run(self.conn)
+                     assert res['updated'] == 1, 'Unable to update user %s: %s' % (username, res)
+            else:
+                res = r.db('rethinkdb').table('users').insert(userinfo).run(self.conn)
+                assert res['inserted'] == 1, 'Unable to insert user %s: %s' % (username, res)
+        
         if expectedPermissions:
-            res = r.db('rethinkdb').table('permissions').insert(expectedPermissions.values(), conflict='replace').run(self.conn)
-            assert res['errors'] == 0, 'Failed adding existing permissions: %s' % res
-            assert res['inserted'] + res['replaced'] + res['unchanged'] == len(expectedPermissions), 'The correct number of permissions (%d) were not restored: %s' % (len(expectedPermissions), res)
+            existingPermissions = dict((tuple(x['id']), x) for x in r.db('rethinkdb').table('permissions').run(self.conn))
+            for permissionsName, permissionsInfo in expectedPermissions.items():
+                if permissionsName in existingPermissions:
+                    if existingPermissions[permissionsName] != permissionsInfo:
+                         res = r.db('rethinkdb').table('permissions').get(permissionsName).update(permissionsInfo).run(self.conn)
+                         assert res['updated'] == 1, 'Unable to update user permissions %s: %s' % (username, res)
+                else:
+                    res = r.db('rethinkdb').table('permissions').insert(permissionsInfo).run(self.conn)
+                    assert res['inserted'] == 1, 'Unable to insert user permissions %s: %s' % (permissionsName, res)
         
         # - drop any databases or tables that were not there initially
         for dbName in r.db_list().run(self.conn):
