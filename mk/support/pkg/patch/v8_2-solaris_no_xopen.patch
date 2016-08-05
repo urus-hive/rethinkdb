@@ -1,0 +1,21 @@
+diff -ruN --label original original ./third_party/icu/source/common/uposixdefs.h
+--- original
++++ ./third_party/icu/source/common/uposixdefs.h    2016-08-05 15:57:50.144503533 -0700
+@@ -31,7 +31,7 @@
+  */
+ #ifdef _XOPEN_SOURCE
+     /* Use the predefined value. */
+-#else
++#elseif !(U_PLATFORM == U_PF_SOLARIS)
+     /*
+      * Version 6.0:
+      * The Open Group Base Specifications Issue 6 (IEEE Std 1003.1, 2004 Edition)
+@@ -52,7 +52,7 @@
+  *
+  * z/OS needs this definition for timeval and to get usleep.
+  */
+-#if !defined(_XOPEN_SOURCE_EXTENDED)
++#if !defined(_XOPEN_SOURCE_EXTENDED) && !(U_PLATFORM == U_PF_SOLARIS)
+ #   define _XOPEN_SOURCE_EXTENDED 1
+ #endif
+
