@@ -1,8 +1,8 @@
 // Copyright 2010-2012 RethinkDB, all rights reserved.
 #include "perfmon/perfmon.hpp"
 
+#include <cmath>
 #include <stdarg.h>
-#include <math.h>
 #include <map>
 
 #include "utils.hpp"

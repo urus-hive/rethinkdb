@@ -223,6 +223,7 @@ void datum_t::data_wrapper_t::destruct() {
     } break;
     default: unreachable();
     }
+    internal_type = internal_type_t::UNINITIALIZED;
 }
 
 void datum_t::data_wrapper_t::assign_copy(const datum_t::data_wrapper_t &copyee) {
@@ -288,6 +289,10 @@ void datum_t::data_wrapper_t::assign_move(datum_t::data_wrapper_t &&movee) noexc
     } break;
     default: unreachable();
     }
+#ifndef NDEBUG
+    // De-initialize `movee` to make it easier to catch use-after-move bugs
+    movee.destruct();
+#endif
 }
 
 datum_t::datum_t() : data() { }
@@ -896,7 +901,7 @@ datum_t datum_t::drop_literals_unchecked_stack(bool *encountered_literal_out) co
     // existing datum; so checking (and thus threading the limits
     // parameter) is unnecessary here.
     const ql::configured_limits_t & limits = ql::configured_limits_t::unlimited;
-    rassert(encountered_literal_out != NULL);
+    rassert(encountered_literal_out != nullptr);
 
     const bool is_literal = is_ptype(pseudo::literal_string);
     if (is_literal) {
@@ -1137,7 +1142,7 @@ std::string datum_t::compose_secondary(
     }
 
     const std::string truncated_secondary_key =
-        secondary_key.substr(0, trunc_size(skey_version, primary_key_string.length()));
+        secondary_key.substr(0, trunc_size(primary_key_string.length()));
 
     return mangle_secondary(
         skey_version, truncated_secondary_key, primary_key_string, tag_string);
@@ -1273,7 +1278,7 @@ std::string datum_t::extract_truncated_secondary(
     const std::string &secondary_and_primary) {
     components_t components = parse_secondary(secondary_and_primary);
     std::string skey = std::move(components.secondary);
-    size_t mts = max_trunc_size(components.skey_version);
+    size_t mts = max_trunc_size();
     if (skey.length() >= mts) {
         skey.erase(mts);
     }
@@ -1332,7 +1337,7 @@ store_key_t datum_t::truncated_secondary(
     s.push_back('\0');
 
     // Truncate the key if necessary
-    size_t mts = max_trunc_size(skey_version);
+    size_t mts = max_trunc_size();
     if (s.length() >= mts) {
         s.erase(mts);
     }
@@ -1682,7 +1687,8 @@ void datum_t::replace_field(const datum_string_t &key, datum_t val) {
 
 datum_t datum_t::default_merge_unchecked_stack(const datum_t &rhs) const {
     if (get_type() != R_OBJECT || rhs.get_type() != R_OBJECT) {
-        return rhs;
+        bool encountered_literal;
+        return rhs.drop_literals(&encountered_literal);
     }
 
     datum_object_builder_t d(*this);
@@ -1940,18 +1946,17 @@ datum_t to_datum(cJSON *json, const configured_limits_t &limits,
     }
 }
 
-size_t datum_t::max_trunc_size(skey_version_t skey_version) {
-    return trunc_size(skey_version, rdb_protocol::MAX_PRIMARY_KEY_SIZE);
+size_t datum_t::max_trunc_size() {
+    return trunc_size(rdb_protocol::MAX_PRIMARY_KEY_SIZE);
 }
 
-size_t datum_t::trunc_size(skey_version_t skey_version, size_t primary_key_size) {
+size_t datum_t::trunc_size(size_t primary_key_size) {
     // We subtract three bytes because of the NULL byte we pad on the end of the
     // primary key and the two 1-byte offsets at the end of the key (which are
     // used to extract the primary key and tag num).
     size_t terminated_primary_key_size = primary_key_size;
 
     // Since 1.16, we're adding a null byte to the end of the secondary index key.
-    guarantee(skey_version == skey_version_t::post_1_16);
     terminated_primary_key_size += 1;
 
     return MAX_KEY_SIZE - terminated_primary_key_size - tag_size - 2;

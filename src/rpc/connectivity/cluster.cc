@@ -105,7 +105,7 @@ static bool resolve_protocol_version(const std::string &remote_version_string,
 
 #if defined (__x86_64__) || defined (_WIN64)
 const std::string connectivity_cluster_t::cluster_arch_bitsize("64bit");
-#elif defined (__i386__) || defined(__arm__)
+#elif defined (__i386__) || defined(__arm__) || defined(_WIN32)
 const std::string connectivity_cluster_t::cluster_arch_bitsize("32bit");
 #else
 #error "Could not determine architecture"
@@ -224,7 +224,7 @@ connectivity_cluster_t::run_t::run_t(
             _heartbeat_sl_view,
         boost::shared_ptr<semilattice_read_view_t<auth_semilattice_metadata_t> >
             _auth_sl_view,
-        SSL_CTX *_tls_ctx)
+        tls_ctx_t *_tls_ctx)
         THROWS_ONLY(address_in_use_exc_t, tcp_socket_exc_t) :
     parent(_parent),
     server_id(_server_id),
@@ -1345,6 +1345,12 @@ void connectivity_cluster_t::run_t::handle(
         blocks until all references to `conn_structure` have been released (using its
         `auto_drainer_t`s). */
     }
+
+    /* Before we destruct the `rethread_tcp_conn_stream_t`s, we must make sure that
+    any pending network writes have either been transmitted or aborted.
+    `shutdown_write()` which we call above initiates aborting pending writes, but it
+    doesn't wait until the process is done. */
+    conn->flush_buffer();
 }
 
 connectivity_cluster_t::connectivity_cluster_t() THROWS_NOTHING :

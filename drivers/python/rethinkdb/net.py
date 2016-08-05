@@ -1,10 +1,11 @@
-# Copyright 2010-2015 RethinkDB, all rights reserved.
+# Copyright 2010-2016 RethinkDB, all rights reserved.
 
 import collections
 import errno
 import imp
 import numbers
 import os
+import pprint
 import socket
 import ssl
 import struct
@@ -20,19 +21,14 @@ pErrorType = p.Response.ErrorType
 pResponse = p.Response.ResponseType
 pQuery = p.Query.QueryType
 
-from .ast import DB, Repl, ReQLDecoder, ReQLEncoder
+from .ast import DB, Repl, ReQLDecoder, ReQLEncoder, expr
 from .errors import *
 from .handshake import *
 
 try:
     from ssl import match_hostname, CertificateError
 except ImportError:
-    from backports.ssl_match_hostname import match_hostname, CertificateError
-
-try:
-    xrange
-except NameError:
-    xrange = range
+    from .backports.ssl_match_hostname import match_hostname, CertificateError
 
 try:
     {}.iteritems
@@ -61,7 +57,7 @@ class Query(object):
         if self.term is not None:
             message.append(self.term)
         if self.global_optargs is not None:
-            message.append(self.global_optargs)
+            message.append(expr(self.global_optargs))
         query_str = reql_encoder.encode(message).encode('utf-8')
         query_header = struct.pack('<QL', self.token, len(query_str))
         return query_header + query_str
@@ -146,6 +142,12 @@ class Cursor(object):
         self._maybe_fetch_batch()
         self._extend_internal(first_response)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
     def close(self):
         if self.error is None:
             self.error = self._empty_error()
@@ -185,36 +187,42 @@ class Cursor(object):
 
         if self.outstanding_requests == 0 and self.error is not None:
             del self.conn._cursor_cache[res.token]
-
-    def __summary_string(self, token, end_token):
-        if len(self.items) > 10:
-            val_str = token.join(map(repr, [self.items[i] for i in range(0,10)]))
-        else:
-            val_str = token.join(map(repr, self.items))
-        if len(self.items) > 10 or self.error is None:
-            val_str += end_token
-
-        if self.error is None:
-            err_str = 'streaming'
-        elif isinstance(self.error, ReqlCursorEmpty):
-            err_str = 'done streaming'
-        else:
-            err_str = 'error: %s' % repr(self.error)
-
-        return val_str, err_str
-
+    
     def __str__(self):
-        val_str, err_str = self.__summary_string(",\n", ", ...\n")
-        return "%s (%s):\n[\n%s]" % (object.__repr__(self), err_str, val_str)
-
+        val_str = pprint.pformat([self.items[x] for x in range(min(10, len(self.items)))] + (['...'] if len(self.items) > 10 else []))
+        if val_str.endswith("'...']"):
+            val_str = val_str[:-len("'...']")] + "...]"
+        spacer_str = '\n' if '\n' in val_str else ''
+        if self.error is None:
+            status_str = 'streaming'
+        elif isinstance(self.error, ReqlCursorEmpty):
+            status_str = 'done streaming'
+        else:
+            status_str = 'error: %s' % str(self.error)
+        
+        return "%s.%s (%s): %s%s" % (
+            self.__class__.__module__, self.__class__.__name__,
+            status_str,
+            spacer_str, val_str
+        )
+    
     def __repr__(self):
-        val_str, err_str = self.__summary_string(", ", ", ...")
-        return "<%s.%s object at %s (%s):\n [%s]>" % (
-            self.__class__.__module__,
-            self.__class__.__name__,
+        val_str = pprint.pformat([self.items[x] for x in range(min(10, len(self.items)))] + (['...'] if len(self.items) > 10 else []))
+        if val_str.endswith("'...']"):
+            val_str = val_str[:-len("'...']")] + "...]"
+        spacer_str = '\n' if '\n' in val_str else ''
+        if self.error is None:
+            status_str = 'streaming'
+        elif isinstance(self.error, ReqlCursorEmpty):
+            status_str = 'done streaming'
+        else:
+            status_str = 'error: %s' % repr(self.error)
+        
+        return "<%s.%s object at %s (%s): %s%s>" % (
+            self.__class__.__module__, self.__class__.__name__,
             hex(id(self)),
-            err_str,
-            val_str
+            status_str,
+            spacer_str, val_str
         )
 
     def _error(self, message):
@@ -314,10 +322,7 @@ class SocketWrapper(object):
                     if char == b'\0':
                         break
                     response += char
-        except ReqlAuthError:
-            self.close()
-            raise
-        except ReqlTimeoutError:
+        except (ReqlAuthError, ReqlTimeoutError):
             self.close()
             raise
         except ReqlDriverError as ex:
@@ -431,7 +436,7 @@ class ConnectionInstance(object):
     def is_open(self):
         return self._socket.is_open()
 
-    def close(self, noreply_wait, token):
+    def close(self, noreply_wait=False, token=None):
         self._closing = True
 
         # Cursors may remove themselves when errored, so copy a list of them
@@ -504,7 +509,7 @@ class ConnectionInstance(object):
                     self._parent._get_json_decoder(query))
             elif not self._closing:
                 # This response is corrupted or not intended for us
-                self.close(False, None)
+                self.close()
                 raise ReqlDriverError("Unexpected response received.")
 
 
@@ -644,17 +649,20 @@ class DefaultConnection(Connection):
 
 connection_type = DefaultConnection
 
-def connect(
-        host='localhost',
-        port=DEFAULT_PORT,
-        db=None,
-        auth_key=None,
-        user='admin',
-        password=None,
-        timeout=20,
-        ssl=dict(),
-        _handshake_version=10,
-        **kwargs):
+def connect(host=None, port=None, db=None, auth_key=None, user=None, password=None, timeout=20, ssl=None, _handshake_version=10, **kwargs):
+    if host is None:
+        host = 'localhost'
+    if port is None:
+        port = DEFAULT_PORT
+    if user is None:
+        user = 'admin'
+    if timeout is None:
+        timeout = 20
+    if ssl is None:
+        ssl = dict()
+    if _handshake_version is None:
+        _handshake_version = 10
+    
     conn = connection_type(host, port, db, auth_key, user, password, timeout, ssl, _handshake_version, **kwargs)
     return conn.reconnect(timeout=timeout)
 
