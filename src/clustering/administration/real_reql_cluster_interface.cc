@@ -1214,7 +1214,6 @@ bool real_reql_cluster_interface_t::modifier_create(
     guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
         "real_reql_cluster_interface_t should never get queries for system tables");
 
-    //try {
     cross_thread_signal_t interruptor_on_home(interruptor_on_caller, home_thread());
     on_thread_t thread_switcher(home_thread());
 
@@ -1245,7 +1244,6 @@ bool real_reql_cluster_interface_t::modifier_create(
         table_id, table_config_and_shards_change, &interruptor_on_home);
 
     return true;
-    //} // TODO: what do we need to catch in this case, maybe nothing?
 }
 
 bool real_reql_cluster_interface_t::modifier_drop(
