@@ -1232,7 +1232,6 @@ bool real_reql_cluster_interface_t::modifier_create(
         &existing_config);
 
     if (existing_config.config.modifier) {
-        fprintf(stderr, "Already exists\n");
         error_out->msg = strprintf(
             "A modifier function already exists on table `%s`.",
             table.str().c_str());
@@ -1275,7 +1274,6 @@ bool real_reql_cluster_interface_t::modifier_drop(
         &existing_config);
 
     if (!existing_config.config.modifier) {
-        fprintf(stderr, "Already exists\n");
         error_out->msg = strprintf(
             "No modifier function exists on table `%s`.",
             table.str().c_str());

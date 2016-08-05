@@ -725,7 +725,6 @@ public:
           return_changes(_return_changes) { }
     ql::datum_t replace(
         const ql::datum_t &d, size_t) const {
-        fprintf(stderr, "FUNC REPLACER\n");
         ql::datum_t res = f->call(env, d, ql::LITERAL_OK)->as_datum();
         if (res.get_type() == ql::datum_t::type_t::R_NULL) {
             return res;
@@ -764,7 +763,6 @@ public:
     }
     ql::datum_t replace(const ql::datum_t &d,
                         size_t index) const {
-        fprintf(stderr, "DATUM REPLACER\n");
         guarantee(index < datums->size());
         ql::datum_t newd = (*datums)[index];
         ql::datum_t res =resolve_insert_conflict(env,
@@ -813,7 +811,6 @@ struct rdb_write_visitor_t : public boost::static_visitor<void> {
         counted_t<const ql::func_t> modifier;
         if (br.modifier) {
             modifier = br.modifier->compile_wire_func();
-            fprintf(stderr, "Has modifier\n");
         }
 
         func_replacer_t replacer(&ql_env,

@@ -231,7 +231,6 @@ ql::datum_t real_table_t::write_batched_replace(
 
     if (config.config.modifier) {
         modifier = config.config.modifier->func.compile_wire_func();
-        fprintf(stderr, "Got modifier function: %s\n", (*modifier)->print_source().c_str());
     }
 
     std::vector<store_key_t> store_keys;
@@ -246,7 +245,6 @@ ql::datum_t real_table_t::write_batched_replace(
     bool batch_succeeded = false;
     for (auto &&batch : batches) {
         try {
-            fprintf(stderr, "Initializing batched_replace_t\n");
             batched_replace_t write(
                 std::move(batch),
                 pkey,
@@ -298,7 +296,6 @@ ql::datum_t real_table_t::write_batched_insert(
 
     if (config.config.modifier) {
         modifier = config.config.modifier->func.compile_wire_func();
-        fprintf(stderr, "Got modifier function: %s\n", (*modifier)->print_source().c_str());
     }
 
     ql::datum_t stats((std::map<datum_string_t, ql::datum_t>()));
