@@ -76,10 +76,10 @@ public:
     write_durability_t durability;
 };
 
+RDB_DECLARE_EQUALITY_COMPARABLE(table_config_t);
+
 RDB_DECLARE_SERIALIZABLE(table_config_t::shard_t);
 RDB_DECLARE_EQUALITY_COMPARABLE(table_config_t::shard_t);
-RDB_DECLARE_SERIALIZABLE(table_config_t);
-RDB_DECLARE_EQUALITY_COMPARABLE(table_config_t);
 
 class table_shard_scheme_t {
 public:

@@ -1210,7 +1210,7 @@ bool real_reql_cluster_interface_t::modifier_create(
     const name_string_t &table,
     const modifier_config_t &config,
     signal_t *interruptor_on_caller,
-    admin_err_t *) {
+    admin_err_t *error_out) {
     guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
         "real_reql_cluster_interface_t should never get queries for system tables");
 
@@ -1223,8 +1223,25 @@ bool real_reql_cluster_interface_t::modifier_create(
 
     user_context.require_config_permission(m_rdb_context, db->id, table_id);
 
+    // Check if modifier exists
+    table_config_and_shards_t existing_config;
+
+    m_table_meta_client->get_config(
+        table_id,
+        &interruptor_on_home,
+        &existing_config);
+
+    if (existing_config.config.modifier) {
+        fprintf(stderr, "Already exists\n");
+        error_out->msg = strprintf(
+            "A modifier function already exists on table `%s`.",
+            table.str().c_str());
+        error_out->query_state = query_state_t::FAILED;
+        return false;
+    }
     table_config_and_shards_change_t table_config_and_shards_change(
         table_config_and_shards_change_t::modifier_create_t{config});
+
     m_table_meta_client->set_config(
         table_id, table_config_and_shards_change, &interruptor_on_home);
 
@@ -1237,7 +1254,7 @@ bool real_reql_cluster_interface_t::modifier_drop(
         counted_t<const ql::db_t> db,
         const name_string_t &table,
         signal_t *interruptor_on_caller,
-        admin_err_t *) {
+        admin_err_t *error_out) {
     guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
         "real_reql_cluster_interface_t should never get queries for system tables");
 
@@ -1248,6 +1265,23 @@ bool real_reql_cluster_interface_t::modifier_drop(
     m_table_meta_client->find(db->id, table, &table_id);
 
     user_context.require_config_permission(m_rdb_context, db->id, table_id);
+
+    // Check if modifier exists
+    table_config_and_shards_t existing_config;
+
+    m_table_meta_client->get_config(
+        table_id,
+        &interruptor_on_home,
+        &existing_config);
+
+    if (!existing_config.config.modifier) {
+        fprintf(stderr, "Already exists\n");
+        error_out->msg = strprintf(
+            "No modifier function exists on table `%s`.",
+            table.str().c_str());
+        error_out->query_state = query_state_t::FAILED;
+        return false;
+    }
 
     table_config_and_shards_change_t table_config_and_shards_change(
         table_config_and_shards_change_t::modifier_drop_t{});

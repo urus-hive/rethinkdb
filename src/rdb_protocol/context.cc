@@ -46,7 +46,7 @@ bool modifier_config_t::operator==(const modifier_config_t &o) const {
     return stream1.vector() == stream2.vector();
 }
 
-RDB_IMPL_SERIALIZABLE_2_SINCE_v2_1(modifier_config_t,
+RDB_IMPL_SERIALIZABLE_2_SINCE_v2_4(modifier_config_t,
     func, func_version);
 
 void sindex_status_t::accum(const sindex_status_t &other) {

@@ -734,7 +734,7 @@ public:
             res = modifier->call(env, d, res)->as_datum();
             rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
                             ql::base_exc_t::OP_FAILED,
-                            "Modifier function returned null value.");
+                            "Modifier function returned NULL value.");
         }
         return res;
     }
@@ -780,7 +780,7 @@ public:
             res = modifier->call(env, d, res)->as_datum();
             rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
                             ql::base_exc_t::OP_FAILED,
-                            "Modifier function returned null value.");
+                            "Modifier function returned NULL value.");
         }
         return res;
     }
