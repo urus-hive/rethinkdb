@@ -576,8 +576,6 @@ bool convert_table_config_and_name_from_datum(
             return false;
         }
         if (modifier_datum.arr_size() > 0) {
-                    modifier_datum.get(0).as_str().to_std().c_str(),
-                    old_config.config.modifier->func.print_source().c_str());
             if (!old_config.config.modifier ||
                 modifier_datum.get(0).as_str().to_std()
                 != old_config.config.modifier->func.print_source()) {
