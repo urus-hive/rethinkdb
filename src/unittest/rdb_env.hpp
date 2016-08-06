@@ -311,17 +311,18 @@ public:
                 signal_t *interruptor,
                 ql::datum_t *result_out,
                 admin_err_t *error_out);
-        bool modifier_create(
+        bool set_write_hook(
                 auth::user_context_t const &user_context,
                 counted_t<const ql::db_t> db,
                 const name_string_t &table,
-                const modifier_config_t &config,
+                boost::optional<modifier_config_t> &config,
                 signal_t *local_interruptor,
-                admin_err_t *error_out);
-        bool modifier_drop(
-                auth::user_context_t const &user_context,
+               admin_err_t *error_out);
+        bool get_write_hook(
+               auth::user_context_t const &user_context,
                 counted_t<const ql::db_t> db,
                 const name_string_t &table,
+                ql::datum_t *write_hook_datum,
                 signal_t *local_interruptor,
                 admin_err_t *error_out);
         bool sindex_create(

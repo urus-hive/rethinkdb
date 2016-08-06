@@ -277,9 +277,9 @@ counted_t<term_t> make_range_term(
     compile_env_t *env, const raw_term_t &term);
 
 // modifier.cc
-counted_t<term_t> make_modifier_create_term(
+counted_t<term_t> make_set_write_hook_term(
     compile_env_t *env, const raw_term_t &term);
-counted_t<term_t> make_modifier_drop_term(
+counted_t<term_t> make_get_write_hook_term(
     compile_env_t *env, const raw_term_t &term);
 
 // sindex.cc

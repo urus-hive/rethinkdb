@@ -348,8 +348,8 @@ class RDBVal extends TermBase
 
     insert: aropt (doc, opts) -> new Insert opts, @, rethinkdb.expr(doc)
 
-    modifierCreate: (args...) -> new ModifierCreate {}, @, args...
-    modifierDrop: () -> new ModifierDrop {}, @
+    setWriteHook: (args...) -> new SetWriteHook {}, @, args...
+    getWriteHook: () -> new GetWriteHook {}, @
 
     indexCreate: varar(1, 3, (name, defun_or_opts, opts) ->
         if opts?
@@ -947,13 +947,13 @@ class TableList extends RDBOp
     tt: protoTermType.TABLE_LIST
     mt: 'tableList'
 
-class ModifierCreate extends RDBOp
-    tt: protoTermType.MODIFIER_CREATE
-    mt: 'modifierCreate'
+class SetWriteHook extends RDBOp
+    tt: protoTermType.SET_WRITE_HOOK
+    mt: 'setWriteHook'
 
-class ModifierDrop extends RDBOp
-    tt: protoTermType.MODIFIER_DROP
-    mt: 'modifierDrop'
+class GetWriteHook extends RDBOp
+    tt: protoTermType.GET_WRITE_HOOK
+    mt: 'getWriteHook'
 
 class IndexCreate extends RDBOp
     tt: protoTermType.INDEX_CREATE

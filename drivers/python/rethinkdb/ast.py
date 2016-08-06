@@ -1158,11 +1158,11 @@ class Table(RqlQuery):
     def get_all(self, *args, **kwargs):
         return GetAll(self, *args, **kwargs)
 
-    def modifier_create(self, *args, **kwargs):
-        return ModifierCreate(self, *args, **kwargs)
+    def set_write_hook(self, *args, **kwargs):
+        return SetWriteHook(self, *args, **kwargs)
 
-    def modifier_drop(self, *args, **kwargs):
-        return ModifierDrop(self, *args, **kwargs)
+    def get_write_hook(self, *args, **kwargs):
+        return GetWriteHook(self, *args, **kwargs)
 
     def index_create(self, *args, **kwargs):
         if len(args) > 1:
@@ -1454,14 +1454,13 @@ class TableListTL(RqlTopLevelQuery):
     tt = pTerm.TABLE_LIST
     st = "table_list"
 
+class SetWriteHook(RqlMethodQuery):
+    tt = pTerm.SET_WRITE_HOOK
+    st = 'set_write_hook'
 
-class ModifierCreate(RqlMethodQuery):
-    tt = pTerm.MODIFIER_CREATE
-    st = 'modifier_create'
-
-class ModifierDrop(RqlMethodQuery):
-    tt = pTerm.MODIFIER_DROP
-    st = 'modifier_drop'
+class GetWriteHook(RqlMethodQuery):
+    tt = pTerm.GET_WRITE_HOOK
+    st = 'get_write_hook'
 
 class IndexCreate(RqlMethodQuery):
     tt = pTerm.INDEX_CREATE

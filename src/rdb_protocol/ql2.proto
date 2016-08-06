@@ -578,9 +578,9 @@ message Term {
 
         // * Modifier Function OPs
         // Creates a new modifier function with a particular definition
-        MODIFIER_CREATE = 189; // Table, Function(2)
+        SET_WRITE_HOOK = 189; // Table, Function(2)
         // Drops a modifier function
-        MODIFIER_DROP = 190; // Table
+        GET_WRITE_HOOK = 190; // Table
         // * Control Operators
         // Calls a function on data
         FUNCALL  = 64; // Function(*), DATUM... -> DATUM

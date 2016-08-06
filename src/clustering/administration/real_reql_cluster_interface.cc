@@ -11,6 +11,7 @@
 #include "clustering/administration/tables/table_config.hpp"
 #include "clustering/table_manager/table_meta_client.hpp"
 #include "concurrency/cross_thread_signal.hpp"
+#include "containers/archive/string_stream.hpp"
 #include "rdb_protocol/artificial_table/artificial_table.hpp"
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/table_common.hpp"
@@ -1204,11 +1205,46 @@ bool real_reql_cluster_interface_t::grant_table(
         error_out);
 }
 
-bool real_reql_cluster_interface_t::modifier_create(
+bool real_reql_cluster_interface_t::set_write_hook(
     auth::user_context_t const &user_context,
     counted_t<const ql::db_t> db,
     const name_string_t &table,
-    const modifier_config_t &config,
+    boost::optional<modifier_config_t> &config,
+    signal_t *interruptor_on_caller,
+    admin_err_t *) {
+    guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
+        "real_reql_cluster_interface_t should never get queries for system tables");
+
+    cross_thread_signal_t interruptor_on_home(interruptor_on_caller, home_thread());
+    on_thread_t thread_switcher(home_thread());
+
+    namespace_id_t table_id;
+    m_table_meta_client->find(db->id, table, &table_id);
+
+    user_context.require_config_permission(m_rdb_context, db->id, table_id);
+
+    if (config) {
+        table_config_and_shards_change_t table_config_and_shards_change(
+            table_config_and_shards_change_t::modifier_create_t{config.get()});
+
+        m_table_meta_client->set_config(
+            table_id, table_config_and_shards_change, &interruptor_on_home);
+    } else {
+        table_config_and_shards_change_t table_config_and_shards_change(
+            table_config_and_shards_change_t::modifier_drop_t{});
+        m_table_meta_client->set_config(
+            table_id, table_config_and_shards_change, &interruptor_on_home);
+    }
+    return true;
+}
+
+const char *const write_hook_blob_prefix = "$reql_write_hook_function$";
+
+bool real_reql_cluster_interface_t::get_write_hook(
+    auth::user_context_t const &user_context,
+    counted_t<const ql::db_t> db,
+    const name_string_t &table,
+    ql::datum_t *write_hook_datum,
     signal_t *interruptor_on_caller,
     admin_err_t *error_out) {
     guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
@@ -1222,7 +1258,6 @@ bool real_reql_cluster_interface_t::modifier_create(
 
     user_context.require_config_permission(m_rdb_context, db->id, table_id);
 
-    // Check if modifier exists
     table_config_and_shards_t existing_config;
 
     m_table_meta_client->get_config(
@@ -1230,62 +1265,34 @@ bool real_reql_cluster_interface_t::modifier_create(
         &interruptor_on_home,
         &existing_config);
 
+    *write_hook_datum = ql::datum_t::null();
     if (existing_config.config.modifier) {
-        error_out->msg = strprintf(
-            "A modifier function already exists on table `%s`.",
-            table.str().c_str());
-        error_out->query_state = query_state_t::FAILED;
-        return false;
+
+        write_message_t wm;
+        serialize<cluster_version_t::LATEST_DISK>(
+            &wm, existing_config.config.modifier->func);
+        string_stream_t stream;
+        int write_res = send_write_message(&stream, &wm);
+
+        if (write_res != 0) {
+            error_out->msg = "Invalid write hook";
+            error_out->query_state = query_state_t::FAILED;
+            return false;
+        }
+        ql::datum_t binary = ql::datum_t::binary(
+            datum_string_t(write_hook_blob_prefix + stream.str()));
+        *write_hook_datum =
+            ql::datum_t{
+            std::map<datum_string_t, ql::datum_t>{
+                std::pair<datum_string_t, ql::datum_t>(
+                    datum_string_t("function"), binary),
+                std::pair<datum_string_t, ql::datum_t>(
+                    datum_string_t("query"),
+                    ql::datum_t(
+                        datum_string_t(
+                            existing_config.config.modifier->func.print_source())))}};
     }
-    table_config_and_shards_change_t table_config_and_shards_change(
-        table_config_and_shards_change_t::modifier_create_t{config});
-
-    m_table_meta_client->set_config(
-        table_id, table_config_and_shards_change, &interruptor_on_home);
-
     return true;
-}
-
-bool real_reql_cluster_interface_t::modifier_drop(
-        auth::user_context_t const &user_context,
-        counted_t<const ql::db_t> db,
-        const name_string_t &table,
-        signal_t *interruptor_on_caller,
-        admin_err_t *error_out) {
-    guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
-        "real_reql_cluster_interface_t should never get queries for system tables");
-
-    cross_thread_signal_t interruptor_on_home(interruptor_on_caller, home_thread());
-    on_thread_t thread_switcher(home_thread());
-
-    namespace_id_t table_id;
-    m_table_meta_client->find(db->id, table, &table_id);
-
-    user_context.require_config_permission(m_rdb_context, db->id, table_id);
-
-    // Check if modifier exists
-    table_config_and_shards_t existing_config;
-
-    m_table_meta_client->get_config(
-        table_id,
-        &interruptor_on_home,
-        &existing_config);
-
-    if (!existing_config.config.modifier) {
-        error_out->msg = strprintf(
-            "No modifier function exists on table `%s`.",
-            table.str().c_str());
-        error_out->query_state = query_state_t::FAILED;
-        return false;
-    }
-
-    table_config_and_shards_change_t table_config_and_shards_change(
-        table_config_and_shards_change_t::modifier_drop_t{});
-    m_table_meta_client->set_config(
-        table_id, table_config_and_shards_change, &interruptor_on_home);
-
-    return true;
-    // TODO: do we need to catch anything here?
 }
 
 bool real_reql_cluster_interface_t::sindex_create(

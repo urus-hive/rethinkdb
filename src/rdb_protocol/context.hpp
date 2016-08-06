@@ -395,19 +395,22 @@ public:
             ql::datum_t *result_out,
             admin_err_t *error_out) = 0;
 
-    virtual bool modifier_create(
+    virtual bool set_write_hook(
             auth::user_context_t const &user_context,
             counted_t<const ql::db_t> db,
             const name_string_t &table,
-            const modifier_config_t &config,
+            boost::optional<modifier_config_t> &config,
             signal_t *interruptor,
             admin_err_t *error_out) = 0;
-    virtual bool modifier_drop(
+
+    virtual bool get_write_hook(
             auth::user_context_t const &user_context,
             counted_t<const ql::db_t> db,
             const name_string_t &table,
+            ql::datum_t *write_hook_datum,
             signal_t *interruptor,
             admin_err_t *error_out) = 0;
+
     virtual bool sindex_create(
             auth::user_context_t const &user_context,
             counted_t<const ql::db_t> db,

@@ -716,10 +716,12 @@ void store_t::protocol_read(const read_t &_read,
 class func_replacer_t : public btree_batched_replacer_t {
 public:
     func_replacer_t(ql::env_t *_env,
+                    std::string _pkey,
                     const ql::wire_func_t &wf,
                     counted_t<const ql::func_t> mf,
                     return_changes_t _return_changes)
         : env(_env),
+          pkey(_pkey),
           f(wf.compile_wire_func()),
           modifier(mf),
           return_changes(_return_changes) { }
@@ -730,16 +732,21 @@ public:
             return res;
         }
         if (modifier.has()) {
-            res = modifier->call(env, d, res)->as_datum();
+            res = modifier->call(env,
+                                 std::vector<ql::datum_t>{
+                                     res.get_field(pkey),
+                                     d,
+                                     res})->as_datum();
             rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
                             ql::base_exc_t::OP_FAILED,
-                            "Modifier function returned NULL value.");
+                            "Write hook function returned NULL value.");
         }
         return res;
     }
     return_changes_t should_return_changes() const { return return_changes; }
 private:
     ql::env_t *const env;
+    datum_string_t pkey;
     const counted_t<const ql::func_t> f;
     const counted_t<const ql::func_t> modifier;
     const return_changes_t return_changes;
@@ -775,7 +782,11 @@ public:
             return res;
         }
         if (modifier.has()) {
-            res = modifier->call(env, d, res)->as_datum();
+            res = modifier->call(env,
+                                 std::vector<ql::datum_t>{
+                                     res.get_field(datum_string_t(pkey)),
+                                     d,
+                                     res})->as_datum();
             rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
                             ql::base_exc_t::OP_FAILED,
                             "Modifier function returned NULL value.");
@@ -814,6 +825,7 @@ struct rdb_write_visitor_t : public boost::static_visitor<void> {
         }
 
         func_replacer_t replacer(&ql_env,
+                                 br.pkey,
                                  br.f,
                                  modifier,
                                  br.return_changes);

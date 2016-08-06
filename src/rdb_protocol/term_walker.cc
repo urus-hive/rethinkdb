@@ -250,8 +250,8 @@ bool term_type_is_valid(Term::TermType type) {
     case Term::REBALANCE:
     case Term::SYNC:
     case Term::GRANT:
-    case Term::MODIFIER_CREATE:
-    case Term::MODIFIER_DROP:
+    case Term::SET_WRITE_HOOK:
+    case Term::GET_WRITE_HOOK:
     case Term::INDEX_CREATE:
     case Term::INDEX_DROP:
     case Term::INDEX_WAIT:
@@ -439,8 +439,8 @@ bool term_is_write_or_meta(Term::TermType type) {
     case Term::REBALANCE:
     case Term::SYNC:
     case Term::GRANT:
-    case Term::MODIFIER_CREATE:
-    case Term::MODIFIER_DROP:
+    case Term::SET_WRITE_HOOK:
+    case Term::GET_WRITE_HOOK:
     case Term::INDEX_CREATE:
     case Term::INDEX_DROP:
     case Term::INDEX_WAIT:
@@ -709,8 +709,8 @@ bool term_forbids_writes(Term::TermType type) {
     case Term::REBALANCE:
     case Term::SYNC:
     case Term::GRANT:
-    case Term::MODIFIER_CREATE:
-    case Term::MODIFIER_DROP:
+    case Term::SET_WRITE_HOOK:
+    case Term::GET_WRITE_HOOK:
     case Term::INDEX_CREATE:
     case Term::INDEX_DROP:
     case Term::INDEX_LIST:
