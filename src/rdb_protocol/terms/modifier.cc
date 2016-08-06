@@ -15,6 +15,8 @@
 
 namespace ql {
 
+const char *const write_hook_blob_prefix = "$reql_write_hook_function$";
+
 class set_write_hook_term_t : public op_term_t {
 public:
     set_write_hook_term_t(compile_env_t *env, const raw_term_t &term)
@@ -31,12 +33,56 @@ public:
         // We ignore the modifier's old `reql_version` and make the new version
         // just be `reql_version_t::LATEST`; but in the future we may have
         // to do some conversions for compatibility.
-        if (!v->get_type().is_convertible(val_t::type_t::DATUM) ||
-            v->as_datum().get_type() != datum_t::type_t::R_NULL) {
+        bool got_func = false;
+        if (v->get_type().is_convertible(val_t::type_t::DATUM)) {
+            datum_t d = v->as_datum();
+            if (d.get_type() == datum_t::R_BINARY) {
+                got_func = true;
+                ql::wire_func_t func;
+
+                datum_string_t str = d.as_binary();
+                size_t sz = str.size();
+                size_t prefix_sz = strlen(write_hook_blob_prefix);
+                const char *data = str.data();
+                bool bad_prefix = (sz < prefix_sz);
+                for (size_t i = 0; !bad_prefix && i < prefix_sz; ++i) {
+                    fprintf(stderr, "asd\n");
+                    bad_prefix |= (data[i] != write_hook_blob_prefix[i]);
+                }
+                fprintf(stderr, "done\n");
+                rcheck(!bad_prefix,
+                       base_exc_t::LOGIC,
+                "Cannot create a write hook except from a reql_write_hook_function"
+                       " returned from `get_write_hook`.");
+
+                string_read_stream_t rs(str.to_std(), prefix_sz);
+                deserialize<cluster_version_t::LATEST_DISK>(&rs, &func);
+
+                const modifier_config_t conf =
+                    modifier_config_t(func,
+                                      reql_version_t::LATEST);
+
+                config = conf;
+                config->func.compile_wire_func()->assert_deterministic(
+                    "Write hook functions must be deterministic.");
+
+                boost::optional<size_t> arity = config->func.compile_wire_func()->arity();
+
+                rcheck(static_cast<bool>(arity) && arity.get() == 3,
+                       base_exc_t::LOGIC,
+                       strprintf("Write hook functions must expect 3 arguments."));
+
+                message = datum_string_t("created");
+
+            } else if (d.get_type() == datum_t::R_NULL) {
+                got_func = true;
+            }
+        }
+        if (!got_func) {
             // This way it will complain about it not being a function.
 
             const modifier_config_t conf =
-                modifier_config_t(ql::map_wire_func_t(v->as_func()),
+                modifier_config_t(ql::wire_func_t(v->as_func()),
                                   reql_version_t::LATEST);
 
             config = conf;
