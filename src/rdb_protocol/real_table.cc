@@ -220,7 +220,8 @@ ql::datum_t real_table_t::write_batched_replace(
     const std::vector<ql::datum_t> &keys,
     const counted_t<const ql::func_t> &func,
     return_changes_t return_changes,
-    durability_requirement_t durability) {
+    durability_requirement_t durability,
+    bool ignore_write_hook) {
 
     // Get modifier function
     boost::optional<counted_t<const ql::func_t> > modifier;
@@ -229,8 +230,15 @@ ql::datum_t real_table_t::write_batched_replace(
 
     m_table_meta_client->get_config(uuid, &bogus, &config);
 
-    if (config.config.modifier) {
-        modifier = config.config.modifier->func.compile_wire_func();
+    if (config.config.modifier && !ignore_write_hook) {
+        ql::global_optargs_t g = env->get_all_optargs();
+        if (!g.has_optarg("ignore_write_hook") ||
+            g.get_optarg(env, "ignore_write_hook")->as_bool() == false) {
+            modifier = config.config.modifier->func.compile_wire_func();
+        } else {
+            env->get_user_context().require_config_permission(
+                env->get_rdb_ctx());
+        }
     }
 
     std::vector<store_key_t> store_keys;
@@ -285,7 +293,8 @@ ql::datum_t real_table_t::write_batched_insert(
     conflict_behavior_t conflict_behavior,
     boost::optional<counted_t<const ql::func_t> > conflict_func,
     return_changes_t return_changes,
-    durability_requirement_t durability) {
+    durability_requirement_t durability,
+    bool ignore_write_hook) {
 
     // Get modifier function
     boost::optional<counted_t<const ql::func_t> > modifier;
@@ -294,8 +303,15 @@ ql::datum_t real_table_t::write_batched_insert(
 
     m_table_meta_client->get_config(uuid, &bogus, &config);
 
-    if (config.config.modifier) {
-        modifier = config.config.modifier->func.compile_wire_func();
+    if (config.config.modifier && !ignore_write_hook) {
+        ql::global_optargs_t g = env->get_all_optargs();
+        if (!g.has_optarg("ignore_write_hook") ||
+            g.get_optarg(env, "ignore_write_hook")->as_bool() == false) {
+            modifier = config.config.modifier->func.compile_wire_func();
+        } else {
+            env->get_user_context().require_config_permission(
+                env->get_rdb_ctx());
+        }
     }
 
     ql::datum_t stats((std::map<datum_string_t, ql::datum_t>()));

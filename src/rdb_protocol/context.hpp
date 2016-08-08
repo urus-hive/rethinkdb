@@ -208,7 +208,9 @@ public:
         ql::env_t *env,
         const std::vector<ql::datum_t> &keys,
         const counted_t<const ql::func_t> &func,
-        return_changes_t _return_changes, durability_requirement_t durability) = 0;
+        return_changes_t _return_changes,
+        durability_requirement_t durability,
+        bool ignore_write_hook) = 0;
     virtual ql::datum_t write_batched_insert(
         ql::env_t *env,
         std::vector<ql::datum_t> &&inserts,
@@ -216,7 +218,8 @@ public:
         conflict_behavior_t conflict_behavior,
         boost::optional<counted_t<const ql::func_t> > conflict_func,
         return_changes_t return_changes,
-        durability_requirement_t durability) = 0;
+        durability_requirement_t durability,
+        bool ignore_write_hook) = 0;
     virtual bool write_sync_depending_on_durability(
         ql::env_t *env,
         durability_requirement_t durability) = 0;

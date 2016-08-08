@@ -732,14 +732,19 @@ public:
             return res;
         }
         if (modifier.has()) {
-            res = modifier->call(env,
-                                 std::vector<ql::datum_t>{
-                                     res.get_field(pkey),
-                                     d,
-                                     res})->as_datum();
-            rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
+            ql::datum_t modified = modifier->call(env,
+                                                  std::vector<ql::datum_t>{
+                                                      res.get_field(pkey),
+                                                      d,
+                                                      res})->as_datum();
+
+            rcheck_toplevel((res.get_type() != ql::datum_t::type_t::R_NULL &&
+                            modified.get_type() != ql::datum_t::type_t::R_NULL) ||
+                            (res.get_type() == ql::datum_t::type_t::R_NULL &&
+                             modified.get_type() == ql::datum_t::type_t::R_NULL),
                             ql::base_exc_t::OP_FAILED,
-                            "Write hook function returned NULL value.");
+                            "Modifier function returned unexpected NULL value.");
+            res = modified;
         }
         return res;
     }
@@ -772,24 +777,25 @@ public:
                         size_t index) const {
         guarantee(index < datums->size());
         ql::datum_t newd = (*datums)[index];
-        ql::datum_t res =resolve_insert_conflict(env,
+        ql::datum_t res = resolve_insert_conflict(env,
                                              pkey,
                                              d,
                                              newd,
                                              conflict_behavior,
                                              conflict_func);
-        if (res.get_type() == ql::datum_t::type_t::R_NULL) {
-            return res;
-        }
         if (modifier.has()) {
-            res = modifier->call(env,
-                                 std::vector<ql::datum_t>{
-                                     res.get_field(datum_string_t(pkey)),
-                                     d,
-                                     res})->as_datum();
-            rcheck_toplevel(res.get_type() != ql::datum_t::type_t::R_NULL,
+            ql::datum_t modified = modifier->call(env,
+                                              std::vector<ql::datum_t>{
+                                                  res.get_field(datum_string_t(pkey)),
+                                                  d,
+                                                  res})->as_datum();
+            rcheck_toplevel((res.get_type() != ql::datum_t::type_t::R_NULL &&
+                            modified.get_type() != ql::datum_t::type_t::R_NULL) ||
+                            (res.get_type() == ql::datum_t::type_t::R_NULL &&
+                             modified.get_type() == ql::datum_t::type_t::R_NULL),
                             ql::base_exc_t::OP_FAILED,
-                            "Modifier function returned NULL value.");
+                            "Modifier function returned unexpected NULL value.");
+            res = modified;
         }
         return res;
     }
