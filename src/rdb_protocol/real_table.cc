@@ -231,14 +231,7 @@ ql::datum_t real_table_t::write_batched_replace(
     m_table_meta_client->get_config(uuid, &bogus, &config);
 
     if (config.config.modifier && !ignore_write_hook) {
-        ql::global_optargs_t g = env->get_all_optargs();
-        if (!g.has_optarg("ignore_write_hook") ||
-            g.get_optarg(env, "ignore_write_hook")->as_bool() == false) {
-            modifier = config.config.modifier->func.compile_wire_func();
-        } else {
-            env->get_user_context().require_config_permission(
-                env->get_rdb_ctx());
-        }
+        modifier = config.config.modifier->func.compile_wire_func();
     }
 
     std::vector<store_key_t> store_keys;
@@ -304,14 +297,7 @@ ql::datum_t real_table_t::write_batched_insert(
     m_table_meta_client->get_config(uuid, &bogus, &config);
 
     if (config.config.modifier && !ignore_write_hook) {
-        ql::global_optargs_t g = env->get_all_optargs();
-        if (!g.has_optarg("ignore_write_hook") ||
-            g.get_optarg(env, "ignore_write_hook")->as_bool() == false) {
-            modifier = config.config.modifier->func.compile_wire_func();
-        } else {
-            env->get_user_context().require_config_permission(
-                env->get_rdb_ctx());
-        }
+        modifier = config.config.modifier->func.compile_wire_func();
     }
 
     ql::datum_t stats((std::map<datum_string_t, ql::datum_t>()));
