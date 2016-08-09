@@ -144,7 +144,6 @@ private:
         bool ignore_write_hook = false;
         if (ignore_write_hook_arg.has()) {
             ignore_write_hook = ignore_write_hook_arg->as_bool();
-            fprintf(stderr, "IGNORE: %d\n", ignore_write_hook);
             if (ignore_write_hook) {
                 env->env->get_user_context().require_config_permission(
                     env->env->get_rdb_ctx(),
@@ -317,6 +316,13 @@ private:
         std::set<std::string> conditions;
         if (v0->get_type().is_convertible(val_t::type_t::SINGLE_SELECTION)) {
             counted_t<single_selection_t> sel = v0->as_single_selection();
+
+            if (ignore_write_hook) {
+                env->env->get_user_context().require_config_permission(
+                    env->env->get_rdb_ctx(),
+                    sel->get_tbl()->db->id,
+                    sel->get_tbl()->get_id());
+            }
             datum_t replace_stats = sel->replace(
                 f,
                 nondet_ok,
@@ -330,6 +336,12 @@ private:
             counted_t<table_t> tbl = tblrows->table;
             counted_t<datum_stream_t> ds = tblrows->seq;
 
+            if (ignore_write_hook) {
+                env->env->get_user_context().require_config_permission(
+                    env->env->get_rdb_ctx(),
+                    tbl->db->id,
+                    tbl->get_id());
+            }
             if (f->is_deterministic() == deterministic_t::always) {
                 // Attach a transformation to `ds` to pull out the primary key.
                 minidriver_t r(backtrace());

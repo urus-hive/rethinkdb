@@ -728,13 +728,16 @@ public:
     ql::datum_t replace(
         const ql::datum_t &d, size_t) const {
         ql::datum_t res = f->call(env, d, ql::LITERAL_OK)->as_datum();
-        if (res.get_type() == ql::datum_t::type_t::R_NULL) {
-            return res;
-        }
+
         if (modifier.has()) {
+            fprintf(stderr, "Called modifier FUNC \n");
+            ql::datum_t primary_key =
+                res.get_type() != ql::datum_t::type_t::R_NULL ?
+                res.get_field(pkey) :
+                d.get_field(pkey);
             ql::datum_t modified = modifier->call(env,
                                                   std::vector<ql::datum_t>{
-                                                      res.get_field(pkey),
+                                                      primary_key,
                                                       d,
                                                       res})->as_datum();
 
@@ -743,7 +746,7 @@ public:
                             (res.get_type() == ql::datum_t::type_t::R_NULL &&
                              modified.get_type() == ql::datum_t::type_t::R_NULL),
                             ql::base_exc_t::OP_FAILED,
-                            "Modifier function returned unexpected NULL value.");
+                            "Write hook function returned unexpected NULL value.");
             res = modified;
         }
         return res;
@@ -784,9 +787,14 @@ public:
                                              conflict_behavior,
                                              conflict_func);
         if (modifier.has()) {
+            fprintf(stderr, "Called modifier DATUM \n");
+            ql::datum_t primary_key =
+                res.get_type() != ql::datum_t::type_t::R_NULL ?
+                res.get_field(datum_string_t(pkey)) :
+                d.get_field(datum_string_t(pkey));
             ql::datum_t modified = modifier->call(env,
                                               std::vector<ql::datum_t>{
-                                                  res.get_field(datum_string_t(pkey)),
+                                                  primary_key,
                                                   d,
                                                   res})->as_datum();
             rcheck_toplevel((res.get_type() != ql::datum_t::type_t::R_NULL &&
@@ -794,7 +802,7 @@ public:
                             (res.get_type() == ql::datum_t::type_t::R_NULL &&
                              modified.get_type() == ql::datum_t::type_t::R_NULL),
                             ql::base_exc_t::OP_FAILED,
-                            "Modifier function returned unexpected NULL value.");
+                            "Write hook function returned unexpected NULL value.");
             res = modified;
         }
         return res;
