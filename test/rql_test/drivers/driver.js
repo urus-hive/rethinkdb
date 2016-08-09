@@ -279,7 +279,7 @@ function runTest() {
                 
                 // establish the connection, or die trying
                 r.connect({host:SERVER_HOST, port:DRIVER_PORT, user:user}, function(error, conn) {
-                    if(error){
+                    if (error) {
                         console.error("Failed to connect to server" + SERVER_HOST + ":" + DRIVER_PORT + " as user: " + user + " got error:" , error);
                         process.exit(1);
                     }
