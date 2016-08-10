@@ -22,6 +22,7 @@
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/optargs.hpp"
 #include "rdb_protocol/protocol.hpp"
+#include "rdb_protocol/pseudo_time.hpp"
 #include "rdb_protocol/val.hpp"
 #include "rdb_protocol/var_types.hpp"
 #include "rdb_protocol/wire_func.hpp"
@@ -178,9 +179,11 @@ public:
 class scope_env_t {
 public:
     scope_env_t(env_t *_env, var_scope_t &&_scope)
-        : env(_env), scope(std::move(_scope)) { }
+        : env(_env), scope(std::move(_scope)),
+          deterministic_time(pseudo::time_now()) { }
     env_t *const env;
     const var_scope_t scope;
+    datum_t deterministic_time;
 
     DISABLE_COPYING(scope_env_t);
 };

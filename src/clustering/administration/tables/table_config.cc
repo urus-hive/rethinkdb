@@ -7,6 +7,7 @@
 #include "clustering/administration/tables/split_points.hpp"
 #include "clustering/table_manager/table_meta_client.hpp"
 #include "concurrency/cross_thread_signal.hpp"
+#include "containers/archive/string_stream.hpp"
 
 table_config_artificial_table_backend_t::~table_config_artificial_table_backend_t() {
     begin_changefeed_destruction();
@@ -317,26 +318,37 @@ ql::datum_t convert_sindexes_to_datum(
     return std::move(sindexes_builder).to_datum();
 }
 
+const char *const write_hook_blob_prefix = "$reql_write_hook_function$";
+
 ql::datum_t convert_modifier_to_datum(
     const boost::optional<modifier_config_t> &modifier) {
-    ql::datum_array_builder_t modifier_builder(ql::configured_limits_t::unlimited);
+
+    ql::datum_array_builder_t res(ql::configured_limits_t::unlimited);
     if (modifier) {
-        modifier_builder.add(convert_string_to_datum(modifier->func.print_source()));
-    }
-    return std::move(modifier_builder).to_datum();
-}
+        write_message_t wm;
+        serialize<cluster_version_t::LATEST_DISK>(
+            &wm, modifier->func);
+        string_stream_t stream;
+        int write_res = send_write_message(&stream, &wm);
 
-bool convert_modifier_from_datum(
-        ql::datum_t datum,
-        std::set<std::string> *modifier_out,
-        admin_err_t *error_out) {
-    if (!convert_set_from_datum<std::string>(
-            &convert_string_from_datum, false, datum, modifier_out, error_out)) {
-        error_out->msg = "In `modifier`: " + error_out->msg;
-        return false;
-    }
+        rcheck_toplevel(write_res == 0,
+                        ql::base_exc_t::LOGIC,
+                        "Invalid write hook.");
 
-    return true;
+        ql::datum_t binary = ql::datum_t::binary(
+            datum_string_t(write_hook_blob_prefix + stream.str()));
+        res.add(
+            ql::datum_t{
+                std::map<datum_string_t, ql::datum_t>{
+                    std::pair<datum_string_t, ql::datum_t>(
+                        datum_string_t("function"), binary),
+                        std::pair<datum_string_t, ql::datum_t>(
+                            datum_string_t("query"),
+                            ql::datum_t(
+                                datum_string_t(
+                                    modifier->func.print_source())))}});
+    }
+    return std::move(res).to_datum();
 }
 
 bool convert_sindexes_from_datum(
@@ -365,7 +377,7 @@ ql::datum_t convert_table_config_to_datum(
     builder.overwrite("db", db_name_or_uuid);
     builder.overwrite("id", convert_uuid_to_datum(table_id));
     builder.overwrite("indexes", convert_sindexes_to_datum(config.sindexes));
-    builder.overwrite("modifier", convert_modifier_to_datum(config.modifier));
+    builder.overwrite("write_hook", convert_modifier_to_datum(config.modifier));
     builder.overwrite("primary_key", convert_string_to_datum(config.basic.primary_key));
     builder.overwrite("shards",
         convert_vector_to_datum<table_config_t::shard_t>(
@@ -570,24 +582,29 @@ bool convert_table_config_and_name_from_datum(
         config_out->durability = write_durability_t::HARD;
     }
 
-    if (converter.has("modifier")) {
+    if (converter.has("write_hook")) {
         ql::datum_t modifier_datum;
-        if (!converter.get("modifier", &modifier_datum, error_out)) {
+        if (!converter.get("write_hook", &modifier_datum, error_out)) {
             return false;
         }
-        if (modifier_datum.arr_size() > 0) {
+        if (modifier_datum.arr_size() != 0) {
             if (!old_config.config.modifier ||
-                modifier_datum.get(0).as_str().to_std()
-                != old_config.config.modifier->func.print_source()) {
-                error_out->msg = "The `modifier` field is read-only and can't" \
-                    "be used to create or drop a modifier function.";
+                modifier_datum
+                != convert_modifier_to_datum(old_config.config.modifier)) {
+                fprintf(stderr,
+                        "OLD: %s",
+                        convert_modifier_to_datum(
+                            old_config.config.modifier).print().c_str());
+                fprintf(stderr, "NEW: %s", modifier_datum.print().c_str());
+                error_out->msg = "The `write_hook` field is read-only and can't" \
+                    " be used to create or drop a write hook function.";
                 return false;
             }
         }
         config_out->modifier = old_config.config.modifier;
     } else {
         if (existed_before) {
-            error_out->msg = "Expected a field named `modifier`.";
+            error_out->msg = "Expected a field named `write_hook`.";
             return false;
         }
     }

@@ -735,11 +735,22 @@ public:
                 res.get_type() != ql::datum_t::type_t::R_NULL ?
                 res.get_field(pkey) :
                 d.get_field(pkey);
-            ql::datum_t modified = modifier->call(env,
-                                                  std::vector<ql::datum_t>{
-                                                      primary_key,
-                                                      d,
-                                                      res})->as_datum();
+            ql::datum_t modified;
+            try {
+               modified = modifier->call(env,
+                                         std::vector<ql::datum_t>{
+                                             primary_key,
+                                                 d,
+                                                 res})->as_datum();
+            } catch (ql::exc_t &e) {
+                throw ql::exc_t(e.get_type(),
+                                  strprintf("Error in write hook: %s", e.what()),
+                                  e.backtrace(),
+                                  e.dummy_frames());
+            } catch (ql::datum_exc_t &e) {
+                throw ql::datum_exc_t(e.get_type(),
+                                  strprintf("Error in write hook: %s", e.what()));
+            }
 
             rcheck_toplevel((res.get_type() != ql::datum_t::type_t::R_NULL &&
                             modified.get_type() != ql::datum_t::type_t::R_NULL) ||
@@ -792,11 +803,23 @@ public:
                 res.get_type() != ql::datum_t::type_t::R_NULL ?
                 res.get_field(datum_string_t(pkey)) :
                 d.get_field(datum_string_t(pkey));
-            ql::datum_t modified = modifier->call(env,
-                                              std::vector<ql::datum_t>{
-                                                  primary_key,
+            ql::datum_t modified;
+            try {
+                modified = modifier->call(env,
+                                          std::vector<ql::datum_t>{
+                                              primary_key,
                                                   d,
                                                   res})->as_datum();
+            } catch (ql::exc_t &e) {
+                throw ql::exc_t(e.get_type(),
+                                  strprintf("Error in write hook: %s", e.what()),
+                                  e.backtrace(),
+                                  e.dummy_frames());
+            } catch (ql::datum_exc_t &e) {
+                throw ql::datum_exc_t(e.get_type(),
+                                  strprintf("Error in write hook: %s", e.what()));
+            }
+
             rcheck_toplevel((res.get_type() != ql::datum_t::type_t::R_NULL &&
                             modified.get_type() != ql::datum_t::type_t::R_NULL) ||
                             (res.get_type() == ql::datum_t::type_t::R_NULL &&
