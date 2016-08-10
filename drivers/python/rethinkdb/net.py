@@ -11,7 +11,8 @@ import ssl
 import struct
 import time
 
-from . import ql2_pb2 as p
+#from .
+import ql2_pb2 as p
 
 __all__ = ['connect', 'set_loop_type', 'Connection', 'Cursor', 'DEFAULT_PORT']
 
