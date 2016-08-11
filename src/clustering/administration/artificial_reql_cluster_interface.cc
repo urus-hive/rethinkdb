@@ -457,7 +457,6 @@ bool artificial_reql_cluster_interface_t::set_write_hook(
         user_context, db, table, config, interruptor, error_out);
 }
 
-// TODO change message
 bool artificial_reql_cluster_interface_t::get_write_hook(
     auth::user_context_t const &user_context,
     counted_t<const ql::db_t> db,
@@ -466,11 +465,8 @@ bool artificial_reql_cluster_interface_t::get_write_hook(
     signal_t *interruptor,
     admin_err_t *error_out) {
     if (db->name == m_database) {
-        *error_out = admin_err_t{
-            strprintf("Database `%s` is special; you can't get a "
-                      "write hook on the tables in it.", m_database.c_str()),
-            query_state_t::FAILED};
-        return false;
+        *write_hook_datum = ql::datum_t::null();
+        return true;
     }
     return m_next->get_write_hook(
         user_context, db, table, write_hook_datum, interruptor, error_out);

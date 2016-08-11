@@ -226,9 +226,8 @@ ql::datum_t real_table_t::write_batched_replace(
     // Get write_hook function
     boost::optional<counted_t<const ql::func_t> > write_hook;
     table_config_and_shards_t config;
-    cond_t bogus;
 
-    m_table_meta_client->get_config(uuid, &bogus, &config);
+    m_table_meta_client->get_config(uuid, env->interruptor, &config);
 
     if (config.config.write_hook && !ignore_write_hook) {
         write_hook = config.config.write_hook->func.compile_wire_func();
@@ -292,9 +291,8 @@ ql::datum_t real_table_t::write_batched_insert(
     // Get write_hook function
     boost::optional<counted_t<const ql::func_t> > write_hook;
     table_config_and_shards_t config;
-    cond_t bogus;
 
-    m_table_meta_client->get_config(uuid, &bogus, &config);
+    m_table_meta_client->get_config(uuid, env->interruptor, &config);
 
     if (config.config.write_hook && !ignore_write_hook) {
         write_hook = config.config.write_hook->func.compile_wire_func();

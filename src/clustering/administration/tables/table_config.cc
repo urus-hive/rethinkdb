@@ -591,11 +591,6 @@ bool convert_table_config_and_name_from_datum(
             if (!old_config.config.write_hook ||
                 write_hook_datum
                 != convert_write_hook_to_datum(old_config.config.write_hook)) {
-                fprintf(stderr,
-                        "OLD: %s",
-                        convert_write_hook_to_datum(
-                            old_config.config.write_hook).print().c_str());
-                fprintf(stderr, "NEW: %s", write_hook_datum.print().c_str());
                 error_out->msg = "The `write_hook` field is read-only and can't" \
                     " be used to create or drop a write hook function.";
                 return false;

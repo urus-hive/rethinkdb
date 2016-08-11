@@ -1347,9 +1347,6 @@ store_key_t datum_t::truncated_secondary(
 }
 
 void datum_t::check_type(type_t desired, const char *msg) const {
-    if (get_type() != desired) {
-        fprintf(stderr, "OH NOES\n");
-    }
     rcheck_typed_target(
         this, get_type() == desired,
         (msg != NULL)
