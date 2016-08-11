@@ -2,22 +2,23 @@
 
 from __future__ import print_function
 
-import csv, ctypes, datetime, json, multiprocessing, numbers, optparse, os
-import platform, tempfile, re, signal, sys, time, traceback
+import collections, csv, ctypes, datetime, json, math, multiprocessing, numbers
+import optparse, os, platform, tempfile, re, signal, sys, time, traceback
 
 from . import errors, net, query, utils_common
-
-# When running a subprocess, we may inherit the signal handler - remove it
-signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 try:
     unicode
 except NameError:
     unicode = str
 try:
-    from multiprocessing import SimpleQueue
+    from Queue import Empty, Full
 except ImportError:
-    from multiprocessing.queues import SimpleQueue
+    from queue import Empty, Full
+try:
+    from multiprocessing import Queue, SimpleQueue
+except ImportError:
+    from multiprocessing.queues import Queue, SimpleQueue
 
 usage = """rethinkdb export [-c HOST:PORT] [-p] [--password-file FILENAME] [--tls-cert filename] [-d DIR] [-e (DB | DB.TABLE)]...
       [--format (csv | json | ndjson)] [--fields FIELD,FIELD...] [--delimiter CHARACTER]
@@ -149,7 +150,10 @@ def csv_writer(filename, fields, delimiter, task_queue, error_queue):
                     elif isinstance(row[field], unicode):
                         info.append(row[field].encode('utf-8'))
                     else:
-                        info.append(json.dumps(row[field]))
+                        if str == unicode:
+                            info.append(json.dumps(row[field]))
+                        else:
+                            info.append(json.dumps(row[field]).encode('utf-8'))
                 out_writer.writerow(info)
                 item = task_queue.get()
     except:
@@ -161,6 +165,8 @@ def csv_writer(filename, fields, delimiter, task_queue, error_queue):
             pass
 
 def export_table(db, table, directory, options, error_queue, progress_info, sindex_counter, exit_event):
+    signal.signal(signal.SIGINT, signal.SIG_DFL) # prevent signal handlers from being set in child processes
+    
     writer = None
 
     try:
@@ -178,7 +184,8 @@ def export_table(db, table, directory, options, error_queue, progress_info, sind
         with open(os.path.join(directory, db, table + '.info'), 'w') as info_file:
             info_file.write(json.dumps(table_info) + "\n")
         
-        sindex_counter.value += len(table_info["indexes"])
+        with sindex_counter.get_lock():
+            sindex_counter.value += len(table_info["indexes"])
         
         # -- start the writer
         
@@ -186,16 +193,13 @@ def export_table(db, table, directory, options, error_queue, progress_info, sind
         writer = None
         if options.format == "json":
             filename = directory + "/%s/%s.json" % (db, table)
-            writer = multiprocessing.Process(target=json_writer,
-                                           args=(filename, options.fields, task_queue, error_queue, options.format))
+            writer = multiprocessing.Process(target=json_writer, args=(filename, options.fields, task_queue, error_queue, options.format))
         elif options.format == "csv":
             filename = directory + "/%s/%s.csv" % (db, table)
-            writer = multiprocessing.Process(target=csv_writer,
-                                           args=(filename, options.fields, options.delimiter, task_queue, error_queue))
+            writer = multiprocessing.Process(target=csv_writer, args=(filename, options.fields, options.delimiter, task_queue, error_queue))
         elif options.format == "ndjson":
             filename = directory + "/%s/%s.ndjson" % (db, table)
-            writer = multiprocessing.Process(target=json_writer,
-                                           args=(filename, options.fields, task_queue, error_queue, options.format))
+            writer = multiprocessing.Process(target=json_writer, args=(filename, options.fields, task_queue, error_queue, options.format))
         else:
             raise RuntimeError("unknown format type: %s" % options.format)
         writer.start()
@@ -285,8 +289,8 @@ def update_progress(progress_info, options):
     if not options.quiet:
         utils_common.print_progress(float(rows_done) / total_rows, indent=4)
 
-def run_clients(options, partialDirectory, db_table_set):
-    # Spawn one client for each db.table
+def run_clients(options, workingDir, db_table_set):
+    # Spawn one client for each db.table, up to options.clients at a time
     exit_event = multiprocessing.Event()
     processes = []
     error_queue = SimpleQueue()
@@ -306,7 +310,7 @@ def run_clients(options, partialDirectory, db_table_set):
             progress_info.append((multiprocessing.Value(ctypes.c_longlong, 0),
                                   multiprocessing.Value(ctypes.c_longlong, tableSize)))
             arg_lists.append((db, table,
-                              partialDirectory,
+                              workingDir,
                               options,
                               error_queue,
                               progress_info[-1],
