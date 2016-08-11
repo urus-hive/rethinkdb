@@ -7,6 +7,8 @@ from __future__ import print_function
 import codecs, collections, csv, ctypes, json, multiprocessing
 import optparse, os, re, signal, sys, time, traceback
 
+from . import ast, errors, query, utils_common
+
 try:
     unicode
 except NameError:
@@ -24,10 +26,6 @@ except ImportError:
 json_read_chunk_size = 128 * 1024
 json_max_buffer_size = 128 * 1024 * 1024
 max_nesting_depth = 100
-default_batch_size = 200
-
-from . import utils_common
-r = utils_common.r
 
 Error = collections.namedtuple("Error", ["message", "traceback", "file"])
 
@@ -193,14 +191,14 @@ class SourceFile(object):
         # - ensure the table exists and is ready
         self.query_runner(
             "create table: %s.%s" % (self.db, self.table),
-            r.expr([self.table]).set_difference(r.db(self.db).table_list()).for_each(r.db(self.db).table_create(r.row, **self.source_options.create_args if 'create_args' in self.source_options else {}))
+            ast.expr([self.table]).set_difference(query.db(self.db).table_list()).for_each(query.db(self.db).table_create(query.row, **self.source_options.create_args if 'create_args' in self.source_options else {}))
         )
-        self.query_runner("wait for %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).wait(timeout=30))
+        self.query_runner("wait for %s.%s" % (self.db, self.table), query.db(self.db).table(self.table).wait(timeout=30))
         
         # - ensure that the primary key on the table is correct
         primaryKey = self.query_runner(
             "primary key %s.%s" % (self.db, self.table),
-            r.db(self.db).table(self.table).info()["primary_key"],
+            query.db(self.db).table(self.table).info()["primary_key"],
         )
         if self.primary_key is None:
             self.primary_key = primaryKey
@@ -209,25 +207,25 @@ class SourceFile(object):
         
         # - recreate secondary indexes - dropping existing on the assumption they are wrong
         if 'sindexes' in self.source_options and self.source_options.sindexes:
-            existing_indexes = self.query_runner("indexes from: %s.%s" % (self.db, self.table), r.db(self.db).table(self.table).index_list())
+            existing_indexes = self.query_runner("indexes from: %s.%s" % (self.db, self.table), query.db(self.db).table(self.table).index_list())
             try:
                 created_indexes = []
                 for index in self.indexes:
                     if index["index"] in existing_indexes: # drop existing versions
                         self.query_runner(
                             "drop index: %s.%s:%s" % (self.db, self.table, index["index"]),
-                            r.db(self.db).table(self.table).index_drop(index["index"])
+                            query.db(self.db).table(self.table).index_drop(index["index"])
                         )
                     self.query_runner(
                         "create index: %s.%s:%s" % (self.db, self.table, index["index"]),
-                        r.db(self.db).table(self.table).index_create(index["index"], index["function"])
+                        query.db(self.db).table(self.table).index_create(index["index"], index["function"])
                     )
                     created_indexes.append(index["index"])
                 
                 # wait for all of the created indexes to build
                 self.query_runner(
                     "waiting for indexes on %s.%s" % (self.db, self.table),
-                    r.db(self.db).table(self.table).index_wait(r.args(created_indexes))
+                    query.db(self.db).table(self.table).index_wait(query.args(created_indexes))
                 )
             except RuntimeError as e:
                 ex_type, ex_class, tb = sys.exc_info()
@@ -240,7 +238,7 @@ class SourceFile(object):
         
         # default batch_size
         if batch_size is None:
-            batch_size = default_batch_size
+            batch_size = utils_common.default_batch_size
         else:
             batch_size = int(batch_size)
         assert batch_size > 0
@@ -295,7 +293,7 @@ class SourceFile(object):
             signal.signal(signal.SIGINT, signal.SIG_IGN) # workers should ignore these
                 
         if batch_size is None:
-            batch_size = default_batch_size
+            batch_size = utils_common.default_batch_size
         
         self.start_time = time.time()
         try:
@@ -547,7 +545,7 @@ def parse_options(argv, prog=None):
     parser.add_option("--hard-durability", dest="durability", action="store_const", default="soft", help="use hard durability writes (slower, uses less memory)", const="hard")
     parser.add_option("--force",           dest="force",      action="store_true",  default=False,  help="import even if a table already exists, overwriting duplicate primary keys")
     
-    parser.add_option("--batch-size",      dest="batch_size", metavar="BATCH",      default=default_batch_size,          help=optparse.SUPPRESS_HELP, type="pos_int")
+    parser.add_option("--batch-size",      dest="batch_size", default=utils_common.default_batch_size, help=optparse.SUPPRESS_HELP, type="pos_int")
     
     # Replication settings
     replicationOptionsGroup = optparse.OptionGroup(parser, "Replication Options")
@@ -749,13 +747,13 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
             
             # find the table we are working on
             table_info = tables[(db, table)]
-            tbl = r.db(db).table(table)
+            tbl = query.db(db).table(table)
             
             # write the batch to the database
             try:
                 res = options.retryQuery(
                     "write batch to %s.%s" % (db, table),
-                    tbl.insert(r.expr(batch, nesting_depth=max_nesting_depth), durability=options.durability, conflict=conflict_action)
+                    tbl.insert(ast.expr(batch, nesting_depth=max_nesting_depth), durability=options.durability, conflict=conflict_action)
                 )
                 
                 if res["errors"] > 0:
@@ -766,7 +764,7 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
                 
                 table_info.add_rows_written(modified)
             
-            except r.ReqlError:
+            except errors.ReqlError:
                 # the error might have been caused by a comm or temporary error causing a partial batch write
                 
                 for row in batch:
@@ -776,7 +774,7 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
                     if conflict_action == "replace":
                         res = options.retryQuery(
                             "write row to %s.%s" % (db, table),
-                            tbl.insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
+                            tbl.insert(ast.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
                         )
                     else:
                         existingRow = options.retryQuery(
@@ -786,7 +784,7 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
                         if not existingRow:
                             res = options.retryQuery(
                                 "write row to %s.%s" % (db, table),
-                                tbl.insert(r.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
+                                tbl.insert(ast.expr(row, nesting_depth=max_nesting_depth), durability=durability, conflict=conflict_action)
                             )
                         elif existingRow != row:
                             raise RuntimeError("Duplicate primary key `%s`:\n%s\n%s" % (table_info.primary_key, str(row), str(existingRow)))
@@ -801,19 +799,6 @@ def table_writer(tables, options, work_queue, error_queue, warning_queue, exit_e
             
     except Exception as e:
         error_queue.put(Error(str(e), traceback.format_exc(), "%s.%s" % (db , table)))
-        exit_event.set()
-
-def abort_import(pools, exit_event, interrupt_event):
-    if interrupt_event.is_set():
-        # second time
-        print("\nSecond terminate signal seen, aborting ungracefully")
-        for pool in pools:
-            for worker in pool:
-                worker.terminate()
-                worker.join(.1)
-    else:
-        print("\nTerminate signal seen, aborting gracefully")
-        interrupt_event.set()
         exit_event.set()
 
 def update_progress(tables, options, done_event, exit_event, sleep=0.2):
@@ -885,7 +870,7 @@ def import_tables(options, sources):
     progressBarSleep = 0.2
     
     # - setup KeyboardInterupt handler
-    signal.signal(signal.SIGINT, lambda a, b: abort_import(pools, exit_event, interrupt_event))
+    signal.signal(signal.SIGINT, lambda a, b: utils_common.abort(pools, exit_event))
     
     # - queue draining
     def drainQueues():
@@ -911,12 +896,12 @@ def import_tables(options, sources):
     needed_dbs = set([x.db for x in sources])
     if "rethinkdb" in needed_dbs:
         raise RuntimeError("Error: Cannot import tables into the system database: 'rethinkdb'")
-    options.retryQuery("ensure dbs: %s" % ", ".join(needed_dbs), r.expr(needed_dbs).set_difference(r.db_list()).for_each(r.db_create(r.row)))
+    options.retryQuery("ensure dbs: %s" % ", ".join(needed_dbs), ast.expr(needed_dbs).set_difference(query.db_list()).for_each(query.db_create(query.row)))
     
     # check for existing tables, or if --force is enabled ones with mis-matched primary keys
     existing_tables = dict([
         ((x["db"], x["name"]), x["primary_key"]) for x in
-        options.retryQuery("list tables", r.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
+        options.retryQuery("list tables", query.db("rethinkdb").table("table_config").pluck(["db", "name", "primary_key"]))
     ])
     already_exist = []
     for source in sources:

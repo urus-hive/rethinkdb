@@ -7,7 +7,6 @@ from __future__ import print_function
 import datetime, os, platform, shutil, sys, tarfile, tempfile, time, traceback
 
 from . import utils_common, net, _export
-r = utils_common.r
 
 usage = "rethinkdb dump [-c HOST:PORT] [-p] [--password-file FILENAME] [--tls-cert FILENAME] [-f FILE] [--clients NUM] [-e (DB | DB.TABLE)]..."
 help_epilog = '''

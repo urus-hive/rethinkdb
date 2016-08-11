@@ -1,12 +1,12 @@
 # Copyright 2010-2016 RethinkDB, all rights reserved.
 
-from . import version
+from . import version, _dump, _export, _import, _restore
 from .ast import *
 from .errors import *
 from .net import *
 from .query import *
 
-__all__ = ['r', 'rethinkdb'] + errors.__all__
+__all__ = ['r', 'rethinkdb'] + errors.__all__ + [_dump, _export, _import, _restore]
 __version__ = version.version
 
 try:
