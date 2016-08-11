@@ -71,7 +71,7 @@ public:
     table_basic_config_t basic;
     std::vector<shard_t> shards;
     std::map<std::string, sindex_config_t> sindexes;
-    boost::optional<modifier_config_t> modifier;
+    boost::optional<write_hook_config_t> write_hook;
     write_ack_config_t write_ack_config;
     write_durability_t durability;
 };
@@ -142,12 +142,12 @@ public:
         table_config_and_shards_t new_config_and_shards;
     };
 
-    class modifier_create_t {
+    class write_hook_create_t {
     public:
-        modifier_config_t config;
+        write_hook_config_t config;
     };
 
-    class modifier_drop_t {
+    class write_hook_drop_t {
     public:
     };
 
@@ -179,9 +179,9 @@ public:
         : change(std::move(_change)) { }
     explicit table_config_and_shards_change_t(sindex_rename_t &&_change)
         : change(std::move(_change)) { }
-    explicit table_config_and_shards_change_t(modifier_create_t &&_change)
+    explicit table_config_and_shards_change_t(write_hook_create_t &&_change)
         : change(std::move(_change)) { }
-    explicit table_config_and_shards_change_t(modifier_drop_t &&_change)
+    explicit table_config_and_shards_change_t(write_hook_drop_t &&_change)
         : change(std::move(_change)) { }
 
 
@@ -211,8 +211,8 @@ private:
         sindex_create_t,
         sindex_drop_t,
         sindex_rename_t,
-        modifier_create_t,
-        modifier_drop_t> change;
+        write_hook_create_t,
+        write_hook_drop_t> change;
 
     class apply_change_visitor_t
         : public boost::static_visitor<bool> {
@@ -228,13 +228,13 @@ private:
             return true;
         }
 
-        result_type operator()(const modifier_create_t &modifier_create) const {
-            table_config_and_shards->config.modifier = modifier_create.config;
+        result_type operator()(const write_hook_create_t &write_hook_create) const {
+            table_config_and_shards->config.write_hook = write_hook_create.config;
             return true;
         }
 
-        result_type operator()(UNUSED const modifier_drop_t &modifier_drop) const {
-            table_config_and_shards->config.modifier = boost::none;
+        result_type operator()(UNUSED const write_hook_drop_t &write_hook_drop) const {
+            table_config_and_shards->config.write_hook = boost::none;
             return true;
         }
 
@@ -277,8 +277,8 @@ private:
 };
 
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::set_table_config_and_shards_t);
-RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::modifier_create_t);
-RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::modifier_drop_t);
+RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::write_hook_create_t);
+RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::write_hook_drop_t);
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::sindex_create_t);
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::sindex_drop_t);
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::sindex_rename_t);

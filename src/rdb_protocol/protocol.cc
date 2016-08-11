@@ -1200,16 +1200,16 @@ struct rdb_w_shard_visitor_t : public boost::static_visitor<bool> {
                 shard_keys.push_back(*it);
             }
         }
-        boost::optional<counted_t<const ql::func_t> > temp_modifier_func;
-        if (br.modifier) {
-            temp_modifier_func = br.modifier->compile_wire_func();
+        boost::optional<counted_t<const ql::func_t> > temp_write_hook_func;
+        if (br.write_hook) {
+            temp_write_hook_func = br.write_hook->compile_wire_func();
         }
         if (!shard_keys.empty()) {
             *payload_out = batched_replace_t(
                 std::move(shard_keys),
                 br.pkey,
                 br.f.compile_wire_func(),
-                temp_modifier_func,
+                temp_write_hook_func,
                 br.optargs,
                 br.m_user_context,
                 br.return_changes);
@@ -1234,13 +1234,13 @@ struct rdb_w_shard_visitor_t : public boost::static_visitor<bool> {
                 temp_conflict_func = bi.conflict_func->compile_wire_func();
             }
 
-            boost::optional<counted_t<const ql::func_t> > temp_modifier;
-            if (bi.modifier) {
-                temp_modifier = bi.modifier->compile_wire_func();
+            boost::optional<counted_t<const ql::func_t> > temp_write_hook;
+            if (bi.write_hook) {
+                temp_write_hook = bi.write_hook->compile_wire_func();
             }
             *payload_out = batched_insert_t(std::move(shard_inserts),
                                             bi.pkey,
-                                            temp_modifier,
+                                            temp_write_hook,
                                             bi.conflict_behavior,
                                             temp_conflict_func,
                                             bi.limits,
@@ -1298,7 +1298,7 @@ bool write_t::shard(const region_t &region,
 batched_insert_t::batched_insert_t(
         std::vector<ql::datum_t> &&_inserts,
         const std::string &_pkey,
-        boost::optional<counted_t<const ql::func_t> > _modifier,
+        boost::optional<counted_t<const ql::func_t> > _write_hook,
         conflict_behavior_t _conflict_behavior,
         boost::optional<counted_t<const ql::func_t> > _conflict_func,
         const ql::configured_limits_t &_limits,
@@ -1315,8 +1315,8 @@ batched_insert_t::batched_insert_t(
         conflict_func = ql::wire_func_t(*_conflict_func);
     }
 
-    if (_modifier) {
-        modifier = ql::wire_func_t(*_modifier);
+    if (_write_hook) {
+        write_hook = ql::wire_func_t(*_write_hook);
     }
 #ifndef NDEBUG
     // These checks are done above us, but in debug mode we do them
@@ -1545,12 +1545,12 @@ RDB_IMPL_SERIALIZABLE_0_FOR_CLUSTER(dummy_write_response_t);
 RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(write_response_t, response, event_log, n_shards);
 
 RDB_IMPL_SERIALIZABLE_6_FOR_CLUSTER(
-        batched_replace_t, keys, pkey, f, modifier, optargs, return_changes);
+        batched_replace_t, keys, pkey, f, write_hook, optargs, return_changes);
 RDB_IMPL_SERIALIZABLE_8_FOR_CLUSTER(
         batched_insert_t,
         inserts,
         pkey,
-        modifier,
+        write_hook,
         conflict_behavior,
         conflict_func,
         limits,

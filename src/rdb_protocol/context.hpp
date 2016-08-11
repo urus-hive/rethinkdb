@@ -79,21 +79,21 @@ public:
 };
 RDB_DECLARE_SERIALIZABLE(sindex_config_t);
 
-class modifier_config_t {
+class write_hook_config_t {
 public:
-    modifier_config_t() { }
-    modifier_config_t(const ql::wire_func_t &_func, reql_version_t _func_version) :
+    write_hook_config_t() { }
+    write_hook_config_t(const ql::wire_func_t &_func, reql_version_t _func_version) :
         func(_func), func_version(_func_version) { }
 
-    bool operator==(const modifier_config_t &o) const;
-    bool operator!=(const modifier_config_t &o) const {
+    bool operator==(const write_hook_config_t &o) const;
+    bool operator!=(const write_hook_config_t &o) const {
         return !(*this == o);
     }
 
     ql::wire_func_t func;
     reql_version_t func_version;
 };
-RDB_DECLARE_SERIALIZABLE(modifier_config_t);
+RDB_DECLARE_SERIALIZABLE(write_hook_config_t);
 
 class sindex_status_t {
 public:
@@ -402,7 +402,7 @@ public:
             auth::user_context_t const &user_context,
             counted_t<const ql::db_t> db,
             const name_string_t &table,
-            boost::optional<modifier_config_t> &config,
+            boost::optional<write_hook_config_t> &config,
             signal_t *interruptor,
             admin_err_t *error_out) = 0;
 

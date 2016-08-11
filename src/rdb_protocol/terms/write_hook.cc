@@ -146,7 +146,7 @@ public:
         return new_val(std::move(write_hook));
     }
 
-    virtual const char *name() const { return "modifier_drop"; }
+    virtual const char *name() const { return "get_write_hook"; }
 };
 
 counted_t<term_t> make_set_write_hook_term(

@@ -29,7 +29,7 @@ bool sindex_config_t::operator==(const sindex_config_t &o) const {
 RDB_IMPL_SERIALIZABLE_4_SINCE_v2_1(sindex_config_t,
     func, func_version, multi, geo);
 
-bool modifier_config_t::operator==(const modifier_config_t &o) const {
+bool write_hook_config_t::operator==(const write_hook_config_t &o) const {
     if (func_version != o.func_version) {
         return false;
     }
@@ -46,7 +46,7 @@ bool modifier_config_t::operator==(const modifier_config_t &o) const {
     return stream1.vector() == stream2.vector();
 }
 
-RDB_IMPL_SERIALIZABLE_2_SINCE_v2_4(modifier_config_t,
+RDB_IMPL_SERIALIZABLE_2_SINCE_v2_4(write_hook_config_t,
     func, func_version);
 
 void sindex_status_t::accum(const sindex_status_t &other) {

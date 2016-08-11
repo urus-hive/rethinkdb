@@ -29,8 +29,8 @@ void serialize(write_message_t *wm, const table_config_t &tc) {
     std::map<std::string, sindex_config_t> sindexes = tc.sindexes;
     serialize<W>(wm, sindexes);
 
-    boost::optional<modifier_config_t> modifier = tc.modifier;
-    serialize<W>(wm, modifier);
+    boost::optional<write_hook_config_t> write_hook = tc.write_hook;
+    serialize<W>(wm, write_hook);
 
     write_ack_config_t write_ack_config = tc.write_ack_config;
     serialize<W>(wm, write_ack_config);
@@ -99,8 +99,8 @@ archive_result_t deserialize_table_config(
     res = deserialize<W>(s, &sindexes);
     if (bad(res)) { return res; }
 
-    boost::optional<modifier_config_t> modifier;
-    res = deserialize<W>(s, &modifier);
+    boost::optional<write_hook_config_t> write_hook;
+    res = deserialize<W>(s, &write_hook);
     if (bad(res)) { return res; }
 
     write_ack_config_t write_ack_config;
@@ -114,7 +114,7 @@ archive_result_t deserialize_table_config(
     *tc = table_config_t{basic,
                          shards,
                          sindexes,
-                         modifier,
+                         write_hook
                          write_ack_config,
                          durability};
 
@@ -129,7 +129,7 @@ archive_result_t deserialize<cluster_version_t::v2_4_is_latest>(
 
 
 RDB_IMPL_EQUALITY_COMPARABLE_6(table_config_t,
-    basic, shards, modifier, sindexes, write_ack_config, durability);
+    basic, shards, write_hook, sindexes, write_ack_config, durability);
 
 RDB_IMPL_SERIALIZABLE_1_SINCE_v1_16(table_shard_scheme_t, split_points);
 RDB_IMPL_EQUALITY_COMPARABLE_1(table_shard_scheme_t, split_points);
@@ -149,9 +149,9 @@ RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::sindex_dro
 RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(table_config_and_shards_change_t::sindex_rename_t,
     name, new_name, overwrite);
 
-RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::modifier_create_t,
+RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::write_hook_create_t,
     config);
-RDB_IMPL_SERIALIZABLE_0_FOR_CLUSTER(table_config_and_shards_change_t::modifier_drop_t);
+RDB_IMPL_SERIALIZABLE_0_FOR_CLUSTER(table_config_and_shards_change_t::write_hook_drop_t);
 
 RDB_IMPL_SERIALIZABLE_1_SINCE_v1_13(database_semilattice_metadata_t, name);
 RDB_IMPL_SEMILATTICE_JOINABLE_1(database_semilattice_metadata_t, name);

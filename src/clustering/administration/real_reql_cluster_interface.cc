@@ -1209,7 +1209,7 @@ bool real_reql_cluster_interface_t::set_write_hook(
     auth::user_context_t const &user_context,
     counted_t<const ql::db_t> db,
     const name_string_t &table,
-    boost::optional<modifier_config_t> &config,
+    boost::optional<write_hook_config_t> &config,
     signal_t *interruptor_on_caller,
     admin_err_t *) {
     guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
@@ -1225,13 +1225,13 @@ bool real_reql_cluster_interface_t::set_write_hook(
 
     if (config) {
         table_config_and_shards_change_t table_config_and_shards_change(
-            table_config_and_shards_change_t::modifier_create_t{config.get()});
+            table_config_and_shards_change_t::write_hook_create_t{config.get()});
 
         m_table_meta_client->set_config(
             table_id, table_config_and_shards_change, &interruptor_on_home);
     } else {
         table_config_and_shards_change_t table_config_and_shards_change(
-            table_config_and_shards_change_t::modifier_drop_t{});
+            table_config_and_shards_change_t::write_hook_drop_t{});
         m_table_meta_client->set_config(
             table_id, table_config_and_shards_change, &interruptor_on_home);
     }
@@ -1266,11 +1266,11 @@ bool real_reql_cluster_interface_t::get_write_hook(
         &existing_config);
 
     *write_hook_datum = ql::datum_t::null();
-    if (existing_config.config.modifier) {
+    if (existing_config.config.write_hook) {
 
         write_message_t wm;
         serialize<cluster_version_t::LATEST_DISK>(
-            &wm, existing_config.config.modifier->func);
+            &wm, existing_config.config.write_hook->func);
         string_stream_t stream;
         int write_res = send_write_message(&stream, &wm);
 
@@ -1290,7 +1290,7 @@ bool real_reql_cluster_interface_t::get_write_hook(
                     datum_string_t("query"),
                     ql::datum_t(
                         datum_string_t(
-                            existing_config.config.modifier->func.print_source())))}};
+                            existing_config.config.write_hook->func.print_source())))}};
     }
     return true;
 }

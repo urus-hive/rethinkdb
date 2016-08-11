@@ -718,26 +718,25 @@ public:
     func_replacer_t(ql::env_t *_env,
                     std::string _pkey,
                     const ql::wire_func_t &wf,
-                    counted_t<const ql::func_t> mf,
+                    counted_t<const ql::func_t> wh,
                     return_changes_t _return_changes)
         : env(_env),
           pkey(_pkey),
           f(wf.compile_wire_func()),
-          modifier(mf),
+          write_hook(wh),
           return_changes(_return_changes) { }
     ql::datum_t replace(
         const ql::datum_t &d, size_t) const {
         ql::datum_t res = f->call(env, d, ql::LITERAL_OK)->as_datum();
 
-        if (modifier.has()) {
-            fprintf(stderr, "Called modifier FUNC \n");
+        if (write_hook.has()) {
             ql::datum_t primary_key =
                 res.get_type() != ql::datum_t::type_t::R_NULL ?
                 res.get_field(pkey) :
                 d.get_field(pkey);
             ql::datum_t modified;
             try {
-               modified = modifier->call(env,
+               modified = write_hook->call(env,
                                          std::vector<ql::datum_t>{
                                              primary_key,
                                                  d,
@@ -767,7 +766,7 @@ private:
     ql::env_t *const env;
     datum_string_t pkey;
     const counted_t<const ql::func_t> f;
-    const counted_t<const ql::func_t> modifier;
+    const counted_t<const ql::func_t> write_hook;
     const return_changes_t return_changes;
 };
 
@@ -783,8 +782,8 @@ public:
         if (bi.conflict_func) {
             conflict_func = bi.conflict_func->compile_wire_func();
         }
-        if (bi.modifier) {
-            modifier = bi.modifier->compile_wire_func();
+        if (bi.write_hook) {
+            write_hook = bi.write_hook->compile_wire_func();
         }
     }
     ql::datum_t replace(const ql::datum_t &d,
@@ -797,15 +796,14 @@ public:
                                              newd,
                                              conflict_behavior,
                                              conflict_func);
-        if (modifier.has()) {
-            fprintf(stderr, "Called modifier DATUM \n");
+        if (write_hook.has()) {
             ql::datum_t primary_key =
                 res.get_type() != ql::datum_t::type_t::R_NULL ?
                 res.get_field(datum_string_t(pkey)) :
                 d.get_field(datum_string_t(pkey));
             ql::datum_t modified;
             try {
-                modified = modifier->call(env,
+                modified = write_hook->call(env,
                                           std::vector<ql::datum_t>{
                                               primary_key,
                                                   d,
@@ -834,7 +832,7 @@ public:
 private:
     ql::env_t *env;
 
-    counted_t<const ql::func_t> modifier;
+    counted_t<const ql::func_t> write_hook;
 
     const std::vector<ql::datum_t> *const datums;
     const conflict_behavior_t conflict_behavior;
@@ -856,15 +854,15 @@ struct rdb_write_visitor_t : public boost::static_visitor<void> {
             store, &sindex_block,
             auto_drainer_t::lock_t(&store->drainer));
 
-        counted_t<const ql::func_t> modifier;
-        if (br.modifier) {
-            modifier = br.modifier->compile_wire_func();
+        counted_t<const ql::func_t> write_hook;
+        if (br.write_hook) {
+            write_hook = br.write_hook->compile_wire_func();
         }
 
         func_replacer_t replacer(&ql_env,
                                  br.pkey,
                                  br.f,
-                                 modifier,
+                                 write_hook,
                                  br.return_changes);
 
         response->response =

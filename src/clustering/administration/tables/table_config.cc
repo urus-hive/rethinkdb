@@ -320,14 +320,14 @@ ql::datum_t convert_sindexes_to_datum(
 
 const char *const write_hook_blob_prefix = "$reql_write_hook_function$";
 
-ql::datum_t convert_modifier_to_datum(
-    const boost::optional<modifier_config_t> &modifier) {
+ql::datum_t convert_write_hook_to_datum(
+    const boost::optional<write_hook_config_t> &write_hook) {
 
     ql::datum_array_builder_t res(ql::configured_limits_t::unlimited);
-    if (modifier) {
+    if (write_hook) {
         write_message_t wm;
         serialize<cluster_version_t::LATEST_DISK>(
-            &wm, modifier->func);
+            &wm, write_hook->func);
         string_stream_t stream;
         int write_res = send_write_message(&stream, &wm);
 
@@ -346,7 +346,7 @@ ql::datum_t convert_modifier_to_datum(
                             datum_string_t("query"),
                             ql::datum_t(
                                 datum_string_t(
-                                    modifier->func.print_source())))}});
+                                    write_hook->func.print_source())))}});
     }
     return std::move(res).to_datum();
 }
@@ -377,7 +377,7 @@ ql::datum_t convert_table_config_to_datum(
     builder.overwrite("db", db_name_or_uuid);
     builder.overwrite("id", convert_uuid_to_datum(table_id));
     builder.overwrite("indexes", convert_sindexes_to_datum(config.sindexes));
-    builder.overwrite("write_hook", convert_modifier_to_datum(config.modifier));
+    builder.overwrite("write_hook", convert_write_hook_to_datum(config.write_hook));
     builder.overwrite("primary_key", convert_string_to_datum(config.basic.primary_key));
     builder.overwrite("shards",
         convert_vector_to_datum<table_config_t::shard_t>(
@@ -583,25 +583,25 @@ bool convert_table_config_and_name_from_datum(
     }
 
     if (converter.has("write_hook")) {
-        ql::datum_t modifier_datum;
-        if (!converter.get("write_hook", &modifier_datum, error_out)) {
+        ql::datum_t write_hook_datum;
+        if (!converter.get("write_hook", &write_hook_datum, error_out)) {
             return false;
         }
-        if (modifier_datum.arr_size() != 0) {
-            if (!old_config.config.modifier ||
-                modifier_datum
-                != convert_modifier_to_datum(old_config.config.modifier)) {
+        if (write_hook_datum.arr_size() != 0) {
+            if (!old_config.config.write_hook ||
+                write_hook_datum
+                != convert_write_hook_to_datum(old_config.config.write_hook)) {
                 fprintf(stderr,
                         "OLD: %s",
-                        convert_modifier_to_datum(
-                            old_config.config.modifier).print().c_str());
-                fprintf(stderr, "NEW: %s", modifier_datum.print().c_str());
+                        convert_write_hook_to_datum(
+                            old_config.config.write_hook).print().c_str());
+                fprintf(stderr, "NEW: %s", write_hook_datum.print().c_str());
                 error_out->msg = "The `write_hook` field is read-only and can't" \
                     " be used to create or drop a write hook function.";
                 return false;
             }
         }
-        config_out->modifier = old_config.config.modifier;
+        config_out->write_hook = old_config.config.write_hook;
     } else {
         if (existed_before) {
             error_out->msg = "Expected a field named `write_hook`.";

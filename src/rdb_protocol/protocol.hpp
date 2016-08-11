@@ -573,7 +573,7 @@ struct batched_replace_t {
             std::vector<store_key_t> &&_keys,
             const std::string &_pkey,
             const counted_t<const ql::func_t> &func,
-            boost::optional<counted_t<const ql::func_t> > mod,
+            boost::optional<counted_t<const ql::func_t> > wh,
             ql::global_optargs_t _optargs,
             auth::user_context_t user_context,
             return_changes_t _return_changes)
@@ -586,14 +586,14 @@ struct batched_replace_t {
         r_sanity_check(keys.size() != 0);
 
         if (mod) {
-            modifier = ql::wire_func_t(*mod);
+            write_hook = ql::wire_func_t(*wh);
         }
 
     }
     std::vector<store_key_t> keys;
     std::string pkey;
     ql::wire_func_t f;
-    boost::optional<ql::wire_func_t> modifier;
+    boost::optional<ql::wire_func_t> write_hook;
     ql::global_optargs_t optargs;
     auth::user_context_t m_user_context;
     return_changes_t return_changes;
@@ -605,7 +605,7 @@ struct batched_insert_t {
     batched_insert_t(
         std::vector<ql::datum_t> &&_inserts,
         const std::string &_pkey,
-        boost::optional<counted_t<const ql::func_t> > _modifier,
+        boost::optional<counted_t<const ql::func_t> > _write_hook,
         conflict_behavior_t _conflict_behavior,
         boost::optional<counted_t<const ql::func_t> > _conflict_func,
         const ql::configured_limits_t &_limits,
@@ -614,7 +614,7 @@ struct batched_insert_t {
 
     std::vector<ql::datum_t> inserts;
     std::string pkey;
-    boost::optional<ql::wire_func_t> modifier;
+    boost::optional<ql::wire_func_t> write_hook;
     conflict_behavior_t conflict_behavior;
     boost::optional<ql::wire_func_t> conflict_func;
     ql::configured_limits_t limits;

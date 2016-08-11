@@ -576,10 +576,10 @@ message Term {
         // Renames the given index to a new name
         INDEX_RENAME = 156; // Table, STRING, STRING, {overwrite:BOOL} -> OBJECT
 
-        // * Modifier Function OPs
-        // Creates a new modifier function with a particular definition
+        // * Write hook Function OPs
+        // Creates a new write hook function with a particular definition
         SET_WRITE_HOOK = 189; // Table, Function(2)
-        // Drops a modifier function
+        // Drops a write hook function
         GET_WRITE_HOOK = 190; // Table
         // * Control Operators
         // Calls a function on data
