@@ -114,7 +114,7 @@ archive_result_t deserialize_table_config(
     *tc = table_config_t{basic,
                          shards,
                          sindexes,
-                         write_hook
+                         write_hook,
                          write_ack_config,
                          durability};
 
@@ -149,8 +149,7 @@ RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::sindex_dro
 RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(table_config_and_shards_change_t::sindex_rename_t,
     name, new_name, overwrite);
 
-RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::write_hook_create_t,
-    config);
+RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::write_hook_create_t, config);
 RDB_IMPL_SERIALIZABLE_0_FOR_CLUSTER(table_config_and_shards_change_t::write_hook_drop_t);
 
 RDB_IMPL_SERIALIZABLE_1_SINCE_v1_13(database_semilattice_metadata_t, name);

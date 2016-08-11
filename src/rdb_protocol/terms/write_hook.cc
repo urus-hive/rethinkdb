@@ -26,11 +26,11 @@ public:
         scope_env_t *env, args_t *args, eval_flags_t) const {
         counted_t<table_t> table = args->arg(env, 0)->as_table();
 
-        /* Parse the modifier configuration */
-        boost::optional<modifier_config_t> config;
+        /* Parse the write_hook configuration */
+        boost::optional<write_hook_config_t> config;
         datum_string_t message("deleted");
         scoped_ptr_t<val_t> v = args->arg(env, 1);
-        // We ignore the modifier's old `reql_version` and make the new version
+        // We ignore the write_hook's old `reql_version` and make the new version
         // just be `reql_version_t::LATEST`; but in the future we may have
         // to do some conversions for compatibility.
         bool got_func = false;
@@ -58,8 +58,8 @@ public:
                 string_read_stream_t rs(str.to_std(), prefix_sz);
                 deserialize<cluster_version_t::LATEST_DISK>(&rs, &func);
 
-                const modifier_config_t conf =
-                    modifier_config_t(func,
+                const write_hook_config_t conf =
+                    write_hook_config_t(func,
                                       reql_version_t::LATEST);
 
                 config = conf;
@@ -81,8 +81,8 @@ public:
         if (!got_func) {
             // This way it will complain about it not being a function.
 
-            const modifier_config_t conf =
-                modifier_config_t(ql::wire_func_t(v->as_func()),
+            const write_hook_config_t conf =
+                write_hook_config_t(ql::wire_func_t(v->as_func()),
                                   reql_version_t::LATEST);
 
             config = conf;

@@ -585,7 +585,7 @@ struct batched_replace_t {
           return_changes(_return_changes) {
         r_sanity_check(keys.size() != 0);
 
-        if (mod) {
+        if (wh) {
             write_hook = ql::wire_func_t(*wh);
         }
 

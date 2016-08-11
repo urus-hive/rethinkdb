@@ -223,15 +223,15 @@ ql::datum_t real_table_t::write_batched_replace(
     durability_requirement_t durability,
     bool ignore_write_hook) {
 
-    // Get modifier function
-    boost::optional<counted_t<const ql::func_t> > modifier;
+    // Get write_hook function
+    boost::optional<counted_t<const ql::func_t> > write_hook;
     table_config_and_shards_t config;
     cond_t bogus;
 
     m_table_meta_client->get_config(uuid, &bogus, &config);
 
-    if (config.config.modifier && !ignore_write_hook) {
-        modifier = config.config.modifier->func.compile_wire_func();
+    if (config.config.write_hook && !ignore_write_hook) {
+        write_hook = config.config.write_hook->func.compile_wire_func();
     }
 
     std::vector<store_key_t> store_keys;
@@ -250,7 +250,7 @@ ql::datum_t real_table_t::write_batched_replace(
                 std::move(batch),
                 pkey,
                 func,
-                modifier,
+                write_hook,
                 env->get_all_optargs(),
                 env->get_user_context(),
                 return_changes);
@@ -289,15 +289,15 @@ ql::datum_t real_table_t::write_batched_insert(
     durability_requirement_t durability,
     bool ignore_write_hook) {
 
-    // Get modifier function
-    boost::optional<counted_t<const ql::func_t> > modifier;
+    // Get write_hook function
+    boost::optional<counted_t<const ql::func_t> > write_hook;
     table_config_and_shards_t config;
     cond_t bogus;
 
     m_table_meta_client->get_config(uuid, &bogus, &config);
 
-    if (config.config.modifier && !ignore_write_hook) {
-        modifier = config.config.modifier->func.compile_wire_func();
+    if (config.config.write_hook && !ignore_write_hook) {
+        write_hook = config.config.write_hook->func.compile_wire_func();
     }
 
     ql::datum_t stats((std::map<datum_string_t, ql::datum_t>()));
@@ -307,7 +307,7 @@ ql::datum_t real_table_t::write_batched_insert(
         batched_insert_t write(
             std::move(batch),
             pkey,
-            modifier,
+            write_hook,
             conflict_behavior,
             conflict_func,
             env->limits(),
