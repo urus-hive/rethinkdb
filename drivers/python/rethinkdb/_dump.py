@@ -121,7 +121,6 @@ NOTE: 'rethinkdb-dump' saves data and secondary indexes, but does *not* save
                     archive = tarfile.open(fileobj=options.out_file, mode="w:gz")
                 else:
                     archive = tarfile.open(name=options.out_file, mode="w:gz")
-                print(options.directory)
                 for curr, _, files in os.walk(os.path.realpath(options.directory)):
                     for data_file in files:
                         fullPath = os.path.join(options.directory, curr, data_file)

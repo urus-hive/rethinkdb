@@ -241,7 +241,6 @@ class RdbTestCase(TestCaseCompatible):
         
         # - ensure we have the proper number of servers
         # note: we start up enough servers to make sure they each have only one role
-        print(self.servers)
         serverCount = max(self.shards * self.replicas, len(self.servers) if hasattr(self.servers, '__iter__') else self.servers or 0)
         for _ in range(serverCount - len(self.cluster)):
             firstServer = len(self.cluster) == 0

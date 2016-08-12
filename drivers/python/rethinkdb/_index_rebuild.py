@@ -8,7 +8,6 @@ from __future__ import print_function
 
 import os, random, sys, time, traceback
 from . import net, query, utils_common
-r = utils_common.r
 
 usage = "rethinkdb index-rebuild [-c HOST:PORT] [-n NUM] [-r (DB | DB.TABLE)] [--tls-cert FILENAME] [-p] [--password-file FILENAME]..."
 help_epilog = '''
