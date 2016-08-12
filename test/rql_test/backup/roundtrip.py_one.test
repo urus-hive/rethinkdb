@@ -39,22 +39,16 @@ class BackupTesting(rdb_unittest.RdbTestCase):
     tables            = 3
     recordsToGenerate = 200
     batchsize         = 40
+    cleanTables       = False
     
-    def add_data(self, db, table, primary_key='id', records=None, batchsize=None):
+    def populateTable(self, conn=None, table=None, records=None, fieldName=None):
+        if conn is None:
+            conn = self.conn
+        if table is None:
+            table = self.table
         if records is None:
-            records = self.records
-        if batchsize is None:
-            batchsize = self.batchsize
-        
-        # - create db/table
-        self.r.expr([db]).set_difference(self.r.db_list()).for_each(self.r.db_create(self.r.row)).run(self.conn)
-        self.r.expr([table]).set_difference(self.r.db(db).table_list()).for_each(self.r.db(db).table_create(self.r.row)).run(self.conn)
-        
-        # - ensure primary_key
-        self.assertEqual(self.r.db(db).table(table).info()['primary_key'], primary_key, 'Table %s.%s did not have the expected primary key: %s' % (db, table, primary_key))
-        
-        # - clear out everything
-        self.r.db(db).table(table).delete().run(self.conn)
+            records = self.recordsToGenerate
+        batchsize = self.batchsize
         
         # - insert random data
         lastStep = 0
@@ -62,7 +56,7 @@ class BackupTesting(rdb_unittest.RdbTestCase):
             batch = []
             for _ in range(lastStep, min(records, lastStep + batchsize)):
                 batch.append({
-                    primary_key:self.r.uuid(),
+                    'id':       self.r.uuid(),
                     'bool':     random.choice((False, True)),
                     'integer':  random.randint(-500, 500),
                     'float':    random.uniform(-100000, 100000),
@@ -102,18 +96,23 @@ class BackupTesting(rdb_unittest.RdbTestCase):
                                 ),
                     'circle':   self.r.circle([random.uniform(-90, 90), random.uniform(-180, 180)], random.uniform(1, 1000))
                 })
-            self.r.db(db).table(table).insert(batch).run(self.conn)
+            table.insert(batch).run(conn)
         
         # - create indexes
-        self.r.db(db).table(table).index_create('bool').run(self.conn)
-        self.r.db(db).table(table).index_create('unicode').run(self.conn)
-        self.r.db(db).table(table).index_create('complicated').run(self.conn)
-        self.r.db(db).table(table).index_create('function', self.r.row['dict']['a']).run(self.conn)
-        self.r.db(db).table(table).index_wait().run(self.conn)
+        table.index_create('bool').run(conn)
+        table.index_create('unicode').run(conn)
+        table.index_create('complicated').run(conn)
+        table.index_create('function', self.r.row['dict']['a']).run(conn)
+        table.index_wait().run(conn)
     
-    def compare_servers(self, targetConn):
+    def compare_servers(self, targetConn, tables=None):
         self.maxDiff = None
+        if isinstance(tables, (str, unicode)):
+            tables = [tables]
         for db, table, primary_key in self.r.db('rethinkdb').table('table_config').pluck('db', 'name', 'primary_key').map(self.r.row.values()).run(self.conn):
+            if tables is not None and table not in tables:
+                continue
+            
             # - confirm table existance and metadata
             targetInfo = None
             try:
@@ -155,17 +154,11 @@ class BackupTesting(rdb_unittest.RdbTestCase):
             else:
                 raise Exception('In %s.%s there were more entries in the target than source (%d)' % (db, table, i))
     
-    
-    
     def test_dump_restore(self):
         sourceServer  = self.cluster[0]
         targetCluster = driver.Cluster(initial_servers=1)
         targetServer  = targetCluster[0]
         targetConn    = self.r.connect(host=targetServer.host, port=str(targetServer.driver_port))
-        
-        # - add tables/records
-        for i in range(self.tables):
-            self.add_data(db=self.dbName, table='roundtrip_%d' % i)
         
         # - dump to file
         dumpFile = tempfile.mktemp(suffix='.tar.gz')
@@ -200,29 +193,27 @@ class BackupTesting(rdb_unittest.RdbTestCase):
         utils.cleanupPathAtExit(outputFolder)
         outputFolder  = os.path.join(outputFolder, 'export')
         
-        # - add tables/records
-        self.add_data(db=self.dbName, table=self.tableName)
+        for table in self.tableNames:
+            # - export the table
+            self.assertEqual(0, self.r._export.main(argv=[
+                '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
+                '-d', outputFolder, '-e', '%s.%s' % (self.dbName, table), '--format', 'csv',
+                '--fields', 'bool,integer,float,string,unicode,dict,array,complicated,binary,time,circle'
+            ]))
+            
+            # - verify existance of files
+            outputBasePath = os.path.join(outputFolder, self.dbName, table)
+            self.assertTrue(os.path.exists(outputBasePath + '.info'), 'There was no file at: %s' % (outputBasePath + '.info'))
+            self.assertTrue(os.path.exists(outputBasePath + '.csv'), 'There was no file at: %s' % (outputBasePath + '.csv'))
+            
+            # - import the table
+            self.assertEqual(0, self.r._import.main(argv=[
+                '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
+                '-f', outputBasePath + '.csv', '--table', '%s.%s' % (self.dbName, self.tableName)
+            ]))
         
-        # - export the table
-        self.assertEqual(0, self.r._export.main(argv=[
-            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
-            '-d', outputFolder, '-e', '%s.%s' % (self.dbName, self.tableName), '--format', 'csv',
-            '--fields', 'bool,integer,float,string,unicode,dict,array,complicated,binary,time,circle'
-        ]))
-        
-        # - verify existance of files
-        outputBasePath = os.path.join(outputFolder, self.dbName, self.tableName)
-        self.assertTrue(os.path.exists(outputBasePath + '.info'), 'There was no file at: %s' % (outputBasePath + '.info'))
-        self.assertTrue(os.path.exists(outputBasePath + '.csv'), 'There was no file at: %s' % (outputBasePath + '.csv'))
-        
-        # - import the table
-        self.assertEqual(0, self.r._import.main(argv=[
-            '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
-            '-f', outputBasePath + '.csv', '--table', '%s.%s' % (self.dbName, self.tableName)
-        ]))
-        
-        # - validate that the table matches
-        self.compare_servers(targetConn)
+            # - validate that the data matches
+            self.compare_servers(targetConn, tables=[table])
     
     def test_export_import_json(self):
         sourceServer  = self.cluster[0]
@@ -234,34 +225,29 @@ class BackupTesting(rdb_unittest.RdbTestCase):
         utils.cleanupPathAtExit(outputFolder)
         outputFolder  = os.path.join(outputFolder, 'export')
         
-        # - add tables/records
-        self.add_data(db=self.dbName, table=self.tableName)
-        
-        # - export the table
-        self.assertEqual(0, self.r._export.main(argv=[
-            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
-            '-d', outputFolder, '-e', '%s.%s' % (self.dbName, self.tableName), '--format', 'json'
-        ]))
-        
-        # - verify existance of files
-        outputBasePath = os.path.join(outputFolder, self.dbName, self.tableName)
-        self.assertTrue(os.path.exists(outputBasePath + '.info'), 'There was no file at: %s' % (outputBasePath + '.info'))
-        self.assertTrue(os.path.exists(outputBasePath + '.json'), 'There was no file at: %s' % (outputBasePath + '.json'))
-        
-        # - import the table
-        self.assertEqual(0, self.r._import.main(argv=[
-            '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
-            '-f', outputBasePath + '.json', '--table', '%s.%s' % (self.dbName, self.tableName)
-        ]))
-        
-        # - validate that the table matches
-        self.compare_servers(targetConn)
+        for table in self.tableNames:
+            # - export the table
+            self.assertEqual(0, self.r._export.main(argv=[
+                '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
+                '-d', outputFolder, '-e', '%s.%s' % (self.dbName, table), '--format', 'json'
+            ]))
+            
+            # - verify existance of files
+            outputBasePath = os.path.join(outputFolder, self.dbName, table)
+            self.assertTrue(os.path.exists(outputBasePath + '.info'), 'There was no file at: %s' % (outputBasePath + '.info'))
+            self.assertTrue(os.path.exists(outputBasePath + '.json'), 'There was no file at: %s' % (outputBasePath + '.json'))
+            
+            # - import the table
+            self.assertEqual(0, self.r._import.main(argv=[
+                '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
+                '-f', outputBasePath + '.json', '--table', '%s.%s' % (self.dbName, table)
+            ]))
+            
+            # - validate that the table matches
+            self.compare_servers(targetConn, tables=[table])
     
     def test_index_rebuild(self):
         sourceServer  = self.cluster[0]
-        
-        # - add tables/records
-        self.add_data(db=self.dbName, table=self.tableName)
         
         # - rebuild indexes
         self.assertEqual(0, self.r._index_rebuild.main(argv=[

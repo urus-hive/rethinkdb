@@ -3,6 +3,15 @@
 
 import itertools, os, random, re, shutil, sys, traceback, unittest, warnings
 
+try:
+    long
+except NameError:
+    long = int
+try:
+    unicode
+except NameError:
+    unicode = str
+
 import driver, utils
 
 def main():
@@ -85,25 +94,23 @@ class RdbTestCase(TestCaseCompatible):
     servers  = None # defaults to shards * replicas
     shards   = 1
     replicas = 1
-    tables   = 1
+    tables   = 1 # either a number, a name, or a list of names
     
     server_command_prefix = None
     server_extra_options = None
     
+    cleanTables       = True # set to False if the nothing will be modified in the table
+    destructiveTest   = False # if true the cluster should be restarted after this test
+    
     fieldName         = 'id'
     recordsToGenerate = 0
-    populateTable     = utils.populateTable # a method on some subclasses
-    
     samplesPerShard   = 5 # when making changes the number of changes to make per shard
-    
-    destructiveTest   = False # if true the cluster should be restarted after this test
     
     # -- class variables
     
     dbName            = None # typically 'test'
-    tableName         = None # name of the first table generated
-    
-    __tables          = None
+    tableName         = None # name of the first table
+    tableNames        = None
     
     db                = None # r.db(dbName)
     table             = None # r.db(dbName).table(tableName)
@@ -121,18 +128,25 @@ class RdbTestCase(TestCaseCompatible):
     # --
     
     def run(self, result=None):
-        
-        
-        
-        if not all([self.dbName, self.tableName]):
+        if self.tables:
             defaultDb, defaultTable = utils.get_test_db_table()
             
-            if self.dbName is None:
-                self.__class__.dbName = defaultDb
-            if self.tableName is None:
-                self.__class__.tableName = defaultTable
-            elif self.tableName is False:
-                self.__class__.tableName = None
+            if not self.dbName:
+                self.dbName = defaultDb
+            
+            if isinstance(self.tables, (int, long)):
+                if self.tables == 1:
+                    self.tableNames = [defaultTable]
+                else:
+                    self.tableNames = ['%s_%d' % (defaultTable, i) for i in range(1, self.tables + 1)]
+            elif isinstance(self.tables, (str, unicode)):
+                self.tableNames = [self.tables]
+            elif hasattr(self.tables, '__iter__'):
+                self.tableNames = [str(x) for x in self.tables]
+            else:
+                raise Exception('The value of tables was not recogised: %r' % self.tables)
+            
+            self.tableName = self.tableNames[0]
         
         self.__class__.db = self.r.db(self.dbName)
         self.__class__.table = self.db.table(self.tableName)
@@ -255,29 +269,23 @@ class RdbTestCase(TestCaseCompatible):
         
         # -- ensure db is available
         
-        if self.dbName is not None and self.dbName not in self.r.db_list().run(self.conn):
-            self.r.db_create(self.dbName).run(self.conn)
+        self.r.expr([self.dbName]).set_difference(self.r.db_list()).for_each(self.r.db_create(self.r.row)).run(self.conn)
         
         # -- setup test tables
         
-        if self.tableName is not None:
-            
-            # - ensure we have a clean table
-            
-            if self.tableName in self.r.db(self.dbName).table_list().run(self.conn):
-                self.r.db(self.dbName).table_drop(self.tableName).run(self.conn)
-            self.r.db(self.dbName).table_create(self.tableName).run(self.conn)
-            
-            self.__class__.table = self.r.db(self.dbName).table(self.tableName)
+        # - drop all tables unless cleanTables is set to False
+        if self.cleanTables:
+            self.r.db('rethinkdb').table('table_config').filter({'db':self.dbName}).delete().run(self.conn)
+        
+        for tableName in (x for x in (self.tableNames or []) if x not in self.r.db(self.dbName).table_list().run(self.conn)):
+            # - create the table
+            self.r.db(self.dbName).table_create(tableName).run(self.conn)
+            table = self.db.table(tableName)
             
             # - add initial records
-            
-            self.populateTable(conn=self.conn, table=self.table, records=self.recordsToGenerate, fieldName=self.fieldName)
-            elif self.recordsToGenerate:
-                utils.populateTable()
+            self.populateTable(conn=self.conn, table=table, records=self.recordsToGenerate, fieldName=self.fieldName)
             
             # - shard and replicate the table
-            
             primaries = iter(self.cluster[:self.shards])
             replicas = iter(self.cluster[self.shards:])
             
@@ -285,14 +293,24 @@ class RdbTestCase(TestCaseCompatible):
             for primary in primaries:
                 chosenReplicas = [replicas.next().name for _ in range(0, self.replicas - 1)]
                 shardPlan.append({'primary_replica':primary.name, 'replicas':[primary.name] + chosenReplicas})
-            assert (self.r.db(self.dbName).table(self.tableName).config().update({'shards':shardPlan}).run(self.conn))['errors'] == 0
-            self.r.db(self.dbName).table(self.tableName).wait().run(self.conn)
+            assert (table.config().update({'shards':shardPlan}).run(self.conn))['errors'] == 0
+            table.wait().run(self.conn)
         
         # -- run setUpClass if not run otherwise
         
         if not hasattr(unittest.TestCase, 'setUpClass') and hasattr(self.__class__, 'setUpClass') and not hasattr(self.__class__, self.__class__.__name__ + '_setup'):
             self.setUpClass()
             setattr(self.__class__, self.__class__.__name__ + '_setup', True)
+    
+    def populateTable(self, conn=None, table=None, records=None, fieldName=None):
+        if conn is None:
+            conn = self.conn
+        if table is None:
+            table = self.table
+        if records is None:
+            records = self.recordsToGenerate
+        
+        utils.populateTable(conn=conn, table=table, records=recordsToGenerate, fieldName=fieldName)
     
     def tearDown(self):
         
@@ -345,7 +363,7 @@ class RdbTestCase(TestCaseCompatible):
             if lastError:
                 raise lastError
         
-        if self.destructiveTest:
+        elif self.destructiveTest:
             try:
                 self.cluster.check_and_stop()
             except Exception: pass
