@@ -2,6 +2,8 @@
 #include "clustering/administration/main/memory_checker.hpp"
 
 #include <math.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include "clustering/administration/metadata.hpp"
 #include "clustering/table_manager/table_meta_client.hpp"
@@ -9,33 +11,42 @@
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/pseudo_time.hpp"
 
-static const int64_t delay_time = 60*1000;
+static const int64_t delay_time = 5*1000;
 static const int64_t reset_checks = 60;
+
+static const int64_t practice_runs = 2;
 
 memory_checker_t::memory_checker_t() :
     refresh_timer(0),
     swap_usage(0),
     print_log_message(true)
-#if defined(__MACH__) || defined(_WIN32)
-    , first_check(true)
-#endif
+    , first_check(practice_runs)
     , timer(delay_time, this)
 {
+    fprintf(stderr, "Memory checker instantiated\n");
     coro_t::spawn_sometime(std::bind(&memory_checker_t::do_check,
                                      this,
                                      drainer.lock()));
 }
 
 void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
-    uint64_t new_swap_usage = get_used_swap();
+    struct rusage current_usage;
 
-#if defined(__MACH__)
+    int res = getrusage(RUSAGE_SELF, &current_usage);
+
+    if (res == -1) {
+        // handle error?
+        fprintf(stderr, "Error getting page faults: %d\n", errno);
+    }
+
+    size_t new_swap_usage = current_usage.ru_majflt;
+    fprintf(stderr, "Swap: %lu\n", new_swap_usage);
+
     // This is because mach won't give us the swap used by our process.
-    if (first_check) {
+    if (first_check == practice_runs) {
         swap_usage = new_swap_usage;
         first_check = false;
     }
-#endif
 
 #if defined(__MACH__)
     const std::string error_message =
@@ -49,7 +60,7 @@ void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
         " This may impact performance.";
 #endif
 
-    if (new_swap_usage > swap_usage) {
+    if (new_swap_usage > swap_usage + 200 && first_check == 0) {
         // We've started using more swap
         if (print_log_message) {
 #if defined(__MACH__)
@@ -75,6 +86,9 @@ void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
 
     if (refresh_timer > 0) {
         --refresh_timer;
+    }
+    if (first_check > 0) {
+        --first_check;
     }
 }
 

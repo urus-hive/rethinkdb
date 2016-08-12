@@ -40,9 +40,7 @@ private:
 
     bool print_log_message;
 
-#if defined(__MACH__) || defined(_WIN32)
-    bool first_check;
-#endif
+    int first_check;
 
     // Timer must be destructed before drainer, because on_ring aquires a lock on drainer.
     auto_drainer_t drainer;

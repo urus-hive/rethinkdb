@@ -150,6 +150,7 @@ bool parse_status_file(const std::string &contents, uint64_t *swap_usage_out) {
     return false;
 }
 
+
 bool parse_meminfo_file(const std::string &contents, uint64_t *mem_avail_out) {
 #if defined(_WIN32)
     return false;
