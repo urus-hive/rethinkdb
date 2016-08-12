@@ -82,42 +82,47 @@ class RdbTestCase(TestCaseCompatible):
     
     # -- settings
     
-    servers = None # defaults to shards * replicas
-    shards = 1
+    servers  = None # defaults to shards * replicas
+    shards   = 1
     replicas = 1
+    tables   = 1
     
     server_command_prefix = None
     server_extra_options = None
     
-    fieldName = 'id'
+    fieldName         = 'id'
     recordsToGenerate = 0
-    generateRecords = None # a method on some subclasses
+    populateTable     = utils.populateTable # a method on some subclasses
     
-    samplesPerShard = 5 # when making changes the number of changes to make per shard
+    samplesPerShard   = 5 # when making changes the number of changes to make per shard
     
-    destructiveTest = False # if true the cluster should be restarted after this test
+    destructiveTest   = False # if true the cluster should be restarted after this test
     
     # -- class variables
     
-    dbName = None
-    tableName = None
+    dbName            = None # typically 'test'
+    tableName         = None # name of the first table generated
     
-    db = None
-    table = None
+    __tables          = None
     
-    cluster = None
-    _conn = None
+    db                = None # r.db(dbName)
+    table             = None # r.db(dbName).table(tableName)
+    
+    cluster           = None
+    _conn             = None
     
     r = utils.import_python_driver()
     
     # -- unittest subclass variables 
     
-    __currentResult = None
-    __problemCount = None
+    __currentResult   = None
+    __problemCount    = None
     
     # --
     
     def run(self, result=None):
+        
+        
         
         if not all([self.dbName, self.tableName]):
             defaultDb, defaultTable = utils.get_test_db_table()
@@ -253,7 +258,7 @@ class RdbTestCase(TestCaseCompatible):
         if self.dbName is not None and self.dbName not in self.r.db_list().run(self.conn):
             self.r.db_create(self.dbName).run(self.conn)
         
-        # -- setup test table
+        # -- setup test tables
         
         if self.tableName is not None:
             
@@ -267,10 +272,9 @@ class RdbTestCase(TestCaseCompatible):
             
             # - add initial records
             
-            if hasattr(self.generateRecords, '__call__'):
-                self.generateRecords()
+            self.populateTable(conn=self.conn, table=self.table, records=self.recordsToGenerate, fieldName=self.fieldName)
             elif self.recordsToGenerate:
-                utils.populateTable(conn=self.conn, table=self.table, records=self.recordsToGenerate, fieldName=self.fieldName)
+                utils.populateTable()
             
             # - shard and replicate the table
             

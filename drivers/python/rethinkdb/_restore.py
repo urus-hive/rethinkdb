@@ -42,7 +42,7 @@ def parse_options(argv, prog=None):
     parser.add_option("--clients",              dest="clients",    metavar="CLIENTS",     default=8,        help="client connections to use (default: 8)", type="pos_int")
     parser.add_option("--hard-durability",      dest="durability", action="store_const",  default="soft",   help="use hard durability writes (slower, uses less memory)", const="hard")
     parser.add_option("--force",                dest="force",      action="store_true",   default=False,    help="import data even if a table already exists")
-    parser.add_option("--no-secondary-indexes", dest="sindexes",   action="store_false",  default=True,     help="do not create secondary indexes for the restored tables")
+    parser.add_option("--no-secondary-indexes", dest="indexes",    action="store_false",  default=None,     help="do not create secondary indexes for the restored tables")
 
     parser.add_option("--writers-per-table",    dest="writers",    default=multiprocessing.cpu_count(),     help=optparse.SUPPRESS_HELP, type="pos_int")
     parser.add_option("--batch-size",           dest="batch_size", default=utils_common.default_batch_size, help=optparse.SUPPRESS_HELP, type="pos_int")

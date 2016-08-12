@@ -209,7 +209,7 @@ class SourceFile(object):
             raise RuntimeError("Error: table %s.%s primary key was `%s` rather than the expected: %s" % (self.db, table.table, primaryKey, self.primary_key))
         
         # - recreate secondary indexes - dropping existing on the assumption they are wrong
-        if 'sindexes' in self.source_options and self.source_options.sindexes:
+        if self.indexes:
             existing_indexes = self.query_runner("indexes from: %s.%s" % (self.db, self.table), query.db(self.db).table(self.table).index_list())
             try:
                 created_indexes = []
@@ -453,16 +453,12 @@ class CsvSourceFile(SourceFile):
     _columns      = None # name of the columns
     
     def __init__(self, *args, **kwargs):
-        if 'options' in kwargs and isinstance(kwargs['options'], dict):
-            if 'no_header_row' in kwargs['options']:
-                self.no_header_row = kwargs['options']['no_header_row'] == True
-                del kwargs['options']['no_header_row']
-            if 'custom_header' in kwargs['options']:
-                self.custom_header = kwargs['options']['custom_header']
-                del kwargs['options']['custom_header']
-            if not kwargs['options']:
-                del kwargs['options']
-            
+        if 'source_options' in kwargs and isinstance(kwargs['source_options'], dict):
+            if 'no_header_row' in kwargs['source_options']:
+                self.no_header_row = kwargs['source_options']['no_header_row'] == True
+            if 'custom_header' in kwargs['source_options']:
+                self.custom_header = kwargs['source_options']['custom_header']
+        
         super(CsvSourceFile, self).__init__(*args, **kwargs)
     
     def byte_counter(self):
@@ -560,7 +556,7 @@ def parse_options(argv, prog=None):
     dirImportGroup = optparse.OptionGroup(parser, "Directory Import Options")
     dirImportGroup.add_option("-d", "--directory",      dest="directory", metavar="DIRECTORY",   default=None, help="directory to import data from")
     dirImportGroup.add_option("-i", "--import",         dest="db_tables", metavar="DB|DB.TABLE", default=[],   help="restore only the given database or table (may be specified multiple times)", action="append", type="db_table")
-    dirImportGroup.add_option("--no-secondary-indexes", dest="sindexes",  action="store_false",  default=None, help="do not create secondary indexes")
+    dirImportGroup.add_option("--no-secondary-indexes", dest="indexes",   action="store_false",  default=None, help="do not create secondary indexes")
     parser.add_option_group(dirImportGroup)
 
     # File import options
@@ -625,9 +621,6 @@ def parse_options(argv, prog=None):
         if options.custom_header:
             parser.error("table create options are not valid when importing a directory: %s" % ", ".join([x.lower().replace("_", " ") for x in options.custom_header.keys()]))
         
-        if options.sindexes is None:
-            options.sindexes = True
-        
         # check valid options
         if not os.path.isdir(options.directory):
             parser.error("Directory to import does not exist: %s" % options.directory)
@@ -659,13 +652,14 @@ def parse_options(argv, prog=None):
         # fields
         options.fields = options.fields.split(",") if options.fields else None
         
+        # disallow invalid options
+        if options.db_tables:
+            parser.error("-i/--import can only be used when importing a directory")
+        if options.indexes:
+            parser.error("--no-secondary-indexes can only be used when importing a directory")
+        
         if options.format == "csv":
             # disallow invalid options
-            if options.db_tables:
-                parser.error("-i/--import can only be used when importing a directory")
-            if options.sindexes:
-                parser.error("--no-secondary-indexes can only be used when importing a directory")
-            
             if options.max_document_size:
                 parser.error("--max_document_size only affects importing JSON documents")
             
@@ -687,13 +681,8 @@ def parse_options(argv, prog=None):
             if options.custom_header:
                 options.custom_header = options.custom_header.split(",")
                 
-        elif options.format == "json": # json format
+        elif options.format == "json":
             # disallow invalid options
-            if options.db_tables:
-                parser.error("-i/--import can only be used when importing a directory")
-            if options.sindexes:
-                parser.error("--no-secondary-indexes can only be used when importing a directory")
-            
             if options.delimiter is not None:
                 parser.error("--delimiter option is not valid for json files")
             if options.no_header:
@@ -1078,15 +1067,25 @@ def parse_sources(options, files_ignored=None):
         raise RuntimeError("Error: Both --directory and --file cannot be specified together")
     elif options.file:
         db, table = options.import_table
+        ext = os.path.splitext(options.file)[1]
+        tableTypeOptions = None
+        if ext == ".json":
+            tableType = JsonSourceFile
+        elif ext == ".csv":
+            tableType = CsvSourceFile
+            tableTypeOptions = {
+                'no_header_row': options.no_header,
+                'custom_header': options.custom_header
+            }
+        else:
+            raise Exception("The table type is not recognised: %s" % ext)
         sources.add(
-            CsvSoureFile(
+            tableType(
                 source=options.file,
                 db=db, table=table,
+                query_runner=options.retryQuery,
                 primary_key=options.create_args.get('primary_key', None) if options.create_args else None,
-                options={
-                    'no_header_row': options.no_header,
-                    'custom_header': options.custom_header
-                }
+                source_options=tableTypeOptions
             )
         )
     elif options.directory:
@@ -1140,7 +1139,7 @@ def parse_sources(options, files_ignored=None):
                                 metadata = json.load(info_file)
                                 if "primary_key" in metadata:
                                     primary_key = metadata["primary_key"]
-                                if "indexes" in metadata:
+                                if "indexes" in metadata and options.indexes is not False:
                                     indexes = metadata["indexes"]
                         except OSError:
                             files_ignored.append(os.path.join(root, f))

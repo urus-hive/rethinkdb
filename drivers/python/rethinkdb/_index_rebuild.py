@@ -80,7 +80,8 @@ def rebuild_indexes(options):
     highest_progress = 0.0
     indexes_in_progress = []
     
-    print("Rebuilding %d index%s: %s" % (total_indexes, 'es' if total_indexes > 1 else '',  ", ".join(["`%(db)s.%(table)s:%(name)s`" % i for i in indexes_to_build])))
+    if not options.quiet:
+        print("Rebuilding %d index%s: %s" % (total_indexes, 'es' if total_indexes > 1 else '',  ", ".join(["`%(db)s.%(table)s:%(name)s`" % i for i in indexes_to_build])))
 
     while len(indexes_to_build) > 0 or len(indexes_in_progress) > 0:
         # Make sure we're running the right number of concurrent index rebuilds
@@ -104,7 +105,8 @@ def rebuild_indexes(options):
         
         # Report progress
         highest_progress = max(highest_progress, progress_ratio)
-        utils_common.print_progress(highest_progress)
+        if not options.quiet:
+            utils_common.print_progress(highest_progress)
 
         # Check the status of indexes in progress
         progress_ratio = 0.0
@@ -132,8 +134,9 @@ def rebuild_indexes(options):
             time.sleep(0.1)
 
     # Make sure the progress bar says we're done and get past the progress bar line
-    utils_common.print_progress(1.0)
-    print("")
+    if not options.quiet:
+        utils_common.print_progress(1.0)
+        print("")
 
 def main(argv=None, prog=None):
     options = parse_options(argv or sys.argv[1:], prog=prog)
@@ -143,9 +146,11 @@ def main(argv=None, prog=None):
     except Exception as ex:
         if options.debug:
             traceback.print_exc()
-        print(ex, file=sys.stderr)
+        if not options.quiet:
+            print(ex, file=sys.stderr)
         return 1
-    print("Done (%d seconds)" % (time.time() - start_time))
+    if not options.quiet:
+        print("Done (%d seconds)" % (time.time() - start_time))
     return 0
 
 if __name__ == "__main__":

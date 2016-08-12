@@ -35,11 +35,10 @@ def randomString(length=None, max_length=100, use_unicode=False):
     return ''.join(random.choice(alphabet) for _ in range(length))
 
 class BackupTesting(rdb_unittest.RdbTestCase):
-    servers   = 1
-    
-    tables    = 3
-    records   = 200
-    batchsize = 40
+    servers           = 1
+    tables            = 3
+    recordsToGenerate = 200
+    batchsize         = 40
     
     def add_data(self, db, table, primary_key='id', records=None, batchsize=None):
         if records is None:
@@ -104,16 +103,32 @@ class BackupTesting(rdb_unittest.RdbTestCase):
                     'circle':   self.r.circle([random.uniform(-90, 90), random.uniform(-180, 180)], random.uniform(1, 1000))
                 })
             self.r.db(db).table(table).insert(batch).run(self.conn)
+        
+        # - create indexes
+        self.r.db(db).table(table).index_create('bool').run(self.conn)
+        self.r.db(db).table(table).index_create('unicode').run(self.conn)
+        self.r.db(db).table(table).index_create('complicated').run(self.conn)
+        self.r.db(db).table(table).index_create('function', self.r.row['dict']['a']).run(self.conn)
+        self.r.db(db).table(table).index_wait().run(self.conn)
     
     def compare_servers(self, targetConn):
         self.maxDiff = None
-        for db, indexes, table, primary_key in self.r.db('rethinkdb').table('table_config').pluck('db', 'name', 'primary_key', 'indexes').map(self.r.row.values()).run(self.conn):
+        for db, table, primary_key in self.r.db('rethinkdb').table('table_config').pluck('db', 'name', 'primary_key').map(self.r.row.values()).run(self.conn):
             # - confirm table existance and metadata
             targetInfo = None
             try:
                 targetInfo = self.r.db(db).table(table).info().run(targetConn)
             except self.r.ReqlOpFailedError as e:
                 raise Exception('Table %s.%s does not exist on the target server: %s' % (db, table, str(e)))
+            
+            # - compare the indexes
+            actualIndexes = dict((x['index'], x) for x in self.r.db(db).table(table).index_status().run(targetConn))
+            for expected in self.r.db(db).table(table).index_status().run(self.conn):
+                self.assertTrue(expected['index'] in actualIndexes, 'Did not find the index < %s > in %s' % (expected['index'], actualIndexes))
+                actual = actualIndexes[expected['index']]
+                for value in ['function', 'geo', 'multi', 'outdated', 'query', 'ready']:
+                    if not actual[value] == expected[value]:
+                        self.error('On table %s.%s index %s the %s did not match, got < %s > when expected %s' % (db, table, expected['index'], value, str(actual[value]), str(expected[value])))
             
             # - compare the keys
             source = list(self.r.db(db).table(table).order_by(index=primary_key)[primary_key].run(self.conn))
@@ -140,6 +155,8 @@ class BackupTesting(rdb_unittest.RdbTestCase):
             else:
                 raise Exception('In %s.%s there were more entries in the target than source (%d)' % (db, table, i))
     
+    
+    
     def test_dump_restore(self):
         sourceServer  = self.cluster[0]
         targetCluster = driver.Cluster(initial_servers=1)
@@ -152,17 +169,116 @@ class BackupTesting(rdb_unittest.RdbTestCase):
         
         # - dump to file
         dumpFile = tempfile.mktemp(suffix='.tar.gz')
-        self.assertEqual(0, self.r._dump.main(argv=['--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port), '-f', dumpFile]))
+        self.assertEqual(0, self.r._dump.main(argv=[
+            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
+            '-f', dumpFile
+        ]))
         utils.cleanupPathAtExit(dumpFile)
         
         # - restore to a second server
-        self.assertEqual(0, self.r._restore.main(argv=['--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port), dumpFile]))
+        self.assertEqual(0, self.r._restore.main(argv=[
+            '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
+            dumpFile
+        ]))
         
         # - validate that all tables match
         self.compare_servers(targetConn)
         
         # - restore again with --force
-        self.r._restore.main(argv=['--quiet', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port), dumpFile, '--force'])
+        self.assertEqual(0, self.r._restore.main(argv=[
+            '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
+            dumpFile, '--force'
+        ]))
+    
+    def test_export_import_csv(self):
+        sourceServer  = self.cluster[0]
+        targetCluster = driver.Cluster(initial_servers=1)
+        targetServer  = targetCluster[0]
+        targetConn    = self.r.connect(host=targetServer.host, port=str(targetServer.driver_port))
+        
+        outputFolder  = tempfile.mkdtemp()
+        utils.cleanupPathAtExit(outputFolder)
+        outputFolder  = os.path.join(outputFolder, 'export')
+        
+        # - add tables/records
+        self.add_data(db=self.dbName, table=self.tableName)
+        
+        # - export the table
+        self.assertEqual(0, self.r._export.main(argv=[
+            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
+            '-d', outputFolder, '-e', '%s.%s' % (self.dbName, self.tableName), '--format', 'csv',
+            '--fields', 'bool,integer,float,string,unicode,dict,array,complicated,binary,time,circle'
+        ]))
+        
+        # - verify existance of files
+        outputBasePath = os.path.join(outputFolder, self.dbName, self.tableName)
+        self.assertTrue(os.path.exists(outputBasePath + '.info'), 'There was no file at: %s' % (outputBasePath + '.info'))
+        self.assertTrue(os.path.exists(outputBasePath + '.csv'), 'There was no file at: %s' % (outputBasePath + '.csv'))
+        
+        # - import the table
+        self.assertEqual(0, self.r._import.main(argv=[
+            '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
+            '-f', outputBasePath + '.csv', '--table', '%s.%s' % (self.dbName, self.tableName)
+        ]))
+        
+        # - validate that the table matches
+        self.compare_servers(targetConn)
+    
+    def test_export_import_json(self):
+        sourceServer  = self.cluster[0]
+        targetCluster = driver.Cluster(initial_servers=1)
+        targetServer  = targetCluster[0]
+        targetConn    = self.r.connect(host=targetServer.host, port=str(targetServer.driver_port))
+        
+        outputFolder  = tempfile.mkdtemp()
+        utils.cleanupPathAtExit(outputFolder)
+        outputFolder  = os.path.join(outputFolder, 'export')
+        
+        # - add tables/records
+        self.add_data(db=self.dbName, table=self.tableName)
+        
+        # - export the table
+        self.assertEqual(0, self.r._export.main(argv=[
+            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
+            '-d', outputFolder, '-e', '%s.%s' % (self.dbName, self.tableName), '--format', 'json'
+        ]))
+        
+        # - verify existance of files
+        outputBasePath = os.path.join(outputFolder, self.dbName, self.tableName)
+        self.assertTrue(os.path.exists(outputBasePath + '.info'), 'There was no file at: %s' % (outputBasePath + '.info'))
+        self.assertTrue(os.path.exists(outputBasePath + '.json'), 'There was no file at: %s' % (outputBasePath + '.json'))
+        
+        # - import the table
+        self.assertEqual(0, self.r._import.main(argv=[
+            '--quiet', '--debug', '--host-name', targetServer.host, '--driver-port', str(targetServer.driver_port),
+            '-f', outputBasePath + '.json', '--table', '%s.%s' % (self.dbName, self.tableName)
+        ]))
+        
+        # - validate that the table matches
+        self.compare_servers(targetConn)
+    
+    def test_index_rebuild(self):
+        sourceServer  = self.cluster[0]
+        
+        # - add tables/records
+        self.add_data(db=self.dbName, table=self.tableName)
+        
+        # - rebuild indexes
+        self.assertEqual(0, self.r._index_rebuild.main(argv=[
+            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port)
+        ]))
+        
+        # - rebuild indexes with force
+        self.assertEqual(0, self.r._index_rebuild.main(argv=[
+            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
+            '--force'
+        ]))
+        
+        # - rebuild indexes on the specific table with force
+        self.assertEqual(0, self.r._index_rebuild.main(argv=[
+            '--quiet', '--debug', '--host-name', sourceServer.host, '--driver-port', str(sourceServer.driver_port),
+            '--force', '--rebuild', '%s.%s' % (self.dbName, self.tableName)
+        ]))
     
 if __name__ == '__main__':
     rdb_unittest.main()
