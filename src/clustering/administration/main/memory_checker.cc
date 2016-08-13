@@ -11,8 +11,8 @@
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/pseudo_time.hpp"
 
-static const int64_t delay_time = 5*1000;
-static const int64_t reset_checks = 60;
+static const int64_t delay_time = 60*1000;
+static const int64_t reset_checks = 10;
 
 static const int64_t practice_runs = 2;
 
@@ -23,24 +23,25 @@ memory_checker_t::memory_checker_t() :
     , first_check(practice_runs)
     , timer(delay_time, this)
 {
-    fprintf(stderr, "Memory checker instantiated\n");
     coro_t::spawn_sometime(std::bind(&memory_checker_t::do_check,
                                      this,
                                      drainer.lock()));
 }
 
 void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
+#if defined(__MACH__) || defined(_WIN32)
+    size_t new_swap_usage = 0;
+#else
     struct rusage current_usage;
 
     int res = getrusage(RUSAGE_SELF, &current_usage);
 
     if (res == -1) {
         // handle error?
-        fprintf(stderr, "Error getting page faults: %d\n", errno);
+        logERR("Error getting major page faults: %d\n", errno);
     }
-
     size_t new_swap_usage = current_usage.ru_majflt;
-    fprintf(stderr, "Swap: %lu\n", new_swap_usage);
+#endif
 
     // This is because mach won't give us the swap used by our process.
     if (first_check == practice_runs) {
@@ -51,12 +52,12 @@ void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
 #if defined(__MACH__)
     const std::string error_message =
         "Data from a process on this server"
-        " has been placed into swap memory in the past hour."
+        " has been placed into swap memory in the past ten minutes."
         " If the data is from RethinkDB, this may impact performance.";
 #else
     const std::string error_message =
         "Some RethinkDB data on this server"
-        " has been placed into swap memory in the past hour."
+        " has been placed into swap memory in the past ten minutes."
         " This may impact performance.";
 #endif
 
@@ -77,7 +78,7 @@ void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
         refresh_timer = reset_checks;
         memory_issue_tracker.report_error(error_message);
     } else if (refresh_timer == 0) {
-        // We haven't put anything in swap for 1 hour.
+        // We haven't put anything in swap for 10 min.
         memory_issue_tracker.report_success();
         print_log_message = true;
     }
