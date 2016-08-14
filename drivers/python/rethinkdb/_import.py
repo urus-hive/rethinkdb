@@ -1060,6 +1060,18 @@ def import_tables(options, sources, files_ignored=None):
         raise RuntimeError("Warnings occurred during import")
 
 def parse_sources(options, files_ignored=None):
+    
+    def parseInfoFile(path):
+        primary_key = None
+        indexes = []
+        with open(path, 'r') as info_file:
+            metadata = json.load(info_file)
+            if "primary_key" in metadata:
+                primary_key = metadata["primary_key"]
+            if "indexes" in metadata and options.indexes is not False:
+                indexes = metadata["indexes"]
+        return primary_key, indexes
+    
     sources = set()
     if files_ignored is None:
         files_ignored = []
@@ -1067,7 +1079,7 @@ def parse_sources(options, files_ignored=None):
         raise RuntimeError("Error: Both --directory and --file cannot be specified together")
     elif options.file:
         db, table = options.import_table
-        ext = os.path.splitext(options.file)[1]
+        path, ext = os.path.splitext(options.file)
         tableTypeOptions = None
         if ext == ".json":
             tableType = JsonSourceFile
@@ -1079,12 +1091,25 @@ def parse_sources(options, files_ignored=None):
             }
         else:
             raise Exception("The table type is not recognised: %s" % ext)
+        
+        # - parse the info file if it exists
+        primary_key = options.create_args.get('primary_key', None) if options.create_args else None
+        indexes = []
+        infoPath = path + ".info"
+        if (primary_key is None or options.indexes is not False) and os.path.isfile(infoPath):
+            infoPrimaryKey, infoIndexes = parseInfoFile(infoPath)
+            if primary_key is None:
+                primary_key = infoPrimaryKey
+            if options.indexes is not False:
+                indexes = infoIndexes
+        
         sources.add(
             tableType(
                 source=options.file,
                 db=db, table=table,
                 query_runner=options.retryQuery,
-                primary_key=options.create_args.get('primary_key', None) if options.create_args else None,
+                primary_key=primary_key,
+                indexes=indexes,
                 source_options=tableTypeOptions
             )
         )
@@ -1134,15 +1159,11 @@ def parse_sources(options, files_ignored=None):
                         # collect the info
                         primary_key = None
                         indexes = []
-                        try:
-                            with open(os.path.join(root, table + ".info"), "r") as info_file:
-                                metadata = json.load(info_file)
-                                if "primary_key" in metadata:
-                                    primary_key = metadata["primary_key"]
-                                if "indexes" in metadata and options.indexes is not False:
-                                    indexes = metadata["indexes"]
-                        except OSError:
+                        infoPath = os.path.join(root, table + ".info")
+                        if not os.path.isfile(infoPath):
                             files_ignored.append(os.path.join(root, f))
+                        else:
+                            primary_key, indexes = parseInfoFile(infoPath)
                         
                         tableType = None
                         if ext == ".json":
