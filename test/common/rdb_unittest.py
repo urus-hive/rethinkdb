@@ -112,11 +112,10 @@ class RdbTestCase(TestCaseCompatible):
     tableName         = None # name of the first table
     tableNames        = None
     
-    db                = None # r.db(dbName)
-    table             = None # r.db(dbName).table(tableName)
-    
-    cluster           = None
-    _conn             = None
+    __cluster         = None
+    __conn            = None
+    __db              = None # r.db(dbName)
+    __table           = None # r.db(dbName).table(tableName)
     
     r = utils.import_python_driver()
     
@@ -148,9 +147,6 @@ class RdbTestCase(TestCaseCompatible):
             
             self.tableName = self.tableNames[0]
         
-        self.__class__.db = self.r.db(self.dbName)
-        self.__class__.table = self.db.table(self.tableName)
-        
         # Allow detecting test failure in tearDown
         self.__currentResult = result or self.defaultTestResult()
         self.__problemCount = 0 if result is None else len(self.__currentResult.errors) + len(self.__currentResult.failures)
@@ -158,28 +154,44 @@ class RdbTestCase(TestCaseCompatible):
         super(RdbTestCase, self).run(self.__currentResult)
     
     @property
+    def cluster(self):
+        return self.__cluster
+    
+    @property
+    def db(self):
+        if self.__db is None and self.dbName:
+            return self.r.db(self.dbName)
+        return self.__db
+    
+    @property
+    def table(self):
+        if self.__table is None and self.tableName and self.db:
+            self.__class__.__table = self.db.table(self.tableName)
+        return self.__table
+    
+    @property
     def conn(self):
         '''Retrieve a valid connection to some server in the cluster'''
         
         # -- check if we already have a good cached connection
-        if self.__class__._conn and self.__class__._conn.is_open():
+        if self.__class__.__conn and self.__class__.__conn.is_open():
             try:
-                self.r.expr(1).run(self.__class__._conn)
-                return self.__class__._conn
+                self.r.expr(1).run(self.__class__.__conn)
+                return self.__class__.__conn
             except Exception: pass
         if self.__class__.conn is not None:
             try:
-                self.__class__._conn.close()
+                self.__class__.__conn.close()
             except Exception: pass
-            self.__class__._conn = None
+            self.__class__.__conn = None
         
         # -- try a new connection to each server in order
         for server in self.cluster:
             if not server.ready:
                 continue
             try:
-                self.__class__._conn = self.r.connect(host=server.host, port=server.driver_port)
-                return self.__class__._conn
+                self.__class__.__conn = self.r.connect(host=server.host, port=server.driver_port)
+                return self.__class__.__conn
             except Exception as e: pass
         else:        
             # fail as we have run out of servers
@@ -241,14 +253,14 @@ class RdbTestCase(TestCaseCompatible):
                 try:
                     self.cluster.check_and_stop()
                 except Exception: pass
-                self.__class__.cluster = None
-                self.__class__._conn = None
-                self.__class__.table = None
+                self.__class__.__cluster = None
+                self.__class__.__conn = None
+                self.__class__.__table = None
         
         # - ensure we have a cluster
         
         if self.cluster is None:
-            self.__class__.cluster = driver.Cluster()
+            self.__class__.__cluster = driver.Cluster()
         
         # - make sure we have any named servers
         
@@ -310,7 +322,7 @@ class RdbTestCase(TestCaseCompatible):
         if records is None:
             records = self.recordsToGenerate
         
-        utils.populateTable(conn=conn, table=table, records=recordsToGenerate, fieldName=fieldName)
+        utils.populateTable(conn=conn, table=table, records=records, fieldName=fieldName)
     
     def tearDown(self):
         
@@ -357,9 +369,8 @@ class RdbTestCase(TestCaseCompatible):
             except Exception as e:
                 warnings.warn('Unable to copy server folder into results: %s' % str(e))
             
-            self.__class__.cluster = None
-            self.__class__._conn = None
-            self.__class__.table = None
+            self.__class__.__cluster = None
+            self.__class__.__conn = None
             if lastError:
                 raise lastError
         
@@ -367,9 +378,8 @@ class RdbTestCase(TestCaseCompatible):
             try:
                 self.cluster.check_and_stop()
             except Exception: pass
-            self.__class__.cluster = None
-            self.__class__._conn = None
-            self.__class__.table = None
+            self.__class__.__clustercluster = None
+            self.__class__.__conn = None
     
     def makeChanges(self, tableName=None, dbName=None, samplesPerShard=None, connections=None):
         '''make a minor change to records, and return those ids'''
