@@ -40,7 +40,7 @@ private:
 
     bool print_log_message;
 
-    int first_check;
+    int check_num;
 
     // Timer must be destructed before drainer, because on_ring aquires a lock on drainer.
     auto_drainer_t drainer;

@@ -19,9 +19,9 @@ static const int64_t practice_runs = 2;
 memory_checker_t::memory_checker_t() :
     refresh_timer(0),
     swap_usage(0),
-    print_log_message(true)
-    , first_check(practice_runs)
-    , timer(delay_time, this)
+    print_log_message(true),
+    check_num(practice_runs),
+    timer(delay_time, this)
 {
     coro_t::spawn_sometime(std::bind(&memory_checker_t::do_check,
                                      this,
@@ -42,16 +42,15 @@ void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
     size_t new_swap_usage = current_usage.ru_majflt;
 #endif
 
-    if (first_check == practice_runs) {
+    if (check_num == practice_runs) {
         swap_usage = new_swap_usage;
-        first_check = false;
     }
 
     const std::string error_message =
         "RethinkDB has been accessing a lot of swap memory in the past ten"
         " minutes. This may impact performace.";
 
-    if (new_swap_usage > swap_usage + 200 && first_check == 0) {
+    if (new_swap_usage > swap_usage + 200 && check_num == 0) {
         // We've started using more swap
         if (print_log_message) {
             logWRN("RethinkDB has been accessing a lot of swap memory in the past ten"
@@ -72,8 +71,8 @@ void memory_checker_t::do_check(UNUSED auto_drainer_t::lock_t keepalive) {
     if (refresh_timer > 0) {
         --refresh_timer;
     }
-    if (first_check > 0) {
-        --first_check;
+    if (check_num > 0) {
+        --check_num;
     }
 }
 
