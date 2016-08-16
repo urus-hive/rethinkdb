@@ -50,6 +50,7 @@ void server_config_server_t::on_set_config(
     {
         metadata_file_t::write_txn_t write_txn(file, interruptor);
         write_txn.write(mdkey_server_config(), my_config.get_ref(), interruptor);
+        write_txn.commit();
     }
     if (old_config.name != new_config.name) {
         logINF("Changed server's name from `%s` to `%s`.",

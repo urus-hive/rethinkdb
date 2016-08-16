@@ -21,13 +21,16 @@ static const int MAX_UNSAVED_CHANGES = 1000;
 
 void flush_cache(cache_conn_t *cache, UNUSED signal_t *interruptor) {
     scoped_ptr_t<txn_t> txn;
-    scoped_ptr_t<real_superblock_t> superblock;
-    get_btree_superblock_and_txn_for_writing(cache, nullptr,
-        write_access_t::write, 1, write_durability_t::HARD, &superblock, &txn);
-    buf_write_t write(superblock->get());
-    /* `txn`'s destructor will block until all of the transactions that acquired the
+    {
+        scoped_ptr_t<real_superblock_t> superblock;
+        get_btree_superblock_and_txn_for_writing(cache, nullptr,
+            write_access_t::write, 1, write_durability_t::HARD, &superblock, &txn);
+        buf_write_t write(superblock->get());
+    }
+    /* `commit` will block until all of the transactions that acquired the
     superblock before we did and modified the metainfo have been flushed to disk. It's a
     shame we can't wait on `interruptor` using this API. */
+    txn->commit();
 }
 
 class unsaved_data_limiter_t {
@@ -467,6 +470,7 @@ continue_bool_t store_t::receive_backfill(
             }
 
             /* End the transaction and notify that we've made progress */
+            txn->commit();
             txn.reset();
             guarantee(progress >= commit_threshold);
             guarantee(progress <= metainfo_threshold);
