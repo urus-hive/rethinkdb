@@ -296,6 +296,7 @@ void store_t::reset_data(
             update_sindexes(txn.get(), &sindex_block, mod_reports, true);
         }
 
+        sindex_block.reset_buf_lock();
         txn->commit();
     }
 }
