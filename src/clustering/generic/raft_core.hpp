@@ -65,6 +65,12 @@ code, by making it clearer what the meaning of a particular number is. */
 typedef uint64_t raft_term_t;
 typedef uint64_t raft_log_index_t;
 
+/* The Raft election semaphore is a singleton. It limits the number
+of concurrent Raft elections that we can initiate. This is to avoid
+overloading the i/o system of any participating member. */
+class new_semaphore_t;
+new_semaphore_t *get_raft_election_semaphore();
+
 /* `raft_start_election_immediately_t` is used as a hint to the `raft_member_t`
 constructor, and is used to speed up new raft clusters' first elections.
 
