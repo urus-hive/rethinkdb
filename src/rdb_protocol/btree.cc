@@ -1972,7 +1972,9 @@ public:
 
     ~post_construct_traversal_helper_t() {
         sindexes_.clear();
-        wtxn_->commit();
+        if (wtxn_.has()) {
+            wtxn_->commit();
+        }
     }
 
     continue_bool_t handle_pair(
