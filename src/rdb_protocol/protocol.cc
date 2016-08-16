@@ -150,6 +150,8 @@ void resume_construct_sindex(
                 get_secondary_index(&sindex_block, sindex_to_construct, &sindex);
             if (!found_index || sindex.being_deleted) {
                 // The index was deleted. Abort construction.
+                sindex_block.reset_buf_lock();
+                txn->commit();
                 return;
             }
 
@@ -373,6 +375,7 @@ void post_construct_and_drain_queue(
             store->get_in_line_for_sindex_queue(&queue_sindex_block);
         store->deregister_sindex_queue(mod_queue.get(), &acq);
 
+        queue_sindex_block.reset_buf_lock();
         queue_txn->commit();
     }
 }
