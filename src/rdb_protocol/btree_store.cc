@@ -230,9 +230,11 @@ void store_t::write(
         // either completes all necessary changes that are part of the
         // transaction, or doesn't perform any changes at all).
         // Hence it should be save to commit here even when interrupted.
+        real_superblock.reset();
         txn->commit();
         throw;
     }
+    real_superblock.reset();
     txn->commit();
 }
 
