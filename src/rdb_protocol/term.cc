@@ -128,6 +128,9 @@ counted_t<const term_t> compile_on_current_stack(
     case Term::INDEX_STATUS:       return make_sindex_status_term(env, t);
     case Term::INDEX_WAIT:         return make_sindex_wait_term(env, t);
     case Term::INDEX_RENAME:       return make_sindex_rename_term(env, t);
+    case Term::EVICTION_CREATE:    return make_eviction_create_term(env, t);
+    case Term::EVICTION_DROP:      return make_eviction_drop_term(env, t);
+    case Term::EVICTION_LIST:      return make_eviction_list_term(env, t);
     case Term::FUNCALL:            return make_funcall_term(env, t);
     case Term::BRANCH:             return make_branch_term(env, t);
     case Term::OR:                 return make_or_term(env, t);

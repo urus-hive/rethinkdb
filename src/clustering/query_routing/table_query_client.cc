@@ -200,6 +200,8 @@ void table_query_client_t::dispatch_immediate_op(
 
     std::vector<scoped_ptr_t<immediate_op_info_t<op_type, fifo_enforcer_token_type> > >
         primaries_to_contact;
+
+    fprintf(stderr, "Dispatch Immediate Op\n");
     scoped_ptr_t<immediate_op_info_t<op_type, fifo_enforcer_token_type> >
         new_op_info(new immediate_op_info_t<op_type, fifo_enforcer_token_type>());
     relationships.visit(region_t::universe(),

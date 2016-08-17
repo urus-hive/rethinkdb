@@ -576,6 +576,14 @@ message Term {
         // Renames the given index to a new name
         INDEX_RENAME = 156; // Table, STRING, STRING, {overwrite:BOOL} -> OBJECT
 
+        // * Eviction OPs
+        // Creates a new eviction with a particular name, and settings.
+        EVICTION_CREATE = 191; // Table, STRING, OBJECT -> OBJECT
+        // Drops an eviction function.
+        EVICTION_DROP = 192; // Table, STRING -> OBJECT
+        // Gets information about the evictions on a table.
+        EVICTION_LIST = 193; // Table -> ARRAY
+
         // * Control Operators
         // Calls a function on data
         FUNCALL  = 64; // Function(*), DATUM... -> DATUM

@@ -254,6 +254,9 @@ bool term_type_is_valid(Term::TermType type) {
     case Term::INDEX_DROP:
     case Term::INDEX_WAIT:
     case Term::INDEX_RENAME:
+    case Term::EVICTION_CREATE:
+    case Term::EVICTION_DROP:
+    case Term::EVICTION_LIST:
     case Term::DATUM:
     case Term::MAKE_ARRAY:
     case Term::MAKE_OBJ:

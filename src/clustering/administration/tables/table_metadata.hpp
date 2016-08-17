@@ -71,6 +71,7 @@ public:
     table_basic_config_t basic;
     std::vector<shard_t> shards;
     std::map<std::string, sindex_config_t> sindexes;
+    std::map<std::string, eviction_config_t> evictions;
     write_ack_config_t write_ack_config;
     write_durability_t durability;
 };

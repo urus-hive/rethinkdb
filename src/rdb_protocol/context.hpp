@@ -79,6 +79,27 @@ public:
 };
 RDB_DECLARE_SERIALIZABLE(sindex_config_t);
 
+class eviction_config_t {
+public:
+    eviction_config_t() { }
+    eviction_config_t(const std::string &_index_name,
+                      const ql::map_wire_func_t &_func,
+                      reql_version_t _func_version) :
+        index_name(_index_name),
+        func(_func),
+        func_version(_func_version) { }
+
+    bool operator==(const eviction_config_t &o) const;
+    bool operator!=(const eviction_config_t &o) const {
+        return !(*this == o);
+    }
+
+    std::string index_name;
+    ql::map_wire_func_t func;
+    reql_version_t func_version;
+};
+RDB_DECLARE_SERIALIZABLE(eviction_config_t);
+
 class sindex_status_t {
 public:
     sindex_status_t() :

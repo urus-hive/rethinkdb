@@ -967,6 +967,18 @@ class IndexWait extends RDBOp
     tt: protoTermType.INDEX_WAIT
     mt: 'indexWait'
 
+class EvictionCreate extends RDBOp
+    tt: protoTermType.EVICTION_CREATE
+    mt: 'evictionCreate'
+
+class EvictionDrop extends RDBOp
+    tt: protoTermType.EVICTION_LIST
+    mt: 'evictionList'
+
+class EvictionList extends RDBOp
+    tt: protoTermType.EVICTION_DROP
+    mt: 'evictionDrop'
+
 class Config extends RDBOp
     tt: protoTermType.CONFIG
     mt: 'config'
