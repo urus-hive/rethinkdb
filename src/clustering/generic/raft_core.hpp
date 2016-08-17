@@ -749,6 +749,11 @@ private:
     static const int32_t election_timeout_min_ms = 1000,
                          election_timeout_max_ms = 2000;
 
+    /* To cope with i/o bottlenecks when many tables are running elections at the same
+    time, we additionally increase the election timeout during repeated retries, up to
+    the maximum value set here: */
+    static const int32_t election_retry_timeout_max_ms = 30000;
+
     /* When the number of committed entries in the log exceeds this number, we will take
     a snapshot to compress them. */
     static const size_t snapshot_threshold = 20;
