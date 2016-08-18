@@ -60,25 +60,6 @@ ARCHIVE_PRIM_MAKE_RANGED_SERIALIZABLE(sindex_multi_bool_t, int8_t,
 ARCHIVE_PRIM_MAKE_RANGED_SERIALIZABLE(sindex_geo_bool_t, int8_t,
         sindex_geo_bool_t::REGULAR, sindex_geo_bool_t::GEO);
 
-class sindex_config_t {
-public:
-    sindex_config_t() { }
-    sindex_config_t(const ql::map_wire_func_t &_func, reql_version_t _func_version,
-            sindex_multi_bool_t _multi, sindex_geo_bool_t _geo) :
-        func(_func), func_version(_func_version), multi(_multi), geo(_geo) { }
-
-    bool operator==(const sindex_config_t &o) const;
-    bool operator!=(const sindex_config_t &o) const {
-        return !(*this == o);
-    }
-
-    ql::map_wire_func_t func;
-    reql_version_t func_version;
-    sindex_multi_bool_t multi;
-    sindex_geo_bool_t geo;
-};
-RDB_DECLARE_SERIALIZABLE(sindex_config_t);
-
 class eviction_config_t {
 public:
     eviction_config_t() { }
@@ -99,6 +80,27 @@ public:
     reql_version_t func_version;
 };
 RDB_DECLARE_SERIALIZABLE(eviction_config_t);
+
+class sindex_config_t {
+public:
+    sindex_config_t() { }
+    sindex_config_t(const ql::map_wire_func_t &_func, reql_version_t _func_version,
+            sindex_multi_bool_t _multi, sindex_geo_bool_t _geo) :
+        func(_func), func_version(_func_version), multi(_multi), geo(_geo) { }
+
+    bool operator==(const sindex_config_t &o) const;
+    bool operator!=(const sindex_config_t &o) const {
+        return !(*this == o);
+    }
+
+    ql::map_wire_func_t func;
+    reql_version_t func_version;
+    sindex_multi_bool_t multi;
+    sindex_geo_bool_t geo;
+
+    std::map<std::string, eviction_config_t> eviction_list;
+};
+RDB_DECLARE_SERIALIZABLE(sindex_config_t);
 
 class sindex_status_t {
 public:
@@ -398,6 +400,15 @@ public:
             ql::datum_t permissions,
             signal_t *interruptor,
             ql::datum_t *result_out,
+            admin_err_t *error_out) = 0;
+
+    virtual bool eviction_create(
+            auth::user_context_t const &user_context,
+            counted_t<const ql::db_t> db,
+            const name_string_t &table,
+            const std::string &name,
+            const eviction_config_t &config,
+            signal_t *interruptor,
             admin_err_t *error_out) = 0;
 
     virtual bool sindex_create(

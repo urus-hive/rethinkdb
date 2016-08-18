@@ -384,6 +384,43 @@ void store_t::sindex_create(
                                      drainer.lock()));
 }
 
+/*
+boost::optional<uuid_u> store_t::add_eviction_internal(
+    const sindex_name_t &index_name,
+    const std::vector<char> &opague_definition,
+    buf_lock_t *sindex_block) {
+    secondary_index_t sindex;
+
+    scoped_ptr_t<real_superblock_t> superblock;
+    scoped_ptr_t<txn_t> txn;
+    get_btree_superblock_and_txn_for_writing(general_cache_conn.get(),
+        &write_superblock_acq_semaphore, write_access_t::write, 1,
+        write_durability_t::HARD, &superblock, &txn);
+    buf_lock_t sindex_block(superblock->expose_buf(),
+                            superblock->get_sindex_block_id(),
+                            access_t::write);
+    superblock->release();
+
+    secondary_index_t definition;
+    bool success = get_secondary_index(
+        &sindex_block, index_name, &definition);
+    guarantee(success);
+    success = delete_secondary_index(&sindex_block, index_name);
+    guarantee(success);
+
+    auto slice_it = secondary_index_slices.find(definition.id);
+    guarantee(slice_it != secondary_index_slices.end());
+    guarantee(slice_it->second.has());
+    slice_it->second->assert_thread();
+
+    // Add the eviction
+    eviction_config_t
+    // Put the sindex back
+
+    set_secondary_index(&sindex_block, index_name, definition);
+}
+
+*/
 void store_t::sindex_rename_multi(
         const std::map<std::string, std::string> &name_changes,
         UNUSED signal_t *interruptor)

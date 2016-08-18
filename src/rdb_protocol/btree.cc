@@ -1687,6 +1687,7 @@ void rdb_update_single_sindex(
         std::vector<index_pair_t> *cfeed_old_keys_out,
         std::vector<index_pair_t> *cfeed_new_keys_out)
     THROWS_NOTHING {
+    fprintf(stderr, "RDB_UPDATE_SINGLE_SINDEX\n");
     // Note if you get this error it's likely that you've passed in a default
     // constructed mod_report. Don't do that.  Mod reports should always be passed
     // to a function as an output parameter before they're passed to this
@@ -1891,6 +1892,7 @@ void rdb_update_sindexes(
     index_vals_t *cfeed_old_keys_out,
     index_vals_t *cfeed_new_keys_out) {
 
+    fprintf(stderr, "RDB_UPDATE_SINDEXES\n");
     rdb_noop_deletion_context_t noop_deletion_context;
     {
         auto_drainer_t drainer;

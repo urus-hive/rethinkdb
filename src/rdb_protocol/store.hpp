@@ -178,6 +178,19 @@ public:
 
     /* End of `store_view_t` interface */
 
+    void eviction_create(
+            const std::string &index_name,
+            const std::string &name,
+            const eviction_config_t &config,
+            signal_t *interruptor)
+            THROWS_ONLY(interrupted_exc_t);
+    void eviction_drop(
+            const std::string &index_name,
+            const std::string &name,
+            const eviction_config_t &config,
+            signal_t *interruptor)
+            THROWS_ONLY(interrupted_exc_t);
+
     std::map<std::string, std::pair<sindex_config_t, sindex_status_t> > sindex_list(
             signal_t *interruptor)
             THROWS_ONLY(interrupted_exc_t);

@@ -21,7 +21,7 @@ inline key_range_t region_intersection(const key_range_t &r1, const key_range_t 
     return r1.intersection(r2);
 }
 
-inline bool region_overlaps(const key_range_t &r1, const key_range_t &r2) THROWS_NOTHING {
+inline bool region_overlaps(const key_range_t &r1, const key_range_t &r2) THROWS_NOTHING{
     return r1.overlaps(r2);
 }
 

@@ -664,6 +664,20 @@ bool test_rdb_env_t::instance_t::grant_table(
     return false;
 }
 
+bool test_rdb_env::instance_t::eviction_create(
+        UNUSED auth::user_context_t const &user_context,
+        UNUSED counted_t<const ql::db_t> db,
+        UNUSED const name_string_t &table,
+        UNUSED const std::string &name,
+        UNUSED const eviction_config_t &config,
+        UNUSED signal_t *interruptor,
+        admin_err_t *error_out) {
+    *error_out = admin_err_t{
+        "test_rdb_env_t::instance_t doesn't support eviction_create()",
+        query_state_t::FAILED};
+    return false;
+}
+
 bool test_rdb_env_t::instance_t::sindex_create(
         UNUSED auth::user_context_t const &user_context,
         UNUSED counted_t<const ql::db_t> db,

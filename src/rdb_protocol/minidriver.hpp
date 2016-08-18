@@ -45,6 +45,7 @@ public:
         UPDATE_NEWROW,
         DIFFERENCE_ROW,
         SINDEXCREATE_X,
+        EVICTIONCREATE_X,
         OBJORSEQ_VARNUM,
         FUNC_GETFIELD,
         FUNC_PLUCK,

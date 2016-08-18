@@ -440,6 +440,8 @@ bool term_is_write_or_meta(Term::TermType type) {
     case Term::REBALANCE:
     case Term::SYNC:
     case Term::GRANT:
+    case Term::EVICTION_CREATE:
+    case Term::EVICTION_DROP:
     case Term::INDEX_CREATE:
     case Term::INDEX_DROP:
     case Term::INDEX_WAIT:
@@ -586,6 +588,7 @@ bool term_is_write_or_meta(Term::TermType type) {
     case Term::TABLE_LIST:
     case Term::CONFIG:
     case Term::STATUS:
+    case Term::EVICTION_LIST:
     case Term::INDEX_LIST:
     case Term::INDEX_STATUS:
     case Term::GEOJSON:
@@ -708,6 +711,9 @@ bool term_forbids_writes(Term::TermType type) {
     case Term::REBALANCE:
     case Term::SYNC:
     case Term::GRANT:
+    case Term::EVICTION_CREATE:
+    case Term::EVICTION_DROP:
+    case Term::EVICTION_LIST:
     case Term::INDEX_CREATE:
     case Term::INDEX_DROP:
     case Term::INDEX_LIST:

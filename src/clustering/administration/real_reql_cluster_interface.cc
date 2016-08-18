@@ -1204,6 +1204,17 @@ bool real_reql_cluster_interface_t::grant_table(
         error_out);
 }
 
+bool real_reql_cluster_interface_t::eviction_create(
+            auth::user_context_t const &user_context,
+            counted_t<const ql::db_t> db,
+            const name_string_t &table,
+            const std::string &name,
+            const eviction_config_t &config,
+            signal_t *interruptor,
+            admin_err_t *error_out) {
+    return true; // TODO
+}
+
 bool real_reql_cluster_interface_t::sindex_create(
         auth::user_context_t const &user_context,
         counted_t<const ql::db_t> db,
