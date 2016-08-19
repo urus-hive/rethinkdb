@@ -55,10 +55,10 @@ public:
         try {
             admin_err_t error;
             if (!env->env->reql_cluster_interface()->eviction_create(
-                    env->env->get_user_context(),
-                    table->db,
-                    name_string_t::guarantee_valid(table->name.c_str()),
-                    index_name,
+                env->env->get_user_context(),
+                table->db,
+                name_string_t::guarantee_valid(table->name.c_str()),
+                    index_name->as_str().to_std(),
                     config,
                     env->env->interruptor,
                     &error)) {

@@ -1212,7 +1212,33 @@ bool real_reql_cluster_interface_t::eviction_create(
             const eviction_config_t &config,
             signal_t *interruptor,
             admin_err_t *error_out) {
-    return true; // TODO
+    guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
+        "real_reql_cluster_interface_t should never get queries for system tables");
+
+    try {
+        cross_thread_signal_t interruptor_on_home(interruptor, home_thread());
+        on_thread_t thread_switcher(home_thread());
+
+        namespace_id_t table_id;
+        m_table_meta_client->find(db->id, table, &table_id);
+
+        user_context.require_config_permission(m_rdb_context, db->id, table_id);
+
+        table_config_and_shards_change_t table_config_and_shards_change(
+            table_config_and_shards_change_t::eviction_create_t{name, config});
+        m_table_meta_client->set_config(
+            table_id, table_config_and_shards_change, &interruptor_on_home);
+
+        return true;
+    } catch (const config_change_exc_t &) {
+        *error_out = admin_err_t{
+            strprintf("Eviction `%s` already exists.", name.c_str()),
+            query_state_t::FAILED};
+        return false;
+    } CATCH_NAME_ERRORS(db->name, name, error_out)
+      CATCH_OP_ERRORS(db->name, name, error_out,
+        "The eviction was not created.",
+        "The eviction may of may not have been created.")
 }
 
 bool real_reql_cluster_interface_t::sindex_create(

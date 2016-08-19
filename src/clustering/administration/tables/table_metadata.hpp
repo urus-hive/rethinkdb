@@ -71,7 +71,6 @@ public:
     table_basic_config_t basic;
     std::vector<shard_t> shards;
     std::map<std::string, sindex_config_t> sindexes;
-    std::map<std::string, eviction_config_t> evictions;
     write_ack_config_t write_ack_config;
     write_durability_t durability;
 };
@@ -142,6 +141,17 @@ public:
         table_config_and_shards_t new_config_and_shards;
     };
 
+    class eviction_create_t {
+    public:
+        std::string name;
+        eviction_config_t config;
+    };
+
+    class eviction_drop_t {
+    public:
+        std::string name;
+    };
+
     class sindex_create_t {
     public:
         std::string name;
@@ -163,6 +173,10 @@ public:
     table_config_and_shards_change_t() { }
 
     explicit table_config_and_shards_change_t(set_table_config_and_shards_t &&_change)
+        : change(std::move(_change)) { }
+    explicit table_config_and_shards_change_t(eviction_create_t &&_change)
+        : change(std::move(_change)) { }
+    explicit table_config_and_shards_change_t(eviction_drop_t &&_change)
         : change(std::move(_change)) { }
     explicit table_config_and_shards_change_t(sindex_create_t &&_change)
         : change(std::move(_change)) { }
@@ -194,6 +208,8 @@ public:
 private:
     boost::variant<
         set_table_config_and_shards_t,
+        eviction_create_t,
+        eviction_drop_t,
         sindex_create_t,
         sindex_drop_t,
         sindex_rename_t> change;
@@ -206,9 +222,24 @@ private:
             : table_config_and_shards(_table_config_and_shards) { }
 
         result_type operator()(
-                const set_table_config_and_shards_t &set_table_config_and_shards) const {
+            const set_table_config_and_shards_t &set_table_config_and_shards) const {
             *table_config_and_shards =
                 set_table_config_and_shards.new_config_and_shards;
+            return true;
+        }
+
+        result_type operator()(const eviction_create_t &eviction_create) const {
+            auto it = table_config_and_shards->config.sindexes.find(
+                eviction_create.config.index_name);
+            if (it == table_config_and_shards->config.sindexes.end()) {
+                return false;
+            }
+            auto pair = it->second.eviction_list.insert(
+                std::make_pair(eviction_create.name, eviction_create.config));
+            return true;
+        }
+
+        result_type operator()(const eviction_drop_t &eviction_drop) const {
             return true;
         }
 
