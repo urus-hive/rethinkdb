@@ -115,13 +115,19 @@ void conflict_resolving_diskmgr_t::submit(action_t *action) {
                 action->conflict_count++;
             }
 
-            /* Put ourself on the queue for this chunk */
-            if (it == chunk_queues->end()) {
+            /* Put ourself on the queue for this chunk.
+            The exception is if we are a resize and there is no queue yet.
+            This is safe because resize operations have their own queue
+            `resize_waiter_queues` on which other operations will queue up. */
+            if (it == chunk_queues->end() && !action->get_is_resize()) {
                 /* Start a queue because there isn't one already */
-                it = chunk_queues->insert(it, std::make_pair(block, std::deque<action_t *>()));
+                it = chunk_queues->insert(
+                    it, std::make_pair(block, std::deque<action_t *>()));
             }
-            rassert(it->first == block);
-            it->second.push_back(action);
+            if (it != chunk_queues->end()) {
+                rassert(it->first == block);
+                it->second.push_back(action);
+            }
         }
     }
 
@@ -165,10 +171,6 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
             rassert(waiter->conflict_count > 0);
             waiter->conflict_count--;
 
-            /* Resizes only wait for other resizes. So if we get here, we must
-            be the last thing that `waiter` has been waiting for. */
-            rassert(!waiter->get_is_resize() || waiter->conflict_count == 0);
-
             if (waiter->conflict_count == 0) {
                 /* The waiter isn't waiting on anything else. Unblock it. */
                 waiters_to_unblock.push_back(waiter);
@@ -198,8 +200,9 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
         for (size_t i = 0; i < waiters_to_unblock.size(); ++i) {
             submit_action_downwards(waiters_to_unblock[i]);
         }
+    }
 
-    } else {
+    if (!action->get_is_resize() || action->get_size_change() < 0) {
         std::map<int64_t, std::deque<action_t *> > *chunk_queues = &all_chunk_queues[action->get_fd()];
 
         int64_t start, end;
@@ -210,13 +213,25 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
 
         std::map<int64_t, std::deque<action_t*> >::iterator it = chunk_queues->find(start);
         for (int64_t block = start; block < end; block++) {
-            /* We can assert this because at least we must still be on the queue */
-            rassert(it != chunk_queues->end() && it->first == block);
-
+            /* Reads and writes will always be the first entry on each queue
+            in their range.
+            We must be careful though, because resizes only go onto queues
+            that already existed, so this invariant doesn't hold for them. */
+            if (it == chunk_queues->end()) {
+                guarantee(action->get_is_resize());
+                continue;
+            }
+            rassert(it->first == block);
             std::deque<action_t *> &queue = it->second;
 
-            /* Remove ourselves from the queue */
-            rassert(queue.front() == action);
+            /* Remove ourselves from the queue.
+            Exception: If we are a resize and weren't on the queue in the first
+            place, we can skip this queue. */
+            guarantee(!queue.empty());
+            if (queue.front() != action) {
+                guarantee(action->get_is_resize());
+                continue;
+            }
             queue.pop_front();
 
             if (!queue.empty()) {
@@ -236,7 +251,8 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
 
                     /* If the waiter is a read, and the range it was supposed to read is a subrange of
                     our range, then we can just fill its buffer directly instead of going to disk. */
-                    if (waiter->get_is_read() &&
+                    if ((action->get_is_read() || action->get_is_write()) &&
+                            waiter->get_is_read() &&
                             waiter->get_offset() >= action->get_offset() &&
                             waiter->get_offset() + waiter->get_count() <= action->get_offset() + action->get_count() ) {
 
