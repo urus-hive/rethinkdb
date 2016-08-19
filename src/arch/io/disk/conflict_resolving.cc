@@ -56,6 +56,27 @@ void copy_full_action_buf(pool_diskmgr_action_t *dest, pool_diskmgr_action_t *so
     fill_bufs_from_source(dest_vecs, dest_size, source_vecs, source_size, offset_into_source);
 }
 
+void conflict_resolving_diskmgr_t::get_range(
+        const action_t *a, int64_t *begin, int64_t *end) {
+    int64_t begin_offset, end_offset;
+    if (a->get_is_resize()) {
+        if (a->get_size_change() < 0) {
+            /* Shrinks the file from `end_offset` to the new size `begin_offset`. */
+            begin_offset = a->get_offset();
+            end_offset = a->get_offset() - a->get_size_change();
+        } else {
+            /* Grows the file from `begin_offset` to the new size `end_offset`. */
+            begin_offset = a->get_offset() - a->get_size_change();
+            end_offset = a->get_offset();
+        }
+    } else {
+        begin_offset = a->get_offset();
+        end_offset = a->get_offset() + a->get_count();
+    }
+    *begin = begin_offset / DEVICE_BLOCK_SIZE;
+    *end = ceil_aligned(end_offset, DEVICE_BLOCK_SIZE) / DEVICE_BLOCK_SIZE;
+}
+
 void conflict_resolving_diskmgr_t::submit(action_t *action) {
     action->conflict_count = 0;
 
@@ -69,7 +90,15 @@ void conflict_resolving_diskmgr_t::submit(action_t *action) {
     if (action->get_is_resize()) {
         /* Block out subsequent operations; reads, writes and resizes alike. */
         ++resize_active[action->get_fd()];
-    } else {
+    }
+
+    /*
+    We calculate per-block conflicts for all operations except for resizes
+    that increase the file size.
+    Resizes that reduce the file size must wait for any queued operation
+    that accesses the affected region of the file, while size increases
+    are safe to run at any time, and we can skip the check. */
+    if (!action->get_is_resize() || action->get_size_change() < 0) {
         std::map<int64_t, std::deque<action_t *> > *chunk_queues = &all_chunk_queues[action->get_fd()];
         /* Determine the range of file-blocks that this action spans */
         int64_t start;
@@ -94,7 +123,7 @@ void conflict_resolving_diskmgr_t::submit(action_t *action) {
             rassert(it->first == block);
             it->second.push_back(action);
         }
-    } // if (!action->get_is_resize())
+    }
 
     /* If there are no conflicts, we can start right away. */
     if (action->conflict_count == 0) {
