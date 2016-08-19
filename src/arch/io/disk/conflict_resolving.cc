@@ -219,6 +219,7 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
             that already existed, so this invariant doesn't hold for them. */
             if (it == chunk_queues->end()) {
                 guarantee(action->get_is_resize());
+                ++it;
                 continue;
             }
             rassert(it->first == block);
@@ -230,6 +231,7 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
             guarantee(!queue.empty());
             if (queue.front() != action) {
                 guarantee(action->get_is_resize());
+                ++it;
                 continue;
             }
             queue.pop_front();
