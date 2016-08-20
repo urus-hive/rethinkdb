@@ -86,11 +86,13 @@ sindex_name_t create_sindex(store_t *store) {
     ql::sym_t one(1);
     ql::minidriver_t r(ql::backtrace_id_t::empty());
     ql::raw_term_t mapping = r.var(one)["sid"].root_term();
+    std::map<std::string, eviction_config_t> evictions;
     sindex_config_t config(
         ql::map_wire_func_t(mapping, make_vector(one)),
         reql_version_t::LATEST,
         sindex_multi_bool_t::SINGLE,
-        sindex_geo_bool_t::REGULAR);
+        sindex_geo_bool_t::REGULAR,
+        evictions);
 
     cond_t non_interruptor;
     store->sindex_create(name, config, &non_interruptor);

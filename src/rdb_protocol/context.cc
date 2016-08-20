@@ -33,9 +33,13 @@ RDB_IMPL_SERIALIZABLE_3_SINCE_v2_1(eviction_config_t,
                                    func_version);
 
 bool sindex_config_t::operator==(const sindex_config_t &o) const {
-    if (func_version != o.func_version || multi != o.multi || geo != o.geo) {
+    if (func_version != o.func_version ||
+        multi != o.multi ||
+        geo != o.geo ||
+        eviction_list != o.eviction_list) {
         return false;
     }
+
     /* This is kind of a hack--we compare the functions by serializing them and comparing
     the serialized values. */
     write_message_t wm1, wm2;
@@ -49,8 +53,8 @@ bool sindex_config_t::operator==(const sindex_config_t &o) const {
     return stream1.vector() == stream2.vector();
 }
 
-RDB_IMPL_SERIALIZABLE_4_SINCE_v2_1(sindex_config_t,
-    func, func_version, multi, geo);
+RDB_IMPL_SERIALIZABLE_5_SINCE_v2_1(sindex_config_t,
+                                   func, func_version, multi, geo, eviction_list);
 
 void sindex_status_t::accum(const sindex_status_t &other) {
     progress_numerator += other.progress_numerator;

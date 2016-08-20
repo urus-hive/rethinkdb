@@ -1564,9 +1564,11 @@ void serialize_sindex_info(write_message_t *wm,
     serialize<cluster_version_t::LATEST_DISK>(
         wm, info.mapping_version_info.latest_checked_reql_version);
 
+    fprintf(stderr, "Serializing sindex_info\n");
     serialize<cluster_version_t::LATEST_DISK>(wm, info.mapping);
     serialize<cluster_version_t::LATEST_DISK>(wm, info.multi);
     serialize<cluster_version_t::LATEST_DISK>(wm, info.geo);
+    serialize<cluster_version_t::LATEST_DISK>(wm, info.eviction_list);
 }
 
 void deserialize_sindex_info(
@@ -1643,6 +1645,22 @@ void deserialize_sindex_info(
     case cluster_version_t::v2_2: // fallthru
     case cluster_version_t::v2_3_is_latest:
         success = deserialize_for_version(cluster_version, &read_stream, &info_out->geo);
+        throw_if_bad_deserialization(success, "sindex description");
+        break;
+    default: unreachable();
+    }
+    switch (cluster_version) {
+    case cluster_version_t::v1_14: // fallthru
+    case cluster_version_t::v1_15: // fallthru
+    case cluster_version_t::v1_16: // fallthru
+    case cluster_version_t::v2_0: // fallthru
+    case cluster_version_t::v2_1: // fallthru
+    case cluster_version_t::v2_2: // fallthru
+        info_out->eviction_list = std::map<std::string, eviction_config_t>();
+        break;
+    case cluster_version_t::v2_3_is_latest:
+        success = deserialize<cluster_version_t::v2_3_is_latest>(
+            &read_stream, &info_out->eviction_list);
         throw_if_bad_deserialization(success, "sindex description");
         break;
     default: unreachable();

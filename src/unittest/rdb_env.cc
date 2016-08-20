@@ -664,7 +664,7 @@ bool test_rdb_env_t::instance_t::grant_table(
     return false;
 }
 
-bool test_rdb_env::instance_t::eviction_create(
+bool test_rdb_env_t::instance_t::eviction_create(
         UNUSED auth::user_context_t const &user_context,
         UNUSED counted_t<const ql::db_t> db,
         UNUSED const name_string_t &table,

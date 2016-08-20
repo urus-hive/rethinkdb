@@ -1230,7 +1230,7 @@ bool real_reql_cluster_interface_t::eviction_create(
             table_id, table_config_and_shards_change, &interruptor_on_home);
 
         return true;
-    } catch (const config_change_exc_t &) {
+    } catch (const config_change_exc_t &e) {
         *error_out = admin_err_t{
             strprintf("Eviction `%s` already exists.", name.c_str()),
             query_state_t::FAILED};

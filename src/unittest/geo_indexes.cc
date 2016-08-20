@@ -165,11 +165,13 @@ void prepare_namespace(namespace_interface_t *nsi,
     ql::minidriver_t r(ql::backtrace_id_t::empty());
     ql::raw_term_t mapping = r.var(arg).root_term();
 
+    std::map<std::string, eviction_config_t> evictions;;
     sindex_config_t sindex(
         ql::map_wire_func_t(mapping, make_vector(arg)),
         reql_version_t::LATEST,
         sindex_multi_bool_t::SINGLE,
-        sindex_geo_bool_t::GEO);
+        sindex_geo_bool_t::GEO,
+        evictions);
 
     cond_t non_interruptor;
     for (const auto &store : *stores) {

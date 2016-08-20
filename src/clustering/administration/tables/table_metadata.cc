@@ -34,6 +34,10 @@ RDB_IMPL_EQUALITY_COMPARABLE_3(table_config_and_shards_t,
 RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(
     table_config_and_shards_change_t::set_table_config_and_shards_t,
     new_config_and_shards);
+RDB_IMPL_SERIALIZABLE_2_FOR_CLUSTER(table_config_and_shards_change_t::eviction_create_t,
+    name, config);
+RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::eviction_drop_t,
+    name);
 RDB_IMPL_SERIALIZABLE_2_FOR_CLUSTER(table_config_and_shards_change_t::sindex_create_t,
     name, config);
 RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(table_config_and_shards_change_t::sindex_drop_t,

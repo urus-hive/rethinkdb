@@ -211,11 +211,13 @@ std::string create_sindex(const std::vector<scoped_ptr_t<store_t> > *stores) {
     ql::minidriver_t r(ql::backtrace_id_t::empty());
     ql::raw_term_t mapping = r.var(arg)["sid"].root_term();
 
+    std::map<std::string, eviction_config_t> evictions;
     sindex_config_t sindex(
         ql::map_wire_func_t(mapping, make_vector(arg)),
         reql_version_t::LATEST,
         sindex_multi_bool_t::SINGLE,
-        sindex_geo_bool_t::REGULAR);
+        sindex_geo_bool_t::REGULAR,
+        evictions);
 
     cond_t non_interruptor;
     for (const auto &store : *stores) {

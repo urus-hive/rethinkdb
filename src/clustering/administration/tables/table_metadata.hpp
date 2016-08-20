@@ -222,7 +222,7 @@ private:
             : table_config_and_shards(_table_config_and_shards) { }
 
         result_type operator()(
-            const set_table_config_and_shards_t &set_table_config_and_shards) const {
+                const set_table_config_and_shards_t &set_table_config_and_shards) const {
             *table_config_and_shards =
                 set_table_config_and_shards.new_config_and_shards;
             return true;
@@ -234,9 +234,12 @@ private:
             if (it == table_config_and_shards->config.sindexes.end()) {
                 return false;
             }
+            fprintf(stderr, "EVICTION CREATED %s\n", eviction_create.name.c_str());
             auto pair = it->second.eviction_list.insert(
                 std::make_pair(eviction_create.name, eviction_create.config));
-            return true;
+            fprintf(stderr, "RESULT: %d", pair.second);
+
+            return pair.second;
         }
 
         result_type operator()(const eviction_drop_t &eviction_drop) const {
@@ -282,6 +285,8 @@ private:
 };
 
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::set_table_config_and_shards_t);
+RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::eviction_create_t);
+RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::eviction_drop_t);
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::sindex_create_t);
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::sindex_drop_t);
 RDB_DECLARE_SERIALIZABLE(table_config_and_shards_change_t::sindex_rename_t);

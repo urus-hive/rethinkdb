@@ -261,6 +261,7 @@ struct sindex_disk_info_t {
     sindex_reql_version_info_t mapping_version_info;
     sindex_multi_bool_t multi;
     sindex_geo_bool_t geo;
+    std::map<std::string, eviction_config_t> eviction_list;
 };
 
 void serialize_sindex_info(write_message_t *wm,

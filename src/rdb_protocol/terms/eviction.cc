@@ -19,7 +19,7 @@ namespace ql {
 class eviction_create_term_t : public op_term_t {
 public:
     eviction_create_term_t(compile_env_t *env, const raw_term_t &term)
-        : op_term_t(env, term, argspec_t(1),
+        : op_term_t(env, term, argspec_t(2),
                         optargspec_t({"trigger", "delay", "index", "replace"})) { }
 
     virtual scoped_ptr_t<val_t> eval_impl(
@@ -55,10 +55,10 @@ public:
         try {
             admin_err_t error;
             if (!env->env->reql_cluster_interface()->eviction_create(
-                env->env->get_user_context(),
-                table->db,
-                name_string_t::guarantee_valid(table->name.c_str()),
-                    index_name->as_str().to_std(),
+                    env->env->get_user_context(),
+                    table->db,
+                    name_string_t::guarantee_valid(table->name.c_str()),
+                    name_datum.as_str().to_std(),
                     config,
                     env->env->interruptor,
                     &error)) {

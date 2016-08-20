@@ -84,9 +84,16 @@ RDB_DECLARE_SERIALIZABLE(eviction_config_t);
 class sindex_config_t {
 public:
     sindex_config_t() { }
-    sindex_config_t(const ql::map_wire_func_t &_func, reql_version_t _func_version,
-            sindex_multi_bool_t _multi, sindex_geo_bool_t _geo) :
-        func(_func), func_version(_func_version), multi(_multi), geo(_geo) { }
+    sindex_config_t(const ql::map_wire_func_t &_func,
+                    reql_version_t _func_version,
+                    sindex_multi_bool_t _multi,
+                    sindex_geo_bool_t _geo,
+                    std::map<std::string, eviction_config_t> &_evictions) :
+        func(_func),
+        func_version(_func_version),
+        multi(_multi),
+        geo(_geo),
+        eviction_list(_evictions) { }
 
     bool operator==(const sindex_config_t &o) const;
     bool operator!=(const sindex_config_t &o) const {

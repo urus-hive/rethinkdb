@@ -51,6 +51,7 @@ static const std::set<std::string> acceptable_optargs({
     "db",
     "default",
     "default_timezone",
+    "delay",
     "dry_run",
     "durability",
     "emergency_repair",
@@ -93,6 +94,7 @@ static const std::set<std::string> acceptable_optargs({
     "profile",
     "read_mode",
     "redirects",
+    "replace",
     "replicas",
     "result_format",
     "return_changes",
@@ -102,6 +104,7 @@ static const std::set<std::string> acceptable_optargs({
     "squash",
     "time_format",
     "timeout",
+    "trigger",
     "unit",
     "use_outdated", // Only so we can detect it and error.
     "verify",

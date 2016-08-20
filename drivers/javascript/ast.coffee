@@ -347,6 +347,7 @@ class RDBVal extends TermBase
         new Max opts, @, keys.map(funcWrap)...
 
     insert: aropt (doc, opts) -> new Insert opts, @, rethinkdb.expr(doc)
+    evictionCreate: aropt (name, opts) -> new EvictionCreate opts, @, name
     indexCreate: varar(1, 3, (name, defun_or_opts, opts) ->
         if opts?
             new IndexCreate opts, @, name, funcWrap(defun_or_opts)
