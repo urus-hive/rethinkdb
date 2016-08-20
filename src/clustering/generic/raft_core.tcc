@@ -1282,6 +1282,13 @@ void raft_member_t<state_t>::candidate_or_leader_become_follower(
     guarantee(mode == mode_t::follower);
 }
 
+/* The Raft election semaphore is a singleton. */
+new_semaphore_t *get_raft_election_semaphore() {
+    const int64_t max_concurrent_elections = 10;
+    static new_semaphore_t raft_election_semaphore(max_concurrent_elections);
+    return &raft_election_semaphore;
+}
+
 template<class state_t>
 void raft_member_t<state_t>::candidate_and_leader_coro(
         new_mutex_acq_t *mutex_acq_on_heap,
