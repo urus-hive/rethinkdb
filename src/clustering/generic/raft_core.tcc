@@ -7,7 +7,6 @@
 #include "arch/compiler.hpp"
 #include "arch/runtime/coroutines.hpp"
 #include "concurrency/exponential_backoff.hpp"
-#include "concurrency/new_semaphore.hpp"
 #include "containers/map_sentries.hpp"
 #include "logger.hpp"
 
@@ -1282,13 +1281,6 @@ void raft_member_t<state_t>::candidate_or_leader_become_follower(
     guarantee(mode == mode_t::follower);
 }
 
-/* The Raft election semaphore is a singleton. */
-new_semaphore_t *get_raft_election_semaphore() {
-    const int64_t max_concurrent_elections = 10;
-    static new_semaphore_t raft_election_semaphore(max_concurrent_elections);
-    return &raft_election_semaphore;
-}
-
 template<class state_t>
 void raft_member_t<state_t>::candidate_and_leader_coro(
         new_mutex_acq_t *mutex_acq_on_heap,
@@ -1323,14 +1315,6 @@ void raft_member_t<state_t>::candidate_and_leader_coro(
         /* The first election won't necessarily succeed. So we loop until either we
         become leader or we are interrupted. */
         while (true) {
-            /* We don't want to start too many elections at the same time,
-            since that might overwhelm the i/o capacity of some Raft members,
-            which in turn could lead to no single election to ever complete
-            within the timeout. */
-            new_semaphore_in_line_t raft_election_ticket(
-                get_raft_election_semaphore(), 1);
-            wait_interruptible(raft_election_ticket.acquisition_signal(), interruptor);
-
             signal_timer_t election_timeout;
             /* Choose a random timeout between the current timeout and half
             the current timeout. */
