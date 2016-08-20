@@ -208,32 +208,35 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
         int64_t start, end;
         get_range(action, &start, &end);
 
-        /* Visit every block and see if anything is blocking on us. As we iterate
-        over block indices, we iterate through the corresponding entries in the map. */
-
-        for (int64_t block = start; block < end; block++) {
-            std::map<int64_t, std::deque<action_t*> >::iterator it = chunk_queues->find(block);
-            /* Reads and writes will always be the first entry on each queue
-            in their range.
-            We must be careful though, because resizes only go onto queues
-            that already existed, so this invariant doesn't hold for them. */
-            if (it == chunk_queues->end()) {
-                guarantee(action->get_is_resize());
-                continue;
+        /* Visit every chunk queue in the block range and see if anything is
+        blocking on us. */
+        for (auto it = chunk_queues->lower_bound(start);
+             it != chunk_queues->end();) {
+            if (it->first >= end) {
+                break;
             }
+
             std::deque<action_t *> &queue = it->second;
 
             /* Remove ourselves from the queue.
             Exception: If we are a resize and weren't on the queue in the first
-            place, we can skip this queue. */
+            place, we can skip this queue.
+            This can happen because resizes only go on queues that already
+            existed when the resize was added. */
             guarantee(!queue.empty());
             if (queue.front() != action) {
                 guarantee(action->get_is_resize());
+                ++it;
                 continue;
             }
             queue.pop_front();
 
             if (!queue.empty()) {
+                /* Continue with the next chunk queue.
+                We have to move on now, because we might call done() recusrively and that might
+                invalidate the iterator. */
+                ++it;
+
                 /* Something was blocking on us for this block. Get the first waiter from the queue. */
                 action_t *waiter = queue.front();
 
@@ -273,7 +276,7 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
                 }
             } else {
                 /* The queue is empty, erase it. */
-                chunk_queues->erase(it);
+                chunk_queues->erase(it++);
             }
         }
     }
