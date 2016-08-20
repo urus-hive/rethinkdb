@@ -233,7 +233,7 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
 
             if (!queue.empty()) {
                 /* Continue with the next chunk queue.
-                We have to move on now, because we might call done() recusrively and that might
+                We have to move on now, because we might call done() recursively and that might
                 invalidate the iterator. */
                 ++it;
 
