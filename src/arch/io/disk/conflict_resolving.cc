@@ -221,7 +221,6 @@ void conflict_resolving_diskmgr_t::done(accounting_diskmgr_action_t *payload) {
                 guarantee(action->get_is_resize());
                 continue;
             }
-            rassert(it->first == block);
             std::deque<action_t *> &queue = it->second;
 
             /* Remove ourselves from the queue.
