@@ -34,7 +34,6 @@ bool common_table_artificial_table_backend_t::read_all_rows_as_vector(
     table_meta_client->list_configs(
         &interruptor_on_home, &configs, &disconnected_configs);
     rows_out->clear();
-    bool was_interrupted = false;
     pmap(configs.cbegin(), configs.cend(),
         [&](const std::pair<namespace_id_t, table_config_and_shards_t> &pair) {
         ql::datum_t db_name_or_uuid;
@@ -57,10 +56,10 @@ bool common_table_artificial_table_backend_t::read_all_rows_as_vector(
                 pair.first, db_name_or_uuid, pair.second.config.basic.name, &row);
             rows_out->push_back(row);
         } catch (const interrupted_exc_t &) {
-            was_interrupted = true;
+            /* We're handling this outside the `pmap` */
         }
     });
-    if (was_interrupted) {
+    if (interruptor_on_home.is_pulsed()) {
         throw interrupted_exc_t();
     }
     for (const auto &pair : disconnected_configs) {
