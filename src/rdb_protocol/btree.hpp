@@ -254,9 +254,11 @@ struct sindex_disk_info_t {
     sindex_disk_info_t(const ql::map_wire_func_t &_mapping,
                        const sindex_reql_version_info_t &_mapping_version_info,
                        sindex_multi_bool_t _multi,
-                       sindex_geo_bool_t _geo) :
+                       sindex_geo_bool_t _geo,
+                       const std::map<std::string, eviction_config_t> &_eviction_list) :
         mapping(_mapping), mapping_version_info(_mapping_version_info),
-        multi(_multi), geo(_geo) { }
+        multi(_multi), geo(_geo),
+        eviction_list(_eviction_list) { }
     ql::map_wire_func_t mapping;
     sindex_reql_version_info_t mapping_version_info;
     sindex_multi_bool_t multi;

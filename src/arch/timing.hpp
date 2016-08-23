@@ -70,4 +70,21 @@ private:
     DISABLE_COPYING(repeating_timer_t);
 };
 
+class single_callback_timer_t : private timer_callback_t {
+public:
+    single_callback_timer_t(const std::function<void()> &ringee);
+    ~single_callback_timer_t();
+
+    void start(int64_t ms);
+
+    bool cancel();
+    bool is_running() const;
+private:
+    void on_timer();
+    timer_token_t *timer;
+    std::function<void()> ringee;
+
+    DISABLE_COPYING(single_callback_timer_t);
+};
+
 #endif /* ARCH_TIMING_HPP_ */

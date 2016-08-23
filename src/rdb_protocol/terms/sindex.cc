@@ -26,7 +26,11 @@ datum_string_t sindex_config_to_string(const sindex_config_t &config) {
     version.original_reql_version = config.func_version;
     version.latest_compatible_reql_version = config.func_version;
     version.latest_checked_reql_version = reql_version_t::LATEST;
-    sindex_disk_info_t disk_info(config.func, version, config.multi, config.geo);
+    sindex_disk_info_t disk_info(config.func,
+                                 version,
+                                 config.multi,
+                                 config.geo,
+                                 config.eviction_list);
 
     write_message_t wm;
     serialize_sindex_info(&wm, disk_info);

@@ -97,3 +97,43 @@ void repeating_timer_t::on_timer() {
     // before ring gets used.
     coro_t::spawn_now_dangerously(std::bind(call_ringer, ringee));
 }
+
+// single_callback_timer_t
+
+single_callback_timer_t::single_callback_timer_t(const std::function<void()> &_ringee) :
+    timer(nullptr),
+    ringee(_ringee) { }
+
+single_callback_timer_t::~single_callback_timer_t() {
+    if (timer != nullptr) {
+        cancel_timer(timer);
+    }
+}
+
+void single_callback_timer_t::start(int64_t ms) {
+    guarantee(timer == nullptr);
+    if (ms == 0) {
+        on_timer();
+    } else {
+        guarantee(ms > 0);
+        timer = fire_timer_once(ms, this);
+    }
+}
+
+bool single_callback_timer_t::cancel() {
+    if (timer != nullptr) {
+        cancel_timer(timer);
+        timer = nullptr;
+        return true;
+    }
+    return false;
+}
+
+bool single_callback_timer_t::is_running() const {
+    return timer != nullptr;
+}
+
+void single_callback_timer_t::on_timer() {
+    timer = nullptr;
+    coro_t::spawn_now_dangerously(std::bind(call_ringer, ringee));
+}

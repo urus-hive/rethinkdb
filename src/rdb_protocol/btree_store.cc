@@ -171,6 +171,10 @@ store_t::store_t(const region_t &_region,
     default:
         unreachable();
     }
+
+    //test for eviction timer
+    evictions["test"] = make_scoped<eviction_t>(eviction_config_t());
+    evictions["test"]->set_expiration(10*1000);
 }
 
 store_t::~store_t() {
@@ -362,7 +366,11 @@ void store_t::sindex_create(
     version_info.original_reql_version = config.func_version;
     version_info.latest_compatible_reql_version = config.func_version;
     version_info.latest_checked_reql_version = reql_version_t::LATEST;
-    sindex_disk_info_t info(config.func, version_info, config.multi, config.geo);
+    sindex_disk_info_t info(config.func,
+                            version_info,
+                            config.multi,
+                            config.geo,
+                            config.eviction_list);
 
     write_message_t wm;
     serialize_sindex_info(&wm, info);

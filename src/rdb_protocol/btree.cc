@@ -1566,7 +1566,8 @@ void serialize_sindex_info(write_message_t *wm,
     serialize<cluster_version_t::LATEST_DISK>(
         wm, info.mapping_version_info.latest_checked_reql_version);
 
-    fprintf(stderr, "Serializing sindex_info\n");
+    fprintf(stderr, "----------\nSerializing sindex_info\n");
+    fprintf(stderr, "Eviction list has %lu\n", info.eviction_list.size());
     serialize<cluster_version_t::LATEST_DISK>(wm, info.mapping);
     serialize<cluster_version_t::LATEST_DISK>(wm, info.multi);
     serialize<cluster_version_t::LATEST_DISK>(wm, info.geo);
@@ -1723,6 +1724,12 @@ void rdb_update_single_sindex(
     } catch (const archive_exc_t &e) {
         crash("%s", e.what());
     }
+
+    // Deal with evictions
+
+    fprintf(stderr, "Sindex has %lu evictions\n", sindex_info.eviction_list.size());
+
+    
     // TODO(2015-01): Actually get real profiling information for
     // secondary index updates.
     profile::trace_t *const trace = nullptr;
