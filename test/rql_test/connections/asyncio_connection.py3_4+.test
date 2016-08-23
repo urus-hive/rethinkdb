@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-'''Tests the driver API for making connections and exercizes the networking code'''
+'''Tests the driver API for making connections and exercises the networking code'''
 
 from __future__ import print_function
 
@@ -19,14 +19,16 @@ r.set_loop_type("asyncio")
 
 # -- get settings
 
-rethinkdb_exe    = sys.argv[1] if len(sys.argv) > 1 else utils.find_rethinkdb_executable()
-use_default_port = bool(int(sys.argv[2])) if len(sys.argv) > 2 else 0
+rethinkdb_exe = sys.argv[1] if len(sys.argv) > 1 else utils.find_rethinkdb_executable()
 
 # -- shared server
 
 sharedServer       = None
 externalServerHost = os.environ.get('RDB_SERVER_HOST', None)
 externalServerPort = int(os.environ['RDB_DRIVER_PORT']) if 'RDB_DRIVER_PORT' in os.environ else None
+
+USE_DEFAULT_PORT   = externalServerPort == r.DEFAULT_PORT
+USE_DEFAULT_HOST   = externalServerHost in ('localhost', None)
 
 # --
 
@@ -35,7 +37,7 @@ def just_do(coroutine, *args, **kwargs):
 
 # == Test Base Classes
 
-class TestCaseCompatible(rdb_unittest.TestCaseCompatible):
+class TestCaseAsyncioCompatible(rdb_unittest.TestCaseCompatible):
     # can't use standard TestCase run here because async.
     def run(self, result=None):
         return just_do(self.arun, result)
@@ -88,26 +90,70 @@ class TestCaseCompatible(rdb_unittest.TestCaseCompatible):
             result.stopTest(self)
 
 
-class TestWithConnection(TestCaseCompatible):
-    server = None
-    conn   = None
-    host   = None
-    port   = None
+class TestWithConnection(TestCaseAsyncioCompatible):
+    server  = None
+    conn    = None
+    host    = None
+    port    = None
+    
+    admin_pass     = None
+    private_server = False
+    use_tls        = False
     
     @asyncio.coroutine
     def setUp(self):
         global sharedServer
         
-        if not any([externalServerHost, externalServerPort]):
-            # - setup shared server
+        if self.private_server or self.use_tls or self.admin_pass:
+            if self.server and self.server == sharedServer:
+                self.__class__.server = None
             
+            # - validate running server
+            if self.server:
+                try:
+                    self.server.check()
+                    sslOption = {'ca_certs':self.server.tlsCertPath} if self.server.tlsCertPath else None
+                    conn = yield from r.connect(host=self.server.host, port=self.server.driver_port, ssl=sslOption, password=self.admin_pass or '')
+                    yield from r.expr(1).run(conn)
+                except Exception as err:
+                    # ToDo: figure out how to blame the last test
+                    try:
+                        self.server.stop()
+                    except Exception as e:
+                        sys.stderr.write('Got error while shutting down shared server: %s' % str(err))
+                    try:
+                        yield from self.__class__.conn.close()
+                    except Exception: pass
+                    self.__class__.server = None
+                    self.__class__.conn   = None
+            
+            # - setup private server
+            if self.server is None:
+                sys.stdout.write('new private server... ')
+                sys.stdout.flush()
+                self.__class__.server = driver.Process(executable_path=rethinkdb_exe, console_output=self.__class__.__name__ + '_server_console.txt', wait_until_ready=True, tls=self.use_tls)
+                
+                if self.admin_pass is not None:
+                    sslOption = {'ca_certs':self.server.tlsCertPath} if self.server.tlsCertPath else None
+                    conn = yield from r.connect(host=self.server.host, port=self.server.driver_port, ssl=sslOption)
+                    result = yield from r.db('rethinkdb').table('users').get('admin').update({'password':self.admin_pass}).run(conn)
+                    if result != {'skipped': 0, 'deleted': 0, 'unchanged': 0, 'errors': 0, 'replaced': 1, 'inserted': 0}:
+                        self.__class__.server = None
+                        raise Exception('Unable to set admin password, got: %s' % str(result))
+            
+            self.__class__.host   = self.server.host
+            self.__class__.port   = self.server.driver_port
+        
+        elif not any([externalServerHost, externalServerPort]):
             if self.server and self.server != sharedServer:
                 self.__class__.server = None
             
+            # - validate running server
             if sharedServer is not None:
                 try:
                     sharedServer.check()
-                    conn = yield from r.connect(host=sharedServer.host, port=sharedServer.driver_port)
+                    sslOption = {'ca_certs':self.server.tlsCertPath} if self.server and self.server.tlsCertPath else None
+                    conn = yield from r.connect(host=sharedServer.host, port=sharedServer.driver_port, ssl=sslOption, password=self.admin_pass or '')
                     yield from r.expr(1).run(conn)
                 except Exception as e:
                     # ToDo: figure out how to blame the last test
@@ -115,12 +161,18 @@ class TestWithConnection(TestCaseCompatible):
                         sharedServer.stop()
                     except Exception as e:
                         sys.stderr.write('Got error while shutting down shared server: %s' % str(e))
-                        sharedServer = None
-        
+                    try:
+                        yield from self.__class__.conn.close()
+                    except Exception: pass
+                    sharedServer = None
+                    self.__class__.server = None
+                    self.__class__.conn   = None
+            
+            # - setup shared server
             if sharedServer is None:
                 sys.stdout.write('new shared server... ')
                 sys.stdout.flush()
-                sharedServer = driver.Process(executable_path=rethinkdb_exe, console_output=False, wait_until_ready=True)
+                sharedServer = driver.Process(executable_path=rethinkdb_exe, console_output=False, wait_until_ready=True, tls=self.use_tls)
                 
             self.__class__.server = sharedServer
             self.__class__.host   = self.server.host
@@ -141,7 +193,8 @@ class TestWithConnection(TestCaseCompatible):
             except Exception:
                 self.__class__.conn = None
         if not self.conn:
-            self.__class__.conn = yield from r.connect(host=self.host, port=self.port)
+            sslOption = {'ca_certs':self.server.tlsCertPath} if self.server and self.server.tlsCertPath else None
+            self.__class__.conn = yield from r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
         
         # - ensure `test` db exists and is empty
         
@@ -150,32 +203,16 @@ class TestWithConnection(TestCaseCompatible):
 
 # == Test Classes
 
-class TestNoConnection(TestCaseCompatible):
-    # No servers started yet so this should fail
-    @asyncio.coroutine
-    def test_connect(self):
-        if not use_default_port:
-            return None  # skipTest will not raise in this environment
-        with self.assertRaisesRegexp(r.ReqlDriverError, "Could not connect to localhost:%d." % r.DEFAULT_PORT):
-            yield from r.connect()
-
+class TestNoConnection(TestCaseAsyncioCompatible):
     @asyncio.coroutine
     def test_connect_port(self):
         port = utils.get_avalible_port()
         with self.assertRaisesRegexp(r.ReqlDriverError, "Could not connect to localhost:%d." % port):
             yield from r.connect(port=port)
-
-    @asyncio.coroutine
-    def test_connect_host(self):
-        if not use_default_port:
-            return None  # skipTest will not raise in this environment
-        with self.assertRaisesRegexp(r.ReqlDriverError, "Could not connect to 0.0.0.0:%d." % r.DEFAULT_PORT):
-            yield from r.connect(host="0.0.0.0")
-
+    
     @asyncio.coroutine
     def test_connect_timeout(self):
-        # Test that we get a ReQL error if we connect to a
-        # non-responsive port
+        '''Test that we get a ReQL error if we connect to a non-responsive port'''
         useSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         useSocket.bind(('localhost', 0))
         useSocket.listen(0)
@@ -189,19 +226,75 @@ class TestNoConnection(TestCaseCompatible):
             useSocket.close()
 
     @asyncio.coroutine
+    def test_connect_host(self):
+        port = utils.get_avalible_port()
+        with self.assertRaisesRegexp(r.ReqlDriverError, "Could not connect to 0.0.0.0:%d." % port):
+            yield from r.connect(host="0.0.0.0", port=port)
+
+    @asyncio.coroutine
     def test_empty_run(self):
-        # Test the error message when we pass nothing to run and
-        # didn't call `repl`
+        '''Test the error message when we pass nothing to run and didn't call `repl`'''
         with self.assertRaisesRegexp(r.ReqlDriverError, "RqlQuery.run must be given a connection to run on."):
              r.expr(1).run()
 
+
+class TestConnectionDefaults(TestWithConnection):
+    if USE_DEFAULT_PORT:
+        @asyncio.coroutine
+        def test_connect_default_port(self):
+            conn = yield from r.connect(host=self.host)
+            yield from conn.reconnect()
+        
+        @asyncio.coroutine
+        def test_connect_default_port_wrong_auth(self):
+            with self.assertRaisesRegexp(r.ReqlAuthError, "Could not connect to %s:%d: Wrong password" % (self.host, self.port)):
+                yield from r.connect(host=self.host, password="hunter2")
+
+    if USE_DEFAULT_HOST:
+        @asyncio.coroutine
+        def test_connect_default_host(self):
+            conn = yield from r.connect(port=self.port)
+            yield from conn.reconnect()
+        
+        @asyncio.coroutine
+        def test_connect_default_host_wrong_auth(self):
+            with self.assertRaisesRegexp(r.ReqlAuthError, "Could not connect to %s:%d: Wrong password" % (self.host, self.port)):
+                yield from r.connect(port=self.port, password="hunter2")
+    
+    if USE_DEFAULT_PORT and USE_DEFAULT_HOST:
+        @asyncio.coroutine
+        def test_connect_default_host_port(self):
+            conn = yield from r.connect()
+            yield from conn.reconnect()
+        
+        @asyncio.coroutine
+        def test_connect_wrong_auth(self):
+            with self.assertRaisesRegexp(r.ReqlAuthError, "Could not connect to %s:%d: Wrong password" % (self.host, self.port)):
+                yield from r.connect(password="hunter2")
+
+
+class TestAuthConnection(TestWithConnection):
+    incorrectAuthMessage = "Could not connect to %s:%d: Wrong password"
+    admin_pass = 'hunter2'
+    
     @asyncio.coroutine
-    def test_auth_key(self):
-        # Test that everything still doesn't work even with an auth key
-        if not use_default_port:
-            return None  # skipTest will not raise in this environment
-        with self.assertRaisesRegexp(r.ReqlDriverError, 'Could not connect to 0.0.0.0:%d."' % r.DEFAULT_PORT):
-            yield from r.connect(host="0.0.0.0", port=r.DEFAULT_PORT, auth_key="hunter2")
+    def test_connect_no_auth(self):
+        with self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port)):
+            yield from r.connect(host=self.host, port=self.port)
+    
+    @asyncio.coroutine
+    def test_connect_wrong_auth(self):
+        with self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port)):
+            yield from r.connect(host=self.host, port=self.port, auth_key="")
+        with self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port)):
+            yield from r.connect(host=self.host, port=self.port, auth_key="hunter3")
+        with self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port)):
+            yield from r.connect(host=self.host, port=self.port, auth_key="hunter22")
+    
+    @asyncio.coroutine
+    def test_connect_correct_auth(self):
+        conn = yield from r.connect(port=self.port, auth_key="hunter2")
+        yield from conn.reconnect()
 
 
 class TestConnection(TestWithConnection):
@@ -222,7 +315,6 @@ class TestConnection(TestWithConnection):
         yield from self.conn.close()
         yield from self.conn.reconnect()
         yield from r.expr(1).run(self.conn)
-        yield from self.conn.close()
 
     @asyncio.coroutine
     def test_connect_close_expr(self):
@@ -273,14 +365,15 @@ class TestConnection(TestWithConnection):
 
     @asyncio.coroutine
     def test_db(self):
-        c = yield from r.connect(host=self.host, port=self.port)
+        sslOption = {'ca_certs':self.server.tlsCertPath} if self.server and self.server.tlsCertPath else None
+        c = yield from r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
         
         yield from r.db('test').table_create('t1').run(c)
 
         yield from r.expr(['db2']).set_difference(r.db_list()).for_each(r.db_create(r.row)).run(c)
         yield from r.expr(['t2']).set_intersection(r.db('db2').table_list()).for_each(r.db('db2').table_drop(r.row)).run(c)
         yield from r.db('db2').table_create('t2').run(c)
-
+        
         # Default db should be 'test' so this will work
         yield from r.table('t1').run(c)
 
@@ -298,7 +391,7 @@ class TestConnection(TestWithConnection):
         yield from c.close()
 
         # Test setting the db in connect
-        c = yield from r.connect(db='db2', host=self.host, port=self.port)
+        c = yield from r.connect(db='db2', host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
         yield from r.table('t2').run(c)
 
         with self.assertRaisesRegexp(r.ReqlRuntimeError, "Table `db2.t1` does not exist."):
@@ -322,15 +415,15 @@ class TestConnection(TestWithConnection):
     @asyncio.coroutine
     def test_repl(self):
         try:
-            # Calling .repl() should set this connection as global state
-            # to be used when `run` is not otherwise passed a connection.
-            c = yield from r.connect(host=self.host, port=self.port)
+            # Calling .repl() should set this connection as global state to be used when `run` is not otherwise passed a connection.
+            sslOption = {'ca_certs':self.server.tlsCertPath} if self.server and self.server.tlsCertPath else None
+            c = yield from r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
             c.repl()
             yield from r.expr(1).run()
-    
+            
             c.repl() # is idempotent
             yield from r.expr(1).run()
-    
+            
             yield from c.close()
             with self.assertRaisesRegexp(r.ReqlDriverError, "Connection is closed."):
                 yield from r.expr(1).run()
@@ -341,14 +434,13 @@ class TestConnection(TestWithConnection):
     def test_port_conversion(self):
         with self.assertRaisesRegexp(r.ReqlDriverError, "Could not convert port 'abc' to an integer."):
             yield from r.connect(port='abc', host=self.host)
-
-
-class TestShutdown(TestCaseCompatible):
+    
     @asyncio.coroutine
     def test_shutdown(self):
         # use our own server for simplicity
-        with driver.Process(executable_path=rethinkdb_exe, console_output=False, wait_until_ready=True) as server:
-            c = yield from r.connect(host=server.host, port=server.driver_port)
+        with driver.Process(executable_path=rethinkdb_exe, console_output=False, wait_until_ready=True, tls=self.use_tls) as server:
+            sslOption = {'ca_certs':server.tlsCertPath} if server and server.tlsCertPath else None
+            c = yield from r.connect(host=server.host, port=server.driver_port, ssl=sslOption, password=self.admin_pass or '')
             yield from r.expr(1).run(c)
     
             server.stop()
@@ -360,10 +452,16 @@ class TestShutdown(TestCaseCompatible):
             yield from c.close(noreply_wait=False)
 
 
-class TestGetIntersectingBatching(TestWithConnection):
-    '''Test that get_intersecting() batching works properly'''
+class TestTLSConnection(TestConnection):
+    use_tls = True
+
+
+class TestBatching(TestWithConnection):
+
     @asyncio.coroutine
-    def runTest(self):
+    def test_get_intersecting_batching(self):
+        '''Test that get_intersecting() batching works properly'''
+        
         yield from r.db('test').table_create('t1').run(self.conn)
         t1 = r.db('test').table('t1')
 
@@ -375,13 +473,12 @@ class TestGetIntersectingBatching(TestWithConnection):
         poly_count = 500
         get_tries = 10
 
-        # Insert a couple of random points, so we get a well
-        # distributed range of secondary keys. Also insert a couple of
-        # large-ish polygons, so we can test filtering of duplicates
-        # on the server.
+        # Insert a couple of random points, so we get a well distributed range of
+        # secondary keys. Also insert a couple of large-ish polygons, so we can
+        # test filtering of duplicates on the server.
         rseed = random.getrandbits(64)
         random.seed(rseed)
-        print("Random seed: " + str(rseed) + ' .. ', end=' ')
+        print("Random seed: " + str(rseed) + ' ...', end=' ')
         sys.stdout.flush()
 
         yield from t1.insert(
@@ -392,9 +489,8 @@ class TestGetIntersectingBatching(TestWithConnection):
             [{'geo': r.circle([random.uniform(-180.0, 180.0), random.uniform(-90.0, 90.0)], 1000000)} for _ in range(poly_count)]
         ).run(self.conn)
 
-        # Check that the results are actually lazy at least some of
-        # the time While the test is randomized, chances are extremely
-        # high to get a lazy result at least once.
+        # Check that the results are actually lazy at least some of the time
+        # While the test is randomized, chances are extremely high to get a lazy result at least once.
         seen_lazy = False
 
         for i in range(0, get_tries):
@@ -412,11 +508,8 @@ class TestGetIntersectingBatching(TestWithConnection):
                 yield from cursor.next()
 
         self.assertTrue(seen_lazy)
-
-
-class TestBatching(TestWithConnection):
-    @asyncio.coroutine
-    def runTest(self):
+    
+    def test_batching(self):
         '''Test the cursor API when there is exactly mod batch size elements in the result stream'''
         
         yield from r.db('test').table_create('t1').run(self.conn)
@@ -427,10 +520,10 @@ class TestBatching(TestWithConnection):
 
         ids = set(range(0, count))
 
-        yield from t1.insert([{'id': i} for i in ids]).run(self.conn)
+        yield from t1.insert([{'id':i} for i in ids]).run(self.conn)
         cursor = yield from t1.run(self.conn, max_batch_rows=batch_size)
 
-        for i in range(0, count - 1):
+        for _ in range(0, count - 1):
             row = yield from cursor.next()
             self.assertTrue(row['id'] in ids)
             ids.remove(row['id'])
@@ -457,11 +550,11 @@ class TestGroupWithTimeKey(TestWithConnection):
         res = yield from r.table('times').insert({'id': 1, 'time': rt2}).run(self.conn)
         self.assertEqual(res['inserted'], 1)
 
-        expected_row1 = {'id': 0, 'time': dt1}
-        expected_row2 = {'id': 1, 'time': dt2}
+        expected_row1 = {'id':0, 'time':dt1}
+        expected_row2 = {'id':1, 'time':dt2}
 
         groups = yield from r.table('times').group('time').coerce_to('array').run(self.conn)
-        self.assertEqual(groups, {dt1: [expected_row1], dt2: [expected_row2]})
+        self.assertEqual(groups, {dt1:[expected_row1], dt2:[expected_row2]})
 
 
 class TestSuccessAtomFeed(TestWithConnection):
@@ -733,7 +826,6 @@ class TestChangefeeds(TestWithConnection):
                self.table_b_writer()])
         yield from asyncio.wait(feeds_done.values())
         self.assertTrue(all([len(x) == 0 for x in needed_values.values()]))
-    
 
 if __name__ == '__main__':
     rdb_unittest.main()

@@ -655,7 +655,6 @@ class Process(object):
             ]
             if platform.system() == 'Darwin':
                 # because the driver will probably be using the system version of OpenSSL (old), enable TLSv1
-                print('alpha here')
                 options += ['--tls-min-protocol', 'TLSv1', '--tls-ciphers', 'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH:AES256-SHA']
         
         # - log file

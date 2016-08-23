@@ -131,10 +131,7 @@ class TestWithConnection(rdb_unittest.TestCaseCompatible):
                 self.__class__.conn = None
         if not self.conn:
             sslOption = {'ca_certs':self.server.tlsCertPath} if self.server and self.server.tlsCertPath else None
-            try:
-                self.__class__.conn = r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
-            except Exception:
-                raise
+            self.__class__.conn = r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
         
         # - ensure `test` db exists and is empty
         
@@ -169,12 +166,13 @@ class TestNoConnection(rdb_unittest.TestCaseCompatible):
         '''Test the error message when we pass nothing to run and didn't call `repl`'''
         self.assertRaisesRegexp(r.ReqlDriverError, "RqlQuery.run must be given a connection to run on.", r.expr(1).run)
 
+
 class TestConnectionDefaults(TestWithConnection):
     if USE_DEFAULT_PORT:
         def test_connect_default_port(self):
             conn = r.connect(host=self.host)
             conn.reconnect()
-    
+        
         def test_connect_default_port_wrong_auth(self):
             self.assertRaisesRegexp(r.ReqlAuthError, "Could not connect to %s:%d: Wrong password" % (self.host, self.port), r.connect, host=self.host, password="hunter2")
 
@@ -182,7 +180,7 @@ class TestConnectionDefaults(TestWithConnection):
         def test_connect_default_host(self):
             conn = r.connect(port=self.port)
             conn.reconnect()
-    
+        
         def test_connect_default_host_wrong_auth(self):
             self.assertRaisesRegexp(r.ReqlAuthError, "Could not connect to %s:%d: Wrong password" % (self.host, self.port), r.connect, port=self.port, password="hunter2")
     
@@ -190,35 +188,27 @@ class TestConnectionDefaults(TestWithConnection):
         def test_connect_default_host_port(self):
             conn = r.connect()
             conn.reconnect()
-    
+        
         def test_connect_wrong_auth(self):
             self.assertRaisesRegexp(r.ReqlAuthError, "Could not connect to %s:%d: Wrong password" % (self.host, self.port), r.connect, password="hunter2")
 
-class TestAuthConnection(TestWithConnection):
 
+class TestAuthConnection(TestWithConnection):
     incorrectAuthMessage = "Could not connect to %s:%d: Wrong password"
     admin_pass = 'hunter2'
-
+    
     def test_connect_no_auth(self):
-        self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port), r.connect, port=self.port)
-
+        self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port), r.connect, host=self.host, port=self.port)
+    
     def test_connect_wrong_auth(self):
-        self.assertRaisesRegexp(
-            r.ReqlAuthError,
-            self.incorrectAuthMessage % (self.host, self.port),
-            r.connect, port=self.port, auth_key="")
-        self.assertRaisesRegexp(
-            r.ReqlAuthError,
-            self.incorrectAuthMessage % (self.host, self.port),
-            r.connect, port=self.port, auth_key="hunter3")
-        self.assertRaisesRegexp(
-            r.ReqlAuthError,
-            self.incorrectAuthMessage % (self.host, self.port),
-            r.connect, port=self.port, auth_key="hunter22")
-
+        self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port), r.connect, host=self.host, port=self.port, auth_key="")
+        self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port), r.connect, host=self.host, port=self.port, auth_key="hunter3")
+        self.assertRaisesRegexp(r.ReqlAuthError, self.incorrectAuthMessage % (self.host, self.port), r.connect, host=self.host, port=self.port, auth_key="hunter22")
+    
     def test_connect_correct_auth(self):
         conn = r.connect(port=self.port, auth_key="hunter2")
         conn.reconnect()
+
 
 class TestConnection(TestWithConnection):
     def test_client_port_and_address(self):
@@ -280,13 +270,13 @@ class TestConnection(TestWithConnection):
     def test_db(self):
         sslOption = {'ca_certs':self.server.tlsCertPath} if self.server and self.server.tlsCertPath else None
         c = r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
-
+        
         r.db('test').table_create('t1').run(c)
 
         r.expr(['db2']).set_difference(r.db_list()).for_each(r.db_create(r.row)).run(c)
         r.expr(['t2']).set_intersection(r.db('db2').table_list()).for_each(r.db('db2').table_drop(r.row)).run(c)
         r.db('db2').table_create('t2').run(c)
-
+        
         # Default db should be 'test' so this will work
         r.table('t1').run(c)
 
@@ -310,8 +300,7 @@ class TestConnection(TestWithConnection):
         c.close()
 
         # Test setting the db as a `run` option
-        c = r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
-        r.table('t2').run(c, db='db2')
+        r.table('t2').run(self.conn, db='db2')
 
     def test_outdated_read(self):
         r.db('test').table_create('t1').run(self.conn)
@@ -326,7 +315,8 @@ class TestConnection(TestWithConnection):
         try:
             # Calling .repl() should set this connection as global state to be used when `run` is not otherwise passed a connection.
             sslOption = {'ca_certs':self.server.tlsCertPath} if self.server and self.server.tlsCertPath else None
-            c = r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '').repl()
+            c = r.connect(host=self.host, port=self.port, ssl=sslOption, password=self.admin_pass or '')
+            c.repl()
             r.expr(1).run()
             
             c.repl() # is idempotent
@@ -338,9 +328,6 @@ class TestConnection(TestWithConnection):
             r.Repl.clear()
     
     def test_port_conversion(self):
-        r.expr(1).run(self.conn)
-        self.conn.close()
-
         self.assertRaisesRegexp(r.ReqlDriverError, "Could not convert port 'abc' to an integer.", r.connect, port='abc', host=self.port)
     
     def test_shutdown(self):
@@ -357,7 +344,8 @@ class TestConnection(TestWithConnection):
                 r.expr(1).run(c)
     
             c.close(noreply_wait=False)
-    
+
+
 class TestTLSConnection(TestConnection):
     use_tls = True
 
@@ -428,18 +416,17 @@ class TestBatching(TestWithConnection):
         seen_lazy = False
 
         for i in range(0, get_tries):
-            query_circle = r.circle([random.uniform(-180.0, 180.0), random.uniform(-90.0, 90.0)], 8000000);
+            query_circle = r.circle([random.uniform(-180.0, 180.0), random.uniform(-90.0, 90.0)], 8000000)
             reference = t1.filter(r.row['geo'].intersects(query_circle)).coerce_to("ARRAY").run(self.conn)
             cursor = t1.get_intersecting(query_circle, index='geo').run(self.conn, max_batch_rows=batch_size)
             if cursor.error is None:
                 seen_lazy = True
 
-            itr = iter(cursor)
             while len(reference) > 0:
-                row = next(itr)
+                row = cursor.next()
                 self.assertEqual(reference.count(row), 1)
                 reference.remove(row)
-            self.assertRaises(r.ReqlCursorEmpty, lambda: next(itr))
+            self.assertRaises(r.ReqlCursorEmpty, cursor.next)
 
         self.assertTrue(seen_lazy)
     
@@ -457,18 +444,19 @@ class TestBatching(TestWithConnection):
         t1.insert([{'id':i} for i in ids]).run(self.conn)
         cursor = t1.run(self.conn, max_batch_rows=batch_size)
 
-        itr = iter(cursor)
         for _ in range(0, count - 1):
-            row = next(itr)
+            row = cursor.next()
+            self.assertTrue(row['id'] in ids)
             ids.remove(row['id'])
 
-        self.assertEqual(next(itr)['id'], ids.pop())
-        self.assertRaises(r.ReqlCursorEmpty, lambda: next(itr))
+        self.assertEqual(cursor.next()['id'], ids.pop())
+        self.assertRaises(r.ReqlCursorEmpty, cursor.next)
+
 
 class TestGroupWithTimeKey(TestWithConnection):
     def runTest(self):
         r.db('test').table_create('times').run(self.conn)
-
+        
         time1 = 1375115782.24
         rt1 = r.epoch_time(time1).in_timezone('+00:00')
         dt1 = datetime.datetime.fromtimestamp(time1, r.ast.RqlTzinfo('+00:00'))
