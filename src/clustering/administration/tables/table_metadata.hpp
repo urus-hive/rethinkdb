@@ -243,7 +243,16 @@ private:
         }
 
         result_type operator()(const eviction_drop_t &eviction_drop) const {
-            return true;
+            for (auto it = table_config_and_shards->config.sindexes.begin();
+                 it != table_config_and_shards->config.sindexes.end();
+                 ++it) {
+                auto eviction = it->second.eviction_list.find(eviction_drop.name);
+                if (eviction != it->second.eviction_list.end()) {
+                    it->second.eviction_list.erase(eviction);
+                    return true;
+                }
+            }
+            return false;
         }
 
         result_type operator()(const sindex_create_t &sindex_create) const {

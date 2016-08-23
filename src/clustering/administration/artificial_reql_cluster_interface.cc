@@ -458,6 +458,24 @@ bool artificial_reql_cluster_interface_t::eviction_create(
         user_context, db, table, name, config, interruptor, error_out);
 }
 
+bool artificial_reql_cluster_interface_t::eviction_drop(
+        auth::user_context_t const &user_context,
+        counted_t<const ql::db_t> db,
+        const name_string_t &table,
+        const std::string &name,
+        signal_t *interruptor,
+        admin_err_t *error_out) {
+    if (db->name == m_database) {
+        *error_out = admin_err_t{
+            strprintf("Eviction `%s` does not exist on table `%s.%s`.",
+                      name.c_str(), db->name.c_str(), table.c_str()),
+            query_state_t::FAILED};
+        return false;
+    }
+    return m_next->eviction_drop(
+        user_context, db, table, name, interruptor, error_out);
+}
+
 bool artificial_reql_cluster_interface_t::sindex_create(
         auth::user_context_t const &user_context,
         counted_t<const ql::db_t> db,

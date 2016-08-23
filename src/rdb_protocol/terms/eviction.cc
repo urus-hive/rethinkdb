@@ -36,7 +36,6 @@ public:
                "Index name is required.");
         config.index_name = index_name->as_str().to_std();
 
-        bool got_func = false;
         scoped_ptr_t<val_t> replace_function = args->optarg(env, "replace");
         if (replace_function) {
             config.func = ql::map_wire_func_t(replace_function->as_func());
@@ -80,11 +79,36 @@ public:
     eviction_drop_term_t(compile_env_t *env, const raw_term_t &term)
         : op_term_t(env,
                     term,
-                    argspec_t(1)) { }
+                    argspec_t(2)) { }
 
-    virtual scoped_ptr_t<val_t> eval_impl(
-        scope_env_t *env, args_t *args, eval_flags_t) const {
+    virtual scoped_ptr_t<val_t> eval_impl(scope_env_t *env,
+                                          args_t *args,
+                                          eval_flags_t) const {
+        fprintf(stderr, "test\n");
         counted_t<table_t> table = args->arg(env, 0)->as_table();
+        datum_t name_datum = args->arg(env, 1)->as_datum();
+
+        eviction_config_t config;
+
+        try {
+            admin_err_t error;
+            if (!env->env->reql_cluster_interface()->eviction_drop(
+                    env->env->get_user_context(),
+                    table->db,
+                    name_string_t::guarantee_valid(table->name.c_str()),
+                    name_datum.as_str().to_std(),
+                    env->env->interruptor,
+                    &error)) {
+                REQL_RETHROW(error);
+            }
+        } catch (auth::permission_error_t const &permission_error) {
+            rfail(ql::base_exc_t::PERMISSION_ERROR, "%s", permission_error.what());
+        }
+
+        ql::datum_object_builder_t res;
+        res.overwrite("dropped", datum_t(1.0));
+        return new_val(std::move(res).to_datum());
+
     }
     virtual const char *name() const { return "eviction_drop"; }
 };
@@ -94,11 +118,12 @@ public:
     eviction_list_term_t(compile_env_t *env, const raw_term_t &term)
         : op_term_t(env,
                     term,
-                    argspec_t(1)) { }
+                    argspec_t(0)) { }
 
     virtual scoped_ptr_t<val_t> eval_impl(
         scope_env_t *env, args_t *args, eval_flags_t) const {
         counted_t<table_t> table = args->arg(env, 0)->as_table();
+        return new_val(datum_t(1.0));
     }
     virtual const char *name() const { return "eviction_list"; }
 };

@@ -348,6 +348,8 @@ class RDBVal extends TermBase
 
     insert: aropt (doc, opts) -> new Insert opts, @, rethinkdb.expr(doc)
     evictionCreate: aropt (name, opts) -> new EvictionCreate opts, @, name
+    evictionDrop: (args...) -> new EvictionDrop {}, @, args...
+    evictionList: (args...) -> new EvictionList {}, @, args...
     indexCreate: varar(1, 3, (name, defun_or_opts, opts) ->
         if opts?
             new IndexCreate opts, @, name, funcWrap(defun_or_opts)
@@ -971,6 +973,14 @@ class IndexWait extends RDBOp
 class EvictionCreate extends RDBOp
     tt: protoTermType.EVICTION_CREATE
     mt: 'evictionCreate'
+
+class EvictionDrop extends RDBOp
+    tt: protoTermType.EVICTION_DROP
+    mt: 'evictionDrop'
+
+class EvictionList extends RDBOp
+    tt: protoTermType.EVICTION_LIST
+    mt: 'evictionList'
 
 class EvictionDrop extends RDBOp
     tt: protoTermType.EVICTION_LIST

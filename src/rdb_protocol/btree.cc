@@ -1339,6 +1339,8 @@ void rdb_modification_report_cb_t::on_mod_report(
     bool update_pkey_cfeeds,
     new_mutex_in_line_t *sindex_spot,
     rwlock_in_line_t *cfeed_stamp_spot) {
+    // TODO: do eviction stuff on update.
+    fprintf(stderr, "on_mod_report\n");
     if (report.info.deleted.first.has() || report.info.added.first.has()) {
         // We spawn the sindex update in its own coroutine because we don't want to
         // hold the sindex update for the changefeed update or vice-versa.
