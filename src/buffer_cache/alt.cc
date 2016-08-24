@@ -214,21 +214,18 @@ txn_t::txn_t(cache_conn_t *cache_conn,
 void txn_t::help_construct(int64_t expected_change_count,
                            cache_conn_t *cache_conn) {
     cache_->assert_thread();
+    guarantee(expected_change_count >= 0);
     // We skip the throttler for read transactions.
     // Note that this allows read transactions to skip ahead of writes.
-    throttler_acq_t throttler_acq;
     if (access_ == access_t::write) {
         // To more easily detect code that assumes that transaction creation
         // does not block, we always yield in debug mode.
         DEBUG_ONLY_CODE(coro_t::yield_ordered());
-
-        guarantee(expected_change_count >= 0);
-        throttler_acq
-            = cache_->throttler_.begin_txn_or_throttle(expected_change_count);
-    } else {
-        guarantee(expected_change_count == 0);
     }
-
+    throttler_acq_t throttler_acq(
+        access_ == access_t::write
+        ? cache_->throttler_.begin_txn_or_throttle(expected_change_count)
+        : throttler_acq_t());
 
     ASSERT_FINITE_CORO_WAITING;
 
