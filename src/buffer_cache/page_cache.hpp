@@ -295,12 +295,7 @@ class throttler_acq_t {
 public:
     throttler_acq_t() { }
     ~throttler_acq_t() { }
-    throttler_acq_t(throttler_acq_t &&movee)
-        : block_changes_semaphore_acq_(std::move(movee.block_changes_semaphore_acq_)),
-          index_changes_semaphore_acq_(std::move(movee.index_changes_semaphore_acq_)) {
-        movee.block_changes_semaphore_acq_.reset();
-        movee.index_changes_semaphore_acq_.reset();
-    }
+    MOVABLE_BUT_NOT_COPYABLE(throttler_acq_t);
 
     // See below:  this can update how much *_changes_semaphore_acq_ holds.
     void update_dirty_page_count(int64_t new_count);
@@ -317,8 +312,6 @@ private:
     // *_changes_semaphore_acq_.change_count() to keep the numbers equal.
     new_semaphore_in_line_t block_changes_semaphore_acq_;
     new_semaphore_in_line_t index_changes_semaphore_acq_;
-
-    DISABLE_COPYING(throttler_acq_t);
 };
 
 class page_cache_index_write_sink_t;
