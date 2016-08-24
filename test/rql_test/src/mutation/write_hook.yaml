@@ -4,7 +4,7 @@ tests:
 
   - js: tbl.setWriteHook(function(a, b, c) { return c.merge({'num':1})})
     py: tbl.set_write_hook(lambda a,b,c: c.merge({'num':1}))
-    rb: tbl.set_write_hook(lambda { |a,b,c| c.merge({'num':1})})
+    rb: tbl.set_write_hook{ |a,b,c| c.merge({'num':1})}
     ot: partial({'created': 1 })
 
   - cd: tbl.insert({'id': 1})
@@ -15,6 +15,11 @@ tests:
 
   - cd: tbl.set_write_hook(null)
     ot: partial({'deleted': 1 })
+
+  - js: tbl.setWriteHook(function(a, b, c) { return c.merge({'num':2})})
+    py: tbl.set_write_hook(lambda a,b,c: c.merge({'num':2}))
+    rb: tbl.set_write_hook(lambda { |a,b,c| c.merge({'num':2})})
+    ot: partial({'created': 1 })
 
   - js: tbl.setWriteHook(function(a, b, c) { return c.merge({'num':2})})
     py: tbl.set_write_hook(lambda a,b,c: c.merge({'num':2}))
