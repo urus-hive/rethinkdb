@@ -22,6 +22,7 @@
 #include "rdb_protocol/btree.hpp"
 #include "rdb_protocol/erase_range.hpp"
 #include "rdb_protocol/protocol.hpp"
+#include "rdb_protocol/pseudo_time.hpp"
 #include "stl_utils.hpp"
 
 // The maximal number of writes that can be in line for a superblock acquisition
@@ -173,8 +174,7 @@ store_t::store_t(const region_t &_region,
     }
 
     //test for eviction timer
-    evictions["test"] = make_scoped<eviction_t>(eviction_config_t());
-    evictions["test"]->set_expiration(10*1000);
+    evictions["num"] = make_scoped<eviction_t>(eviction_config_t());
 }
 
 store_t::~store_t() {
@@ -826,6 +826,46 @@ void store_t::clear_sindex_data(
         }
     }
 }
+
+void store_t::eviction_update(
+    const sindex_access_t *sindex,
+    const rdb_modification_report_t *modification,
+    const std::vector<std::pair<store_key_t, ql::datum_t> > &keys) {
+
+    sindex_disk_info_t sindex_info;
+    deserialize_sindex_info_or_crash(
+        sindex->sindex.opaque_definition,
+        &sindex_info);
+
+    ql::datum_t added = modification->info.added.first;
+    fprintf(stderr, "Searching for: %s\n", sindex->name.name.c_str());
+    auto eviction_it = evictions.find(sindex->name.name);
+
+    store_key_t first_key = keys[0].first;
+    if (eviction_it != evictions.end()) {
+        fprintf(stderr, "Checking for lowest key\n");
+        if (first_key < eviction_it->second->current_lowest_key) {
+            eviction_it->second->current_lowest_key = first_key;
+            fprintf(stderr, "NEW LOWEST KEY: %s\n", debug_str(first_key).c_str());
+
+            // Figure out how long it will be until this expiration, and set timer
+
+            ql::datum_t time = ql::pseudo::time_now();
+            ql::datum_t later = keys[0].second;
+            int64_t delay_seconds =
+                ql::pseudo::time_to_epoch_time(later) -
+                ql::pseudo::time_to_epoch_time(time);
+            if (delay_seconds > 0) {
+                eviction_it->second->set_expiration(delay_seconds*1000);
+            }
+        }
+    }
+    fprintf(stderr, "SINDEX: %s\n", sindex->name.name.c_str());
+    // keys has value of store_key_t, datum of secondary index value
+    fprintf(stderr, "ADDED ----> %s\n", added.print().c_str());
+    fprintf(stderr, "COMPUTE_KEYS ===> %s\n", debug_str(keys).c_str());
+}
+
 
 void store_t::drop_sindex(uuid_u sindex_id) THROWS_NOTHING {
     /* Start a transaction. */

@@ -1356,6 +1356,12 @@ void rdb_modification_report_cb_t::on_mod_report(
                       &sindexes_updated_cond,
                       &old_cfeed_keys,
                       &new_cfeed_keys));
+
+                    // TEST
+        auto key = report.info.added;
+        fprintf(stderr, ">     %s, %s\n", key.first.print().c_str(), debug_str(key.second).c_str());
+        fprintf(stderr, "PRIMARY: %s\n", debug_str(report.primary_key).c_str());
+
         auto cserver = store_->changefeed_server(report.primary_key);
         if (update_pkey_cfeeds && cserver.first != nullptr) {
             cserver.first->foreach_limit(
@@ -1399,7 +1405,7 @@ void rdb_modification_report_cb_t::on_mod_report(
     }
 }
 
-void rdb_modification_report_cb_t::on_mod_report_sub(
+ void rdb_modification_report_cb_t::on_mod_report_sub(
     const rdb_modification_report_t &mod_report,
     new_mutex_in_line_t *spot,
     cond_t *keys_available_cond,
@@ -1729,7 +1735,6 @@ void rdb_update_single_sindex(
 
     fprintf(stderr, "Sindex has %lu evictions\n", sindex_info.eviction_list.size());
 
-    
     // TODO(2015-01): Actually get real profiling information for
     // secondary index updates.
     profile::trace_t *const trace = nullptr;
@@ -1747,6 +1752,7 @@ void rdb_update_single_sindex(
             compute_keys(
                 modification->primary_key, deleted, sindex_info,
                 &keys, cfeed_old_keys_out);
+
             if (cserver.first != nullptr) {
                 cserver.first->foreach_limit(
                     sindex->name.name,
@@ -1815,6 +1821,9 @@ void rdb_update_single_sindex(
             compute_keys(
                 modification->primary_key, added, sindex_info,
                 &keys, cfeed_new_keys_out);
+
+            store->eviction_update(sindex, modification, keys);
+
             if (keys_available_cond != nullptr) {
                 guarantee(*updates_left > 0);
                 decremented_updates_left = true;
@@ -1866,7 +1875,8 @@ void rdb_update_single_sindex(
                 superblock = static_cast<sindex_superblock_t *>(
                     return_superblock_local.wait());
             }
-        } catch (const ql::base_exc_t &) {
+        } catch (const ql::base_exc_t &ex) {
+            fprintf(stderr, "EXECPTION! %s", ex.what());
             // Do nothing (we just drop the row from the index).
 
             // If we've decremented `updates_left` already, that means we might

@@ -78,7 +78,8 @@ enum class update_sindexes_t {
 class eviction_t {
 public:
     eviction_t(eviction_config_t) :
-        timer([&](){ on_timer(); }) { }
+        timer([&](){ on_timer(); }),
+        current_lowest_key(store_key_t::max()) { }
 
     ~eviction_t() { }
 
@@ -90,7 +91,7 @@ public:
     void on_timer() {
         // TODO: do a callback to get the store_t to check the evictions
         //int64_t new_sleep = fake_eviction_callback();
-        fprintf(stderr, "TESTING\n");
+        fprintf(stderr, "TIMER EXPIRED!\n");
         int64_t new_sleep = -1;
         if (new_sleep != -1) {
             set_expiration(new_sleep);
@@ -100,6 +101,9 @@ private:
     single_callback_timer_t timer;
 
     eviction_config_t eviction;
+
+public:
+    store_key_t current_lowest_key;
 };
 
 class store_t final : public store_view_t {
@@ -375,6 +379,13 @@ public:
             const key_range_t &pkey_range_to_clear,
             signal_t *interruptor)
             THROWS_ONLY(interrupted_exc_t);
+
+    // Eviction functions
+
+    void eviction_update(
+        const sindex_access_t *sindex,
+        const rdb_modification_report_t *modificiation,
+        const std::vector<std::pair<store_key_t, ql::datum_t> > &keys);
 
 private:
     // Helper function to clear out a secondary index that has been
