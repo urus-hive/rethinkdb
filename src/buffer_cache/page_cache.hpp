@@ -296,8 +296,8 @@ public:
     throttler_acq_t() { }
     ~throttler_acq_t() { }
     throttler_acq_t(throttler_acq_t &&movee)
-         : block_changes_semaphore_acq_(std::move(movee.block_changes_semaphore_acq_)),
-           index_changes_semaphore_acq_(std::move(movee.index_changes_semaphore_acq_)) {
+        : block_changes_semaphore_acq_(std::move(movee.block_changes_semaphore_acq_)),
+          index_changes_semaphore_acq_(std::move(movee.index_changes_semaphore_acq_)) {
         movee.block_changes_semaphore_acq_.reset();
         movee.index_changes_semaphore_acq_.reset();
     }
