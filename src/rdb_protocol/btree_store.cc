@@ -172,9 +172,6 @@ store_t::store_t(const region_t &_region,
     default:
         unreachable();
     }
-
-    //test for eviction timer
-    evictions["num"] = make_scoped<eviction_t>(eviction_config_t());
 }
 
 store_t::~store_t() {
@@ -857,6 +854,9 @@ void store_t::eviction_update(
                 ql::pseudo::time_to_epoch_time(time);
             if (delay_seconds > 0) {
                 eviction_it->second->set_expiration(delay_seconds*1000);
+                // Need to figure out how to issue deletes when timer expires
+                // Maybe we only need to know when to check, then we always do
+                // the same thing?
             }
         }
     }

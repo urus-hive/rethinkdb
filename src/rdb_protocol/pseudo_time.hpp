@@ -45,9 +45,10 @@ enum time_component_t {
     MINUTES,
     SECONDS
 };
+
 double time_portion(datum_t time, time_component_t c);
 datum_t time_date(datum_t time,
-                                   const rcheckable_t *target);
+                  const rcheckable_t *target);
 datum_t time_of_day(datum_t time);
 
 void time_to_str_key(const datum_t &d, std::string *str_out);

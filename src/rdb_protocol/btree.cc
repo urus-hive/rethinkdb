@@ -370,6 +370,8 @@ void do_a_replace_from_batched_replace(
 
     mod_cb->on_mod_report(
         mod_report, update_pkey_cfeeds, &sindex_spot, &stamp_spot);
+
+    fprintf(stderr, "Testing\n");
 }
 
 batched_replace_response_t rdb_batched_replace(

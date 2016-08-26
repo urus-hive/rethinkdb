@@ -73,7 +73,7 @@ void count_evals(test_rdb_env_t *test_env,
                  verify_callback_t *verify_callback) {
     scoped_ptr_t<test_rdb_env_t::instance_t> env_instance = test_env->make_env();
 
-    count_callback_t callback(count_out);
+    count_callback_t  callback(count_out);
     env_instance->get_env()->set_eval_callback(&callback);
 
     ql::compile_env_t compile_env((ql::var_visibility_t()));

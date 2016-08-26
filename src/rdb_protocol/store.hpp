@@ -77,8 +77,9 @@ enum class update_sindexes_t {
 
 class eviction_t {
 public:
-    eviction_t(eviction_config_t) :
+    eviction_t(eviction_config_t _eviction) :
         timer([&](){ on_timer(); }),
+        eviction(_eviction),
         current_lowest_key(store_key_t::max()) { }
 
     ~eviction_t() { }
@@ -96,6 +97,7 @@ public:
         if (new_sleep != -1) {
             set_expiration(new_sleep);
         }
+
     }
 private:
     single_callback_timer_t timer;
