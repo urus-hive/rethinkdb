@@ -7,8 +7,7 @@
 
 stats_artificial_table_backend_t::stats_artificial_table_backend_t(
         rdb_context_t *rdb_context,
-        database_id_t const &database_id,
-        name_resolver_t const &name_resolver,
+        lifetime_t<name_resolver_t const &> name_resolver,
         const clone_ptr_t<watchable_t<change_tracking_map_t<peer_id_t,
             cluster_directory_metadata_t> > >
                 &_directory_view,
@@ -19,10 +18,7 @@ stats_artificial_table_backend_t::stats_artificial_table_backend_t(
         mailbox_manager_t *_mailbox_manager,
         admin_identifier_format_t _admin_format) :
     timer_cfeed_artificial_table_backend_t(
-        name_string_t::guarantee_valid("stats"),
-        rdb_context,
-        database_id,
-        name_resolver),
+        name_string_t::guarantee_valid("stats"), rdb_context, name_resolver),
     directory_view(_directory_view),
     cluster_sl_view(_cluster_sl_view),
     server_config_client(_server_config_client),

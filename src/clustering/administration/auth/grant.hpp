@@ -18,7 +18,7 @@ bool grant(
         T permission_selector_function,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    if (!user_context.is_admin()) {
+    if (!user_context.is_admin_user()) {
         *error_out = admin_err_t{
             "Only administrators can grant permissions.",
             query_state_t::FAILED};
@@ -32,6 +32,28 @@ bool grant(
             query_state_t::FAILED};
         return false;
     }
+
+    counted_t<const ql::db_t> db;
+    if (!rdb_context->cluster_interface->db_find(
+            name_string_t::guarantee_valid("rethinkdb"),
+            interruptor,
+            &db,
+            error_out)) {
+        return false;
+    }
+
+    counted_t<base_table_t> table;
+    if (!rdb_context->cluster_interface->table_find(
+            name_string_t::guarantee_valid("permissions"),
+            db,
+            admin_identifier_format_t::uuid,
+            interruptor,
+            &table,
+            error_out)) {
+        return false;
+    }
+
+    user_context.require_write_permission(rdb_context, db->id, table->get_id());
 
     auth_semilattice_metadata_t auth_metadata = auth_semilattice_view->get();
     auto grantee = auth_metadata.m_users.find(username);

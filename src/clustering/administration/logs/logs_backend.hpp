@@ -29,8 +29,7 @@ class logs_artificial_table_backend_t :
 public:
     logs_artificial_table_backend_t(
             rdb_context_t *rdb_context,
-            database_id_t const &database_id,
-            name_resolver_t const &name_resolver,
+            lifetime_t<name_resolver_t const &> name_resolver,
             mailbox_manager_t *_mailbox_manager,
             watchable_map_t<peer_id_t, cluster_directory_metadata_t> *_directory,
             server_config_client_t *_server_config_client,
@@ -65,7 +64,7 @@ private:
     public:
         cfeed_machinery_t(
             namespace_id_t const &namespace_id,
-            name_resolver_t const &name_resolver,
+            lifetime_t<name_resolver_t const &> name_resolver,
             auth::user_context_t const &user_context,
             logs_artificial_table_backend_t *_parent);
 
@@ -127,8 +126,9 @@ private:
         signal_t *interruptor,
         admin_err_t *error_out);
 
-    cfeed_artificial_table_backend_t::machinery_t *construct_changefeed_machinery(
-            name_resolver_t const &name_resolver,
+    scoped_ptr_t<cfeed_artificial_table_backend_t::machinery_t>
+        construct_changefeed_machinery(
+            lifetime_t<name_resolver_t const &> name_resolver,
             auth::user_context_t const &user_context,
             signal_t *interruptor);
 

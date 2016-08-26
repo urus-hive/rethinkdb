@@ -4,6 +4,7 @@
 
 #include "arch/timing.hpp"
 #include "concurrency/new_mutex.hpp"
+#include "containers/scoped.hpp"
 #include "rdb_protocol/artificial_table/backend.hpp"
 #include "rdb_protocol/changefeed.hpp"
 
@@ -33,7 +34,7 @@ protected:
     public:
         machinery_t(
                 namespace_id_t const &table_id,
-                name_resolver_t const &name_resolver,
+                lifetime_t<name_resolver_t const &> name_resolver,
                 auth::user_context_t const &user_context)
             : ql::changefeed::artificial_t(table_id, name_resolver),
               m_user_context(user_context),
@@ -76,16 +77,15 @@ protected:
     cfeed_artificial_table_backend_t(
             name_string_t const &table_name,
             rdb_context_t *rdb_context,
-            database_id_t const &database_id,
-            name_resolver_t const &name_resolver);
+            lifetime_t<name_resolver_t const &> name_resolver);
     virtual ~cfeed_artificial_table_backend_t();
 
     /* `cfeed_artificial_table_backend_t` guarantees that it will never have two sets of
     machinery in existence at the same time. */
 
     /* Subclasses should override this to return their own subclass of `machinery_t`. */
-    virtual machinery_t *construct_changefeed_machinery(
-        name_resolver_t const &name_resolver,
+    virtual scoped_ptr_t<machinery_t> construct_changefeed_machinery(
+        lifetime_t<name_resolver_t const &> name_resolver,
         auth::user_context_t const &user_context,
         signal_t *interruptor) = 0;
 
@@ -97,7 +97,7 @@ protected:
 
 private:
     void maybe_remove_machinery();
-    std::map<auth::user_context_t, std::unique_ptr<machinery_t>> machineries;
+    std::map<auth::user_context_t, scoped_ptr_t<machinery_t>> machineries;
     new_mutex_t mutex;
     bool begin_destruction_was_called;
     name_resolver_t const &m_name_resolver;

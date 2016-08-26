@@ -26,8 +26,7 @@ public:
 
     artificial_table_backend_t(
             name_string_t const &table_name,
-            rdb_context_t *rdb_context,
-            database_id_t const &database_id);
+            rdb_context_t *rdb_context);
     virtual ~artificial_table_backend_t();
 
     name_string_t const &get_table_name() const;
@@ -104,7 +103,6 @@ private:
     name_string_t m_table_name;
     uuid_u m_table_id;
     rdb_context_t *m_rdb_context;
-    database_id_t m_database_id;
     cross_thread_mutex_t transaction_mutex;
 };
 

@@ -31,6 +31,7 @@
 #include "clustering/table_manager/table_meta_client.hpp"
 #include "clustering/table_manager/multi_table_manager.hpp"
 #include "containers/incremental_lenses.hpp"
+#include "containers/lifetime.hpp"
 #include "extproc/extproc_pool.hpp"
 #include "rdb_protocol/query_server.hpp"
 #include "rpc/connectivity/cluster.hpp"
@@ -333,7 +334,6 @@ bool do_serve(io_backender_t *io_backender,
             }
 
             artificial_reql_cluster_interface_t artificial_reql_cluster_interface(
-                name_string_t::guarantee_valid("rethinkdb"),
                 semilattice_manager_auth.get_root_view(),
                 &rdb_ctx);
 
@@ -350,7 +350,7 @@ bool do_serve(io_backender_t *io_backender,
             name_resolver_t name_resolver(
                 semilattice_manager_cluster.get_root_view(),
                 &table_meta_client,
-                artificial_reql_cluster_interface);
+                make_lifetime(artificial_reql_cluster_interface));
 
             /* The `real_reql_cluster_interface_t` is the interface that the ReQL logic
             uses to create, destroy, and reconfigure databases and tables. */
@@ -363,7 +363,7 @@ bool do_serve(io_backender_t *io_backender,
                 &table_meta_client,
                 multi_table_manager.get(),
                 table_query_directory_read_manager.get_root_view(),
-                name_resolver);
+                make_lifetime(name_resolver));
 
             artificial_reql_cluster_interface.set_next_reql_cluster_interface(
                 &real_reql_cluster_interface);
@@ -380,7 +380,7 @@ bool do_serve(io_backender_t *io_backender,
                 &server_config_client,
                 &mailbox_manager,
                 &rdb_ctx,
-                name_resolver);
+                make_lifetime(name_resolver));
 
             /* Kick off a coroutine to log any outdated indexes. */
             outdated_index_issue_tracker_t::log_outdated_indexes(

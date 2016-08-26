@@ -11,8 +11,7 @@ namespace auth {
 
 permissions_artificial_table_backend_t::permissions_artificial_table_backend_t(
         rdb_context_t *rdb_context,
-        database_id_t const &database_id,
-        name_resolver_t const &name_resolver,
+        lifetime_t<name_resolver_t const &> name_resolver,
         boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
             auth_semilattice_view,
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t>>
@@ -21,7 +20,6 @@ permissions_artificial_table_backend_t::permissions_artificial_table_backend_t(
     : base_artificial_table_backend_t(
         name_string_t::guarantee_valid("permissions"),
         rdb_context,
-        database_id,
         name_resolver,
         auth_semilattice_view,
         cluster_semilattice_view),
@@ -40,6 +38,11 @@ bool permissions_artificial_table_backend_t::read_all_rows_as_vector(
     auth_semilattice_metadata_t auth_metadata = m_auth_semilattice_view->get();
     for (auto const &user : auth_metadata.m_users) {
         if (!static_cast<bool>(user.second.get_ref())) {
+            continue;
+        }
+
+        if (user.first.is_admin()) {
+            // The "admin" user is not displayed.
             continue;
         }
 
@@ -116,6 +119,11 @@ bool permissions_artificial_table_backend_t::read_row(
     auto user = auth_metadata.m_users.find(username);
     if (user == auth_metadata.m_users.end() ||
             !static_cast<bool>(user->second.get_ref())) {
+        return true;
+    }
+
+    if (user->first.is_admin()) {
+        // The "admin" user is not displayed.
         return true;
     }
 

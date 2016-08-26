@@ -28,8 +28,7 @@ class db_config_artificial_table_backend_t :
 public:
     db_config_artificial_table_backend_t(
             rdb_context_t *rdb_context,
-            database_id_t const &database_id,
-            name_resolver_t const &name_resolver,
+            lifetime_t<name_resolver_t const &> name_resolver,
             boost::shared_ptr< semilattice_readwrite_view_t<
             databases_semilattice_metadata_t> > _database_sl_view,
             real_reql_cluster_interface_t *_reql_cluster_interface);
@@ -59,6 +58,7 @@ public:
             admin_err_t *error_out);
 
 private:
+    rdb_context_t *rdb_context;
     boost::shared_ptr< semilattice_readwrite_view_t<
         databases_semilattice_metadata_t> > database_sl_view;
     semilattice_read_view_t<databases_semilattice_metadata_t>::subscription_t subs;

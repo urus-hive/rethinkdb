@@ -891,22 +891,23 @@ TPTEST(RDBProtocol, ArtificialChangefeeds) {
     dummy_semilattice_controller_t<auth_semilattice_metadata_t> auth_manager;
     rdb_context_t rdb_context(&extproc_pool, nullptr, auth_manager.get_view());
     artificial_reql_cluster_interface_t artificial_reql_cluster_interface(
-        name_string_t::guarantee_valid("rethinkdb"),
         auth_manager.get_view(),
         &rdb_context);
     dummy_semilattice_controller_t<cluster_semilattice_metadata_t> cluster_manager;
     name_resolver_t name_resolver(
-        cluster_manager.get_view(), nullptr, artificial_reql_cluster_interface);
+        cluster_manager.get_view(),
+        nullptr,
+        make_lifetime(artificial_reql_cluster_interface));
 
     class dummy_artificial_t : public artificial_t {
     public:
-        explicit dummy_artificial_t(name_resolver_t const &name_resolver_)
+        explicit dummy_artificial_t(lifetime_t<name_resolver_t const &> name_resolver_)
             : artificial_t(generate_uuid(), name_resolver_) { }
         /* This gets a notification when the last changefeed disconnects, but we don't
         care about that. */
         void maybe_remove() { }
     };
-    dummy_artificial_t artificial_cfeed(name_resolver);
+    dummy_artificial_t artificial_cfeed(make_lifetime(name_resolver));
 
     struct cfeed_bundle_t {
         cfeed_bundle_t(ql::env_t *env, artificial_t *a)

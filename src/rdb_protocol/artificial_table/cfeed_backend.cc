@@ -38,9 +38,8 @@ void cfeed_artificial_table_backend_t::machinery_t::maybe_remove() {
 cfeed_artificial_table_backend_t::cfeed_artificial_table_backend_t(
         name_string_t const &table_name,
         rdb_context_t *rdb_context,
-        database_id_t const &database_id,
-        name_resolver_t const &name_resolver)
-    : artificial_table_backend_t(table_name, rdb_context, database_id),
+        lifetime_t<name_resolver_t const &> name_resolver)
+    : artificial_table_backend_t(table_name, rdb_context),
       begin_destruction_was_called(false),
       m_name_resolver(name_resolver),
       remove_machinery_timer(
@@ -93,10 +92,9 @@ bool cfeed_artificial_table_backend_t::read_changes(
 
     auth::user_context_t user_context = env->get_user_context();
     auto &machinery = machineries[user_context];
-    if (machinery == nullptr) {
-        machinery.reset(
-            construct_changefeed_machinery(
-                m_name_resolver, user_context, &interruptor2));
+    if (!machinery.has()) {
+        machinery = construct_changefeed_machinery(
+            make_lifetime(m_name_resolver), user_context, &interruptor2);
     }
 
     new_mutex_acq_t machinery_lock(&machinery->mutex, &interruptor2);
@@ -132,10 +130,14 @@ void cfeed_artificial_table_backend_t::begin_changefeed_destruction() {
     mutex_lock.acq_signal()->wait_lazily_unordered();
     guarantee(!begin_destruction_was_called);
     for (auto &machinery : machineries) {
-        if (machinery.second != nullptr) {
+        if (machinery.second.has()) {
             /* All changefeeds should be closed before we start destruction */
             guarantee(machinery.second->can_be_removed());
-            machinery.second.reset();
+
+            /* We unset `machinery.second` before destructing it because there may be a
+            coroutine from `maybe_remove_machinery` in flight to destruct it as well. */
+            scoped_ptr_t<machinery_t> temp;
+            std::swap(temp, machinery.second);
         }
     }
     begin_destruction_was_called = true;
@@ -146,7 +148,7 @@ void cfeed_artificial_table_backend_t::maybe_remove_machinery() {
     assert_thread();
 
     for (auto &machinery : machineries) {
-        if (machinery.second != nullptr &&
+        if (machinery.second.has() &&
                 machinery.second->can_be_removed() &&
                 machinery.second->last_subscriber_time +
                     machinery_expiration_secs * MILLION < current_microtime()) {
@@ -158,13 +160,14 @@ void cfeed_artificial_table_backend_t::maybe_remove_machinery() {
                     wait_interruptible(mutex_lock.acq_signal(),
                                        keepalive.get_drain_signal());
                     auto &machinery_inner = machineries[user_context];
-                    if (machinery_inner != nullptr &&
+                    if (machinery_inner.has() &&
                             machinery_inner->can_be_removed()) {
-                        /* Make sure that we unset `machinery` before we start deleting
-                        the underlying `machinery_t`, because calls to `notify_*` may
-                        otherwise try to access the `machinery_t` while it is being
-                        deleted */
-                        std::unique_ptr<machinery_t> temp;
+                        /* Make sure that we unset `machinery_inner` before destructing
+                        the underlying `machinery_t` because calls to `notify_*` and
+                        `begin_changefeed_destruction` may otherwise try to access the
+                        `macheringy_t` while it's being destructed. Secondly, we don't
+                        remove the element to prevent invalid iterators. */
+                        scoped_ptr_t<machinery_t> temp;
                         std::swap(temp, machinery_inner);
                     }
                 } catch (const interrupted_exc_t &) {

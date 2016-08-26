@@ -23,12 +23,14 @@
 #include "clustering/administration/jobs/backend.hpp"
 #include "containers/map_sentries.hpp"
 #include "containers/name_string.hpp"
+#include "containers/scoped.hpp"
 #include "containers/uuid.hpp"
 #include "rdb_protocol/artificial_table/backend.hpp"
 #include "rdb_protocol/artificial_table/in_memory.hpp"
 #include "rdb_protocol/context.hpp"
 
 class namespace_repo_t;
+class name_resolver_t;
 class real_reql_cluster_interface_t;
 class server_config_client_t;
 class table_meta_client_t;
@@ -42,8 +44,10 @@ class artificial_reql_cluster_interface_t
     : public reql_cluster_interface_t,
       public home_thread_mixin_t {
 public:
+    static const uuid_u database_id;
+    static const name_string_t database_name;
+
     artificial_reql_cluster_interface_t(
-            name_string_t database_name,
             boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
                 auth_semilattice_view,
             rdb_context_t *rdb_context);
@@ -234,10 +238,6 @@ public:
             std::map<std::string, std::pair<sindex_config_t, sindex_status_t> >
                 *configs_and_statuses_out);
 
-    database_id_t const &get_database_id() const;
-
-    name_string_t const &get_database_name() const;
-
     void set_next_reql_cluster_interface(reql_cluster_interface_t *next);
 
     artificial_table_backend_t *get_table_backend(
@@ -248,15 +248,12 @@ public:
         name_string_t,
         std::pair<artificial_table_backend_t *, artificial_table_backend_t *>>;
 
-    table_backends_map_t *get_table_backends_map();
-
+    table_backends_map_t *get_table_backends_map_mutable();
     table_backends_map_t const &get_table_backends_map() const;
 
-    static const uuid_u base_database_id;
-
 private:
-    name_string_t m_database_name;
-    database_id_t m_database_id;
+    bool next_or_error(admin_err_t *error_out) const;
+
     table_backends_map_t m_table_backends;
     boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
         m_auth_semilattice_view;
@@ -281,58 +278,58 @@ public:
         table_meta_client_t *table_meta_client,
         server_config_client_t *server_config_client,
         mailbox_manager_t *mailbox_manager,
-        rdb_context_t *rd_context,
-        name_resolver_t const &name_resolver);
+        rdb_context_t *rdb_context,
+        lifetime_t<name_resolver_t const &> name_resolver);
 
 private:
     using backend_sentry_t = map_insertion_sentry_t<
         artificial_reql_cluster_interface_t::table_backends_map_t::key_type,
         artificial_reql_cluster_interface_t::table_backends_map_t::mapped_type>;
 
-    std::unique_ptr<auth::permissions_artificial_table_backend_t>
+    scoped_ptr_t<auth::permissions_artificial_table_backend_t>
         permissions_backend[2];
     backend_sentry_t permissions_sentry;
 
-    std::unique_ptr<auth::users_artificial_table_backend_t> users_backend;
+    scoped_ptr_t<auth::users_artificial_table_backend_t> users_backend;
     backend_sentry_t users_sentry;
 
-    std::unique_ptr<cluster_config_artificial_table_backend_t> cluster_config_backend;
+    scoped_ptr_t<cluster_config_artificial_table_backend_t> cluster_config_backend;
     backend_sentry_t cluster_config_sentry;
 
-    std::unique_ptr<db_config_artificial_table_backend_t> db_config_backend;
+    scoped_ptr_t<db_config_artificial_table_backend_t> db_config_backend;
     backend_sentry_t db_config_sentry;
 
-    std::unique_ptr<issues_artificial_table_backend_t> issues_backend[2];
+    scoped_ptr_t<issues_artificial_table_backend_t> issues_backend[2];
     backend_sentry_t issues_sentry;
 
-    std::unique_ptr<logs_artificial_table_backend_t> logs_backend[2];
+    scoped_ptr_t<logs_artificial_table_backend_t> logs_backend[2];
     backend_sentry_t logs_sentry;
 
-    std::unique_ptr<server_config_artificial_table_backend_t> server_config_backend;
+    scoped_ptr_t<server_config_artificial_table_backend_t> server_config_backend;
     backend_sentry_t server_config_sentry;
 
-    std::unique_ptr<server_status_artificial_table_backend_t> server_status_backend[2];
+    scoped_ptr_t<server_status_artificial_table_backend_t> server_status_backend[2];
     backend_sentry_t server_status_sentry;
 
-    std::unique_ptr<stats_artificial_table_backend_t> stats_backend[2];
+    scoped_ptr_t<stats_artificial_table_backend_t> stats_backend[2];
     backend_sentry_t stats_sentry;
 
-    std::unique_ptr<table_config_artificial_table_backend_t> table_config_backend[2];
+    scoped_ptr_t<table_config_artificial_table_backend_t> table_config_backend[2];
     backend_sentry_t table_config_sentry;
 
-    std::unique_ptr<table_status_artificial_table_backend_t> table_status_backend[2];
+    scoped_ptr_t<table_status_artificial_table_backend_t> table_status_backend[2];
     backend_sentry_t table_status_sentry;
 
-    std::unique_ptr<jobs_artificial_table_backend_t> jobs_backend[2];
+    scoped_ptr_t<jobs_artificial_table_backend_t> jobs_backend[2];
     backend_sentry_t jobs_sentry;
 
-    std::unique_ptr<in_memory_artificial_table_backend_t> debug_scratch_backend;
+    scoped_ptr_t<in_memory_artificial_table_backend_t> debug_scratch_backend;
     backend_sentry_t debug_scratch_sentry;
 
-    std::unique_ptr<debug_stats_artificial_table_backend_t> debug_stats_backend;
+    scoped_ptr_t<debug_stats_artificial_table_backend_t> debug_stats_backend;
     backend_sentry_t debug_stats_sentry;
 
-    std::unique_ptr<debug_table_status_artificial_table_backend_t>
+    scoped_ptr_t<debug_table_status_artificial_table_backend_t>
         debug_table_status_backend;
     backend_sentry_t debug_table_status_sentry;
 };

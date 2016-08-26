@@ -7,10 +7,8 @@
 caching_cfeed_artificial_table_backend_t::caching_cfeed_artificial_table_backend_t(
         name_string_t const &table_name,
         rdb_context_t *rdb_context,
-        database_id_t const &database_id,
-        name_resolver_t const &name_resolver)
-    : cfeed_artificial_table_backend_t(
-        table_name, rdb_context, database_id, name_resolver) {
+        lifetime_t<name_resolver_t const &> name_resolver)
+    : cfeed_artificial_table_backend_t(table_name, rdb_context, name_resolver) {
 }
 
 void caching_cfeed_artificial_table_backend_t::notify_row(const ql::datum_t &pkey) {
@@ -64,7 +62,7 @@ void caching_cfeed_artificial_table_backend_t::notify_break() {
 
 caching_cfeed_artificial_table_backend_t::caching_machinery_t::caching_machinery_t(
             namespace_id_t const &table_id,
-            name_resolver_t const &name_resolver,
+            lifetime_t<name_resolver_t const &> name_resolver,
             auth::user_context_t const &user_context,
             caching_cfeed_artificial_table_backend_t *_parent)
     : cfeed_artificial_table_backend_t::machinery_t(
@@ -80,14 +78,18 @@ caching_cfeed_artificial_table_backend_t::caching_machinery_t::caching_machinery
         parent->set_notifications(true);
     }
 
-    guarantee(parent->caching_machineries.count(m_user_context) == 0);
-    parent->caching_machineries[m_user_context] = this;
+    auto result =
+        parent->caching_machineries.insert(std::make_pair(m_user_context, this));
+    guarantee(result.second == true);
+
     coro_t::spawn_sometime(std::bind(&caching_machinery_t::run, this, drainer.lock()));
 }
 
 caching_cfeed_artificial_table_backend_t::caching_machinery_t::~caching_machinery_t() {
-    guarantee(parent->caching_machineries[m_user_context] == this);
-    parent->caching_machineries.erase(m_user_context);
+    auto iterator = parent->caching_machineries.find(m_user_context);
+    guarantee(
+        iterator != parent->caching_machineries.end() && iterator->second == this);
+    parent->caching_machineries.erase(iterator);
 
     if (parent->caching_machineries.empty()) {
         parent->set_notifications(false);
@@ -289,21 +291,20 @@ bool caching_cfeed_artificial_table_backend_t::caching_machinery_t::get_values(
 timer_cfeed_artificial_table_backend_t::timer_cfeed_artificial_table_backend_t(
         name_string_t const &table_name,
         rdb_context_t *rdb_context,
-        database_id_t const &database_id,
-        name_resolver_t const &name_resolver)
-    : caching_cfeed_artificial_table_backend_t(
-        table_name, rdb_context, database_id, name_resolver) {
+        lifetime_t<name_resolver_t const &> name_resolver)
+    : caching_cfeed_artificial_table_backend_t(table_name, rdb_context, name_resolver) {
 }
 
-cfeed_artificial_table_backend_t::machinery_t *
+scoped_ptr_t<cfeed_artificial_table_backend_t::machinery_t>
 caching_cfeed_artificial_table_backend_t::construct_changefeed_machinery(
-        name_resolver_t const &name_resolver,
+        lifetime_t<name_resolver_t const &> name_resolver,
         auth::user_context_t const &user_context,
         signal_t *interruptor) {
-    std::unique_ptr<caching_machinery_t> machinery(
+    scoped_ptr_t<caching_machinery_t> machinery(
         new caching_machinery_t(get_table_id(), name_resolver, user_context, this));
     wait_interruptible(&machinery->ready, interruptor);
-    return machinery.release();
+    return scoped_ptr_t<cfeed_artificial_table_backend_t::machinery_t>(
+        machinery.release());
 }
 
 void timer_cfeed_artificial_table_backend_t::set_notifications(bool notify) {

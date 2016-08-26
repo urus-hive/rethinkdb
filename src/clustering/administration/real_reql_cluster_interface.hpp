@@ -42,7 +42,7 @@ public:
             watchable_map_t<
                 std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> >,
                 table_query_bcard_t> *table_query_directory,
-            name_resolver_t const &name_resolver);
+            lifetime_t<name_resolver_t const &> name_resolver);
 
     bool db_create(
             auth::user_context_t const &user_context,

@@ -178,22 +178,6 @@ ql::datum_t permissions_t::to_datum() const {
 }
 
 int8_t tribool_to_int8(boost::tribool const &tribool) {
-    // boost::tribool::operator== returns a boost::tribool and behaves as following.
-    //
-    //                 false           true            indeterminate
-    // --------------+----------------------------------------------
-    //         false | true            false           indeterminate
-    //          true | false           true            indeterminate
-    // indeterminate | indeterminate   indeterminate   indeterminate
-    //
-    // The conversion to an int8_t allows it to behave as following.
-    //
-    //                 false           true            indeterminate
-    // --------------+----------------------------------------------
-    //         false | true            false           false
-    //          true | false           true            false
-    // indeterminate | false           false           true
-
     if (!tribool) {
         return 0;
     } else if (tribool) {
@@ -219,6 +203,22 @@ bool permissions_t::operator<(permissions_t const &rhs) const {
 }
 
 bool permissions_t::operator==(permissions_t const &rhs) const {
+    // boost::tribool::operator== returns a boost::tribool and behaves as following.
+    //
+    //                 false           true            indeterminate
+    // --------------+----------------------------------------------
+    //         false | true            false           indeterminate
+    //          true | false           true            indeterminate
+    // indeterminate | indeterminate   indeterminate   indeterminate
+    //
+    // The conversion to an int8_t in `to_tuple` allows it to behave as following.
+    //
+    //                 false           true            indeterminate
+    // --------------+----------------------------------------------
+    //         false | true            false           false
+    //          true | false           true            false
+    // indeterminate | false           false           true
+
     return to_tuple() == rhs.to_tuple();
 }
 

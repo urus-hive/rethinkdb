@@ -5,8 +5,7 @@ namespace auth {
 
 users_artificial_table_backend_t::users_artificial_table_backend_t(
         rdb_context_t *rdb_context,
-        database_id_t const &database_id,
-        name_resolver_t const &name_resolver,
+        lifetime_t<name_resolver_t const &> name_resolver,
         boost::shared_ptr<semilattice_readwrite_view_t<auth_semilattice_metadata_t>>
             auth_semilattice_view,
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t>>
@@ -14,7 +13,6 @@ users_artificial_table_backend_t::users_artificial_table_backend_t(
     : base_artificial_table_backend_t(
         name_string_t::guarantee_valid("users"),
         rdb_context,
-        database_id,
         name_resolver,
         auth_semilattice_view,
         cluster_semilattice_view) {

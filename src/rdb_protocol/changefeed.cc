@@ -1719,7 +1719,7 @@ public:
                 namespace_interface_t *ns_if,
                 namespace_id_t const &table_id,
                 signal_t *interruptor,
-                name_resolver_t const &name_resolver);
+                lifetime_t<name_resolver_t const &> name_resolver);
     ~real_feed_t();
 
     client_t::addr_t get_addr() const;
@@ -1769,7 +1769,7 @@ real_feed_t::real_feed_t(auto_drainer_t::lock_t _client_lock,
                          namespace_interface_t *ns_if,
                          namespace_id_t const &_table_id,
                          signal_t *interruptor,
-                         name_resolver_t const &_name_resolver)
+                         lifetime_t<name_resolver_t const &> _name_resolver)
     : feed_t(_table_id, _name_resolver),
       client_lock(std::move(_client_lock)),
       client(_client),
@@ -3969,7 +3969,7 @@ class artificial_feed_t : public feed_t {
 public:
     artificial_feed_t(
             namespace_id_t const &table_id,
-            name_resolver_t const &name_resolver,
+            lifetime_t<name_resolver_t const &> name_resolver,
             artificial_t *_parent)
         : feed_t(table_id, name_resolver),
           parent(_parent) { }
@@ -3992,7 +3992,7 @@ private:
 
 artificial_t::artificial_t(
         namespace_id_t const &table_id,
-        name_resolver_t const &name_resolver)
+        lifetime_t<name_resolver_t const &> name_resolver)
     : stamp(0),
       uuid(generate_uuid()),
       feed(make_scoped<artificial_feed_t>(table_id, name_resolver, this)) { }

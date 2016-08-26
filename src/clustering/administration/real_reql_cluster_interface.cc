@@ -34,7 +34,7 @@ real_reql_cluster_interface_t::real_reql_cluster_interface_t(
         watchable_map_t<
             std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> >,
             table_query_bcard_t> *table_query_directory,
-        name_resolver_t const &name_resolver) :
+        lifetime_t<name_resolver_t const &> name_resolver) :
     m_mailbox_manager(mailbox_manager),
     m_auth_semilattice_view(auth_semilattice_view),
     m_cluster_semilattice_view(cluster_semilattice_view),
@@ -1118,7 +1118,7 @@ bool real_reql_cluster_interface_t::grant_global(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
+    cross_thread_signal_t interruptor_on_home(interruptor, home_thread());
     on_thread_t on_thread(home_thread());
 
     return auth::grant(
@@ -1127,7 +1127,7 @@ bool real_reql_cluster_interface_t::grant_global(
         user_context,
         std::move(username),
         std::move(permissions),
-        &cross_thread_interruptor,
+        &interruptor_on_home,
         [](auth::user_t &user) -> auth::permissions_t & {
             return user.get_global_permissions();
         },
@@ -1143,7 +1143,7 @@ bool real_reql_cluster_interface_t::grant_database(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
+    cross_thread_signal_t interruptor_on_home(interruptor, home_thread());
     on_thread_t on_thread(home_thread());
 
     return auth::grant(
@@ -1152,7 +1152,7 @@ bool real_reql_cluster_interface_t::grant_database(
         user_context,
         std::move(username),
         std::move(permissions),
-        &cross_thread_interruptor,
+        &interruptor_on_home,
         [&](auth::user_t &user) -> auth::permissions_t & {
             return user.get_database_permissions(database_id);
         },
@@ -1169,7 +1169,7 @@ bool real_reql_cluster_interface_t::grant_table(
         signal_t *interruptor,
         ql::datum_t *result_out,
         admin_err_t *error_out) {
-    cross_thread_signal_t cross_thread_interruptor(interruptor, home_thread());
+    cross_thread_signal_t interruptor_on_home(interruptor, home_thread());
     on_thread_t on_thread(home_thread());
 
     return auth::grant(
@@ -1178,7 +1178,7 @@ bool real_reql_cluster_interface_t::grant_table(
         user_context,
         std::move(username),
         std::move(permissions),
-        &cross_thread_interruptor,
+        &interruptor_on_home,
         [&](auth::user_t &user) -> auth::permissions_t & {
             return user.get_table_permissions(table_id);
         },

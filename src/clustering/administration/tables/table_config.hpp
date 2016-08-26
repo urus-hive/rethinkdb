@@ -31,8 +31,7 @@ class table_config_artificial_table_backend_t :
 public:
     table_config_artificial_table_backend_t(
             rdb_context_t *rdb_context,
-            database_id_t const &database_id,
-            name_resolver_t const &name_resolver,
+            lifetime_t<name_resolver_t const &> name_resolver,
             boost::shared_ptr<semilattice_readwrite_view_t<
                 cluster_semilattice_metadata_t> > _semilattice_view,
             real_reql_cluster_interface_t *_reql_cluster_interface,
@@ -51,6 +50,7 @@ public:
 
 private:
     void format_row(
+            auth::user_context_t const &user_context,
             const namespace_id_t &table_id,
             const table_config_and_shards_t &config,
             const ql::datum_t &db_name_or_uuid,
@@ -78,6 +78,7 @@ private:
         THROWS_ONLY(interrupted_exc_t, no_such_table_exc_t, failed_table_op_exc_t,
             maybe_failed_table_op_exc_t, admin_op_exc_t);
 
+    rdb_context_t *rdb_context;
     real_reql_cluster_interface_t *reql_cluster_interface;
     server_config_client_t *server_config_client;
 };

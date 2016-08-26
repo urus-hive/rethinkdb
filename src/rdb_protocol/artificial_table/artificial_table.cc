@@ -19,9 +19,12 @@ bool checked_read_row_from_backend(
         signal_t *interruptor,
         ql::datum_t *row_out,
         admin_err_t *error_out) {
+    // Note that we'll catch the `auth::permission_error_t` that this may throw in the
+    // calling function, as that's what we want in `do_single_update` below.
     if (!backend->read_row(user_context, pval, interruptor, row_out, error_out)) {
         return false;
     }
+
 #ifndef NDEBUG
     if (row_out->has()) {
         ql::datum_t pval2 = row_out->get_field(
@@ -30,6 +33,7 @@ bool checked_read_row_from_backend(
         rassert(pval2 == pval);
     }
 #endif
+
     return true;
 }
 
@@ -58,10 +62,20 @@ ql::datum_t artificial_table_t::read_row(ql::env_t *env,
 
     ql::datum_t row;
     admin_err_t error;
-    if (!checked_read_row_from_backend(
-            env->get_user_context(), m_backend, pval, env->interruptor, &row, &error)) {
-        REQL_RETHROW_DATUM(error);
+    try {
+        if (!checked_read_row_from_backend(
+                env->get_user_context(),
+                m_backend,
+                pval,
+                env->interruptor,
+                &row,
+                &error)) {
+            REQL_RETHROW_DATUM(error);
+        }
+    } catch (auth::permission_error_t const &permission_error) {
+        rfail_datum(ql::base_exc_t::PERMISSION_ERROR, "%s", permission_error.what());
     }
+
     if (!row.has()) {
         row = ql::datum_t::null();
     }
@@ -86,16 +100,21 @@ counted_t<ql::datum_stream_t> artificial_table_t::read_all(
 
     counted_t<ql::datum_stream_t> stream;
     admin_err_t error;
-    if (!m_backend->read_all_rows_as_stream(
-            env->get_user_context(),
-            bt,
-            datumspec,
-            sorting,
-            env->interruptor,
-            &stream,
-            &error)) {
-        REQL_RETHROW_DATUM(error);
+    try {
+        if (!m_backend->read_all_rows_as_stream(
+                env->get_user_context(),
+                bt,
+                datumspec,
+                sorting,
+                env->interruptor,
+                &stream,
+                &error)) {
+            REQL_RETHROW_DATUM(error);
+        }
+    } catch (auth::permission_error_t const &permission_error) {
+        rfail_datum(ql::base_exc_t::PERMISSION_ERROR, "%s", permission_error.what());
     }
+
     return stream;
 }
 
@@ -108,10 +127,15 @@ counted_t<ql::datum_stream_t> artificial_table_t::read_changes(
 
     counted_t<ql::datum_stream_t> stream;
     admin_err_t error;
-    if (!m_backend->read_changes(
-            env, ss, bt, env->interruptor, &stream, &error)) {
-        REQL_RETHROW_DATUM(error);
+    try {
+        if (!m_backend->read_changes(
+                env, ss, bt, env->interruptor, &stream, &error)) {
+            REQL_RETHROW_DATUM(error);
+        }
+    } catch (auth::permission_error_t const &permission_error) {
+        rfail_datum(ql::base_exc_t::PERMISSION_ERROR, "%s", permission_error.what());
     }
+
     return stream;
 }
 
@@ -159,6 +183,8 @@ ql::datum_t artificial_table_t::write_batched_replace(
         const counted_t<const ql::func_t> &func,
         return_changes_t return_changes,
         UNUSED durability_requirement_t durability) {
+    env->get_user_context().require_read_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
     env->get_user_context().require_write_permission(
         m_rdb_context, m_database_id, m_backend->get_table_id());
 
@@ -169,7 +195,7 @@ ql::datum_t artificial_table_t::write_batched_replace(
 
     ql::datum_t stats = ql::datum_t::empty_object();
     std::set<std::string> conditions;
-
+    boost::optional<std::string> permission_error_what;
     throttled_pmap(keys.size(), [&] (int i) {
         try {
             do_single_update(env, keys[i], false,
@@ -177,11 +203,19 @@ ql::datum_t artificial_table_t::write_batched_replace(
                     return func->call(env, old_row, ql::LITERAL_OK)->as_datum();
                 },
                 return_changes, env->interruptor, &stats, &conditions);
+        } catch (auth::permission_error_t const &permission_error) {
+            if (!static_cast<bool>(permission_error_what)) {
+                permission_error_what = permission_error.what();
+            }
         } catch (interrupted_exc_t) {
             /* don't throw since we're in throttled_pmap() */
         }
     }, max_parallel_ops);
-    if (env->interruptor->is_pulsed()) {
+
+    if (static_cast<bool>(permission_error_what)) {
+        rfail_datum(
+            ql::base_exc_t::PERMISSION_ERROR, "%s", permission_error_what->c_str());
+    } else if (env->interruptor->is_pulsed()) {
         throw interrupted_exc_t();
     }
 
@@ -200,9 +234,12 @@ ql::datum_t artificial_table_t::write_batched_insert(
         UNUSED durability_requirement_t durability) {
     env->get_user_context().require_read_permission(
         m_rdb_context, m_database_id, m_backend->get_table_id());
+    env->get_user_context().require_write_permission(
+        m_rdb_context, m_database_id, m_backend->get_table_id());
 
     ql::datum_t stats = ql::datum_t::empty_object();
     std::set<std::string> conditions;
+    boost::optional<std::string> permission_error_what;
     throttled_pmap(inserts.size(), [&] (int i) {
         try {
             ql::datum_t insert_row = inserts[i];
@@ -224,16 +261,23 @@ ql::datum_t artificial_table_t::write_batched_insert(
                         conflict_behavior,
                         conflict_func);
                 },
-                             return_changes,
+                return_changes,
                 env->interruptor,
                 &stats,
                 &conditions);
-
+        } catch (auth::permission_error_t const &permission_error) {
+            if (!static_cast<bool>(permission_error_what)) {
+                permission_error_what = permission_error.what();
+            }
         } catch (interrupted_exc_t) {
             /* don't throw since we're in throttled_pmap() */
         }
     }, max_parallel_ops);
-    if (env->interruptor->is_pulsed()) {
+
+    if (static_cast<bool>(permission_error_what)) {
+        rfail_datum(
+            ql::base_exc_t::PERMISSION_ERROR, "%s", permission_error_what->c_str());
+    } else if (env->interruptor->is_pulsed()) {
         throw interrupted_exc_t();
     }
 
@@ -266,9 +310,6 @@ void artificial_table_t::do_single_update(
         ql::datum_t *stats_inout,
         std::set<std::string> *conditions_inout) {
     cross_thread_mutex_t::acq_t txn = m_backend->aquire_transaction_mutex();
-
-    env->get_user_context().require_write_permission(
-        m_rdb_context, m_database_id, m_backend->get_table_id());
 
     admin_err_t error;
     ql::datum_t old_row;

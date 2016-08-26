@@ -15,8 +15,7 @@ protected:
     caching_cfeed_artificial_table_backend_t(
             name_string_t const &table_name,
             rdb_context_t *rdb_context,
-            database_id_t const &database_id,
-            name_resolver_t const &name_resolver);
+            lifetime_t<name_resolver_t const &> name_resolver);
 
     /* The `caching_cfeed_artificial_table_backend_t` calls `set_notifications()` to tell
     the subclass whether it needs notifications or not. The default is no; it will call
@@ -52,7 +51,7 @@ private:
 
         caching_machinery_t(
                 namespace_id_t const &table_id,
-                name_resolver_t const &name_resolver,
+                lifetime_t<name_resolver_t const &> name_resolver,
                 auth::user_context_t const &user_context,
                 caching_cfeed_artificial_table_backend_t *parent);
         ~caching_machinery_t();
@@ -98,8 +97,9 @@ private:
         auto_drainer_t drainer;
     };
 
-    cfeed_artificial_table_backend_t::machinery_t *construct_changefeed_machinery(
-            name_resolver_t const &name_resolver,
+    scoped_ptr_t<cfeed_artificial_table_backend_t::machinery_t>
+        construct_changefeed_machinery(
+            lifetime_t<name_resolver_t const &> name_resolver,
             auth::user_context_t const &user_context,
             signal_t *interruptor);
 
@@ -115,8 +115,7 @@ public:
     timer_cfeed_artificial_table_backend_t(
             name_string_t const &table_name,
             rdb_context_t *rdb_context,
-            database_id_t const &database_id,
-            name_resolver_t const &name_resolver);
+            lifetime_t<name_resolver_t const &> name_resolver);
 
 private:
     void set_notifications(bool);

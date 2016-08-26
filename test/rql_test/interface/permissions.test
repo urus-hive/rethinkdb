@@ -35,10 +35,6 @@ with driver.Process() as process:
     res = list(permissions.order_by("id").run(conn))
     assert res == sorted([
         {
-            "id": ["admin"],
-            "permissions": {"read": True, "write": True, "config": True, "connect": True}
-        },
-        {
             "id": ["test"],
             "permissions": {"read": True, "write": True, "config": True, "connect": True}
         },
@@ -148,10 +144,6 @@ with driver.Process() as process:
     res = list(permissions.order_by("id").run(conn))
     assert res == sorted([
         {
-            "id": ["admin"],
-            "permissions": {"read": True, "write": True, "config": True, "connect": True}
-        },
-        {
             "id": ["test"],
             "permissions": {"read": True, "write": True, "config": True, "connect": True}
         },
@@ -178,10 +170,6 @@ with driver.Process() as process:
     res = list(permissions.order_by("id").run(conn))
     assert res == sorted([
         {
-            "id": ["admin"],
-            "permissions": {"read": True, "write": True, "config": True, "connect": True}
-        },
-        {
             "id": ["test"],
             "permissions": {"read": True, "write": True, "config": True, "connect": True}
         },
@@ -206,12 +194,7 @@ with driver.Process() as process:
     r.db("rethinkdb").table("users").get("test").delete().run(conn)
 
     res = list(permissions.run(conn))
-    assert res == [
-        {
-            "id": ["admin"],
-            "permissions": {"read": True, "write": True, "config": True, "connect": True}
-        }
-    ], res
+    assert res == [], res
 
     r.db("rethinkdb").table("users").insert({"id": "test", "password": False}).run(conn)
     database_id = r.db_create("test").run(conn)["config_changes"][0]["new_val"]["id"]

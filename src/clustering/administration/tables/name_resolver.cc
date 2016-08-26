@@ -1,11 +1,14 @@
 // Copyright 2010-2016 RethinkDB, all rights reserved.
 #include "clustering/administration/tables/name_resolver.hpp"
 
+#include "clustering/administration/artificial_reql_cluster_interface.hpp"
+
 name_resolver_t::name_resolver_t(
         boost::shared_ptr<semilattice_read_view_t<cluster_semilattice_metadata_t>>
             cluster_semilattice_view,
         table_meta_client_t *table_meta_client,
-        artificial_reql_cluster_interface_t const &artificial_reql_cluster_interface)
+        lifetime_t<artificial_reql_cluster_interface_t const &>
+            artificial_reql_cluster_interface)
     : m_cluster_semilattice_view(cluster_semilattice_view),
       m_table_meta_client(table_meta_client),
       m_artificial_reql_cluster_interface(artificial_reql_cluster_interface) {
@@ -23,8 +26,8 @@ boost::optional<name_string_t> name_resolver_t::database_id_to_name(
 boost::optional<name_string_t> name_resolver_t::database_id_to_name(
         database_id_t const &database_id,
         cluster_semilattice_metadata_t const &cluster_metadata) const noexcept {
-    if (m_artificial_reql_cluster_interface.get_database_id() == database_id) {
-        return m_artificial_reql_cluster_interface.get_database_name();
+    if (artificial_reql_cluster_interface_t::database_id == database_id) {
+        return artificial_reql_cluster_interface_t::database_name;
     }
 
     auto iterator = cluster_metadata.databases.databases.find(database_id);
@@ -40,14 +43,14 @@ boost::optional<table_basic_config_t> name_resolver_t::table_id_to_basic_config(
         namespace_id_t const &table_id,
         boost::optional<database_id_t> const &database_id) const noexcept {
     if (!static_cast<bool>(database_id) ||
-            m_artificial_reql_cluster_interface.get_database_id() == database_id.get()) {
+            artificial_reql_cluster_interface_t::database_id == database_id.get()) {
         for (auto const &table_backend :
                 m_artificial_reql_cluster_interface.get_table_backends_map()) {
             if (table_backend.second.first != nullptr &&
                     table_backend.second.first->get_table_id() == table_id) {
                 return table_basic_config_t{
                         table_backend.first,
-                        m_artificial_reql_cluster_interface.get_database_id(),
+                        artificial_reql_cluster_interface_t::database_id,
                         table_backend.second.first->get_primary_key_name()
                     };
             }
@@ -73,17 +76,17 @@ boost::optional<table_basic_config_t> name_resolver_t::table_id_to_basic_config(
     }
 }
 
-name_resolver_optional_t<database_id_t> name_resolver_t::database_name_to_id(
+resolved_id_optional_t<database_id_t> name_resolver_t::database_name_to_id(
         name_string_t const &database_name) const noexcept {
     return database_name_to_id(database_name, get_cluster_metadata());
 }
 
-name_resolver_optional_t<database_id_t> name_resolver_t::database_name_to_id(
+resolved_id_optional_t<database_id_t> name_resolver_t::database_name_to_id(
         name_string_t const &database_name,
         cluster_semilattice_metadata_t const &cluster_metadata) const noexcept {
-    if (m_artificial_reql_cluster_interface.get_database_name() == database_name) {
-        return name_resolver_optional_t<database_id_t>(
-            m_artificial_reql_cluster_interface.get_database_id());
+    if (artificial_reql_cluster_interface_t::database_name == database_name) {
+        return resolved_id_optional_t<database_id_t>(
+            artificial_reql_cluster_interface_t::database_id);
     }
 
     database_id_t database_id;
@@ -98,29 +101,29 @@ name_resolver_optional_t<database_id_t> name_resolver_t::database_name_to_id(
 
     switch (count) {
         case 0:
-            return name_resolver_optional_t<database_id_t>(
-                name_resolver_optional_t<database_id_t>::no_such_name_t());
+            return resolved_id_optional_t<database_id_t>(
+                resolved_id_optional_t<database_id_t>::no_such_name_t());
         case 1:
-            return name_resolver_optional_t<database_id_t>(database_id);
+            return resolved_id_optional_t<database_id_t>(database_id);
         default:
-            return name_resolver_optional_t<database_id_t>(
-                name_resolver_optional_t<database_id_t>::ambiguous_name_t());
+            return resolved_id_optional_t<database_id_t>(
+                resolved_id_optional_t<database_id_t>::ambiguous_name_t());
     }
 }
 
-name_resolver_optional_t<namespace_id_t> name_resolver_t::table_name_to_id(
+resolved_id_optional_t<namespace_id_t> name_resolver_t::table_name_to_id(
         database_id_t const &database_id,
         name_string_t const &table_name) const noexcept {
-    if (m_artificial_reql_cluster_interface.get_database_id() == database_id) {
+    if (artificial_reql_cluster_interface_t::database_id == database_id) {
         auto const &table_backends_map =
             m_artificial_reql_cluster_interface.get_table_backends_map();
         auto iterator = table_backends_map.find(table_name);
         if (iterator != table_backends_map.end() && iterator->second.first != nullptr) {
-            return name_resolver_optional_t<namespace_id_t>(
+            return resolved_id_optional_t<namespace_id_t>(
                 iterator->second.first->get_table_id());
         } else {
-            return name_resolver_optional_t<namespace_id_t>(
-                name_resolver_optional_t<database_id_t>::no_such_name_t());
+            return resolved_id_optional_t<namespace_id_t>(
+                resolved_id_optional_t<database_id_t>::no_such_name_t());
         }
     }
 
@@ -129,15 +132,15 @@ name_resolver_optional_t<namespace_id_t> name_resolver_t::table_name_to_id(
         try {
             m_table_meta_client->find(database_id, table_name, &table_id);
         } catch (no_such_table_exc_t const &) {
-            return name_resolver_optional_t<namespace_id_t>(
-                name_resolver_optional_t<database_id_t>::no_such_name_t());
+            return resolved_id_optional_t<namespace_id_t>(
+                resolved_id_optional_t<database_id_t>::no_such_name_t());
         } catch (ambiguous_table_exc_t const &) {
-            return name_resolver_optional_t<namespace_id_t>(
-                name_resolver_optional_t<database_id_t>::ambiguous_name_t());
+            return resolved_id_optional_t<namespace_id_t>(
+                resolved_id_optional_t<database_id_t>::ambiguous_name_t());
         }
-        return name_resolver_optional_t<database_id_t>(table_id);
+        return resolved_id_optional_t<database_id_t>(table_id);
     } else {
-        return name_resolver_optional_t<namespace_id_t>(
-            name_resolver_optional_t<database_id_t>::no_such_name_t());
+        return resolved_id_optional_t<namespace_id_t>(
+            resolved_id_optional_t<database_id_t>::no_such_name_t());
     }
 }

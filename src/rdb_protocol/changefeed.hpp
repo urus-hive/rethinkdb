@@ -19,6 +19,7 @@
 #include "concurrency/promise.hpp"
 #include "concurrency/rwlock.hpp"
 #include "containers/counted.hpp"
+#include "containers/lifetime.hpp"
 #include "containers/scoped.hpp"
 #include "protocol_api.hpp"
 #include "rdb_protocol/datum.hpp"
@@ -236,7 +237,7 @@ private:
             const namespace_id_t &,
             signal_t *)
         > const namespace_source;
-    name_resolver_t const &name_resolver;
+    lifetime_t<name_resolver_t const &> name_resolver;
     std::map<namespace_id_t, scoped_ptr_t<real_feed_t> > feeds;
     // This lock manages access to the `feeds` map.  The `feeds` map needs to be
     // read whenever `new_stream` is called, and needs to be written to whenever
@@ -580,7 +581,7 @@ class artificial_t : public home_thread_mixin_t {
 public:
     artificial_t(
         namespace_id_t const &table_id,
-        name_resolver_t const &name_resolver);
+        lifetime_t<name_resolver_t const &> name_resolver);
     virtual ~artificial_t();
 
     /* Rules for synchronization between `subscribe()` and `send_all()`:

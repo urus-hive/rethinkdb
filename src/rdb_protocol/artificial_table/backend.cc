@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "clustering/administration/artificial_reql_cluster_interface.hpp"
 #include "rdb_protocol/artificial_table/artificial_table.hpp"
 #include "rdb_protocol/datum_stream.hpp"
 
@@ -10,12 +11,10 @@ const uuid_u artificial_table_backend_t::base_table_id =
 
 artificial_table_backend_t::artificial_table_backend_t(
         name_string_t const &table_name,
-        rdb_context_t *rdb_context,
-        database_id_t const &database_id)
+        rdb_context_t *rdb_context)
     : m_table_name(table_name),
       m_table_id(uuid_u::from_hash(base_table_id, table_name.str())),
-      m_rdb_context(rdb_context),
-      m_database_id(database_id) {
+      m_rdb_context(rdb_context) {
 }
 
 artificial_table_backend_t::~artificial_table_backend_t() {
@@ -80,7 +79,8 @@ bool artificial_table_backend_t::read_all_rows_as_stream(
     boost::optional<ql::changefeed::keyspec_t> keyspec(ql::changefeed::keyspec_t(
         std::move(range_keyspec),
         counted_t<base_table_t>(
-            new artificial_table_t(m_rdb_context, m_database_id, this)),
+            new artificial_table_t(
+                m_rdb_context, artificial_reql_cluster_interface_t::database_id, this)),
         m_table_name.str()));
     guarantee(keyspec->table.has());
 
