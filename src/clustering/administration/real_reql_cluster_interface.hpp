@@ -6,6 +6,7 @@
 #include <string>
 
 #include "clustering/administration/admin_op_exc.hpp"
+#include "clustering/administration/eviction_manager.hpp"
 #include "clustering/administration/metadata.hpp"
 #include "clustering/administration/namespace_interface_repository.hpp"
 #include "clustering/administration/tables/generate_config.hpp"
@@ -284,6 +285,8 @@ private:
     namespace_repo_t m_namespace_repo;
     ql::changefeed::client_t m_changefeed_client;
     server_config_client_t *m_server_config_client;
+
+    eviction_manager_t eviction_manager;
 
     void wait_for_cluster_metadata_to_propagate(
             const cluster_semilattice_metadata_t &metadata,

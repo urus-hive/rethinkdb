@@ -370,8 +370,6 @@ void do_a_replace_from_batched_replace(
 
     mod_cb->on_mod_report(
         mod_report, update_pkey_cfeeds, &sindex_spot, &stamp_spot);
-
-    fprintf(stderr, "Testing\n");
 }
 
 batched_replace_response_t rdb_batched_replace(
@@ -1341,8 +1339,6 @@ void rdb_modification_report_cb_t::on_mod_report(
     bool update_pkey_cfeeds,
     new_mutex_in_line_t *sindex_spot,
     rwlock_in_line_t *cfeed_stamp_spot) {
-    // TODO: do eviction stuff on update.
-    fprintf(stderr, "on_mod_report\n");
     if (report.info.deleted.first.has() || report.info.added.first.has()) {
         // We spawn the sindex update in its own coroutine because we don't want to
         // hold the sindex update for the changefeed update or vice-versa.
@@ -1361,8 +1357,6 @@ void rdb_modification_report_cb_t::on_mod_report(
 
                     // TEST
         auto key = report.info.added;
-        fprintf(stderr, ">     %s, %s\n", key.first.print().c_str(), debug_str(key.second).c_str());
-        fprintf(stderr, "PRIMARY: %s\n", debug_str(report.primary_key).c_str());
 
         auto cserver = store_->changefeed_server(report.primary_key);
         if (update_pkey_cfeeds && cserver.first != nullptr) {
@@ -1574,12 +1568,9 @@ void serialize_sindex_info(write_message_t *wm,
     serialize<cluster_version_t::LATEST_DISK>(
         wm, info.mapping_version_info.latest_checked_reql_version);
 
-    fprintf(stderr, "----------\nSerializing sindex_info\n");
-    fprintf(stderr, "Eviction list has %lu\n", info.eviction_list.size());
     serialize<cluster_version_t::LATEST_DISK>(wm, info.mapping);
     serialize<cluster_version_t::LATEST_DISK>(wm, info.multi);
     serialize<cluster_version_t::LATEST_DISK>(wm, info.geo);
-    serialize<cluster_version_t::LATEST_DISK>(wm, info.eviction_list);
 }
 
 void deserialize_sindex_info(
@@ -1660,24 +1651,6 @@ void deserialize_sindex_info(
         break;
     default: unreachable();
     }
-    switch (cluster_version) {
-    case cluster_version_t::v1_14: // fallthru
-    case cluster_version_t::v1_15: // fallthru
-    case cluster_version_t::v1_16: // fallthru
-    case cluster_version_t::v2_0: // fallthru
-    case cluster_version_t::v2_1: // fallthru
-    case cluster_version_t::v2_2: // fallthru
-        info_out->eviction_list = std::map<std::string, eviction_config_t>();
-        break;
-    case cluster_version_t::v2_3_is_latest:
-        success = deserialize<cluster_version_t::v2_3_is_latest>(
-            &read_stream, &info_out->eviction_list);
-        throw_if_bad_deserialization(success, "sindex description");
-        break;
-    default: unreachable();
-    }
-    guarantee(static_cast<size_t>(read_stream.tell()) == data.size(),
-              "An sindex description was incompletely deserialized.");
 }
 
 void deserialize_sindex_info_or_crash(
@@ -1716,7 +1689,6 @@ void rdb_update_single_sindex(
         std::vector<index_pair_t> *cfeed_old_keys_out,
         std::vector<index_pair_t> *cfeed_new_keys_out)
     THROWS_NOTHING {
-    fprintf(stderr, "RDB_UPDATE_SINGLE_SINDEX\n");
     // Note if you get this error it's likely that you've passed in a default
     // constructed mod_report. Don't do that.  Mod reports should always be passed
     // to a function as an output parameter before they're passed to this
@@ -1732,10 +1704,6 @@ void rdb_update_single_sindex(
     } catch (const archive_exc_t &e) {
         crash("%s", e.what());
     }
-
-    // Deal with evictions
-
-    fprintf(stderr, "Sindex has %lu evictions\n", sindex_info.eviction_list.size());
 
     // TODO(2015-01): Actually get real profiling information for
     // secondary index updates.
@@ -1824,8 +1792,6 @@ void rdb_update_single_sindex(
                 modification->primary_key, added, sindex_info,
                 &keys, cfeed_new_keys_out);
 
-            store->eviction_update(sindex, modification, keys);
-
             if (keys_available_cond != nullptr) {
                 guarantee(*updates_left > 0);
                 decremented_updates_left = true;
@@ -1878,7 +1844,6 @@ void rdb_update_single_sindex(
                     return_superblock_local.wait());
             }
         } catch (const ql::base_exc_t &ex) {
-            fprintf(stderr, "EXECPTION! %s", ex.what());
             // Do nothing (we just drop the row from the index).
 
             // If we've decremented `updates_left` already, that means we might
@@ -1930,8 +1895,6 @@ void rdb_update_sindexes(
     cond_t *keys_available_cond,
     index_vals_t *cfeed_old_keys_out,
     index_vals_t *cfeed_new_keys_out) {
-
-    fprintf(stderr, "RDB_UPDATE_SINDEXES\n");
     rdb_noop_deletion_context_t noop_deletion_context;
     {
         auto_drainer_t drainer;

@@ -46,6 +46,10 @@ real_reql_cluster_interface_t::real_reql_cluster_interface_t(
         multi_table_manager,
         m_rdb_context,
         m_table_meta_client),
+    eviction_manager(
+        m_mailbox_manager->get_me(),
+        &m_namespace_repo,
+        table_query_directory),
     m_changefeed_client(
         m_mailbox_manager,
         [this](const namespace_id_t &id, signal_t *interruptor) {

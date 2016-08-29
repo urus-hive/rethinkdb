@@ -341,6 +341,19 @@ bool convert_sindexes_from_datum(
     return true;
 }
 
+bool convert_evictions_from_datum(
+        ql::datum_t datum,
+        std::set<std::string> *evictions_out,
+        admin_err_t *error_out) {
+    if (!convert_set_from_datum<std::string>(
+            &convert_string_from_datum, false, datum, evictions_out, error_out)) {
+        error_out->msg = "In `evictions`: " + error_out->msg;
+        return false;
+    }
+
+    return true;
+}
+
 /* This is separate from `format_row()` because it needs to be publicly exposed so it can
    be used to create the return value of `table.reconfigure()`. */
 ql::datum_t convert_table_config_to_datum(
@@ -471,6 +484,39 @@ bool convert_table_config_and_name_from_datum(
         }
     }
 
+    if (converter.has("evictions")) {
+        ql::datum_t evictions_datum;
+        if (!converter.get("evictions", &evictions_datum, error_out)) {
+            return false;
+        }
+        std::set<std::string> evictions;
+        if (!convert_evictions_from_datum(evictions_datum, &evictions, error_out)) {
+            return false;
+        }
+
+        if (existed_before) {
+            size_t evictions_size = 0;
+            for (auto sindex : old_config.config.sindexes) {
+                evictions_size += sindex.second.eviction_list.size();
+            }
+            bool equal = evictions.size() == evictions_size;
+            fprintf(stderr, "evictions size: %lu, new size: %lu\n", evictions_size, evictions.size ());
+            // TODO more check?
+            if (!equal) {
+                error_out->msg = "The `evictions` field is read-only and can't be used to "
+                    "create or drop evictions.";
+                return false;
+            }
+
+            // We don't need to copy the evictions, because they're stored in sindexes
+        }
+    } else {
+        if (existed_before) {
+            error_out->msg = "Expected a field named `evictions`.";
+            return false;
+        }
+    }
+
     if (existed_before || converter.has("primary_key")) {
         ql::datum_t primary_key_datum;
         if (!converter.get("primary_key", &primary_key_datum, error_out)) {
@@ -557,10 +603,6 @@ bool convert_table_config_and_name_from_datum(
         }
     } else {
         config_out->durability = write_durability_t::HARD;
-    }
-
-    if (!converter.check_no_extra_keys(error_out)) {
-        return false;
     }
 
     return true;

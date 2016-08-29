@@ -5,6 +5,7 @@
 #include <boost/bind.hpp>
 
 #include "arch/timing.hpp"
+#include "clustering/administration/eviction_manager.hpp"
 #include "clustering/query_routing/table_query_client.hpp"
 #include "concurrency/cross_thread_signal.hpp"
 #include "concurrency/cross_thread_watchable.hpp"
