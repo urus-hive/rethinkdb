@@ -270,7 +270,12 @@ void query_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &ncon
         return;
     }
 
-    conn->enable_keepalive();
+    try {
+        conn->enable_keepalive();
+    } catch (const tcp_conn_write_closed_exc_t &) {
+        // The connection was closed.
+        return;
+    }
 
     uint8_t version = 0;
     std::unique_ptr<auth::base_authenticator_t> authenticator;
