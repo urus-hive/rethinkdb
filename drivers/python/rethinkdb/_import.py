@@ -40,7 +40,7 @@ class SourceFile(object):
     table          = None
     primary_key    = None
     indexes        = None
-    hook           = None
+    write_hook     = None
     source_options = None
     
     start_time     = None
@@ -1163,7 +1163,7 @@ def import_directory(options, files_ignored=None):
                     # collect the info
                     primary_key = None
                     indexes = []
-                    write_hook = []
+                    write_hook = None
                     try:
                         with open(os.path.join(root, table + ".info"), "r") as info_file:
                             metadata = json.load(info_file)

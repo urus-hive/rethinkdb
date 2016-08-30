@@ -4,8 +4,7 @@ from __future__ import print_function
 
 import collections, copy, distutils.version, getpass, inspect, optparse, os, re, sys, threading
 
-#from .
-import net, version
+from . import net, version
 r = net.Connection._r
 
 class RetryQuery(object):
