@@ -26,6 +26,21 @@ public:
         scope_env_t *env, args_t *args, eval_flags_t) const {
         counted_t<table_t> table = args->arg(env, 0)->as_table();
 
+        bool existed = false;
+        admin_err_t error;
+        UNUSED datum_t write_hook;
+        if (env->env->reql_cluster_interface()->get_write_hook(
+                env->env->get_user_context(),
+                table->db,
+                name_string_t::guarantee_valid(table->name.c_str()),
+                &write_hook,
+                env->env->interruptor,
+                &error)) {
+            if (write_hook.has() &&
+                write_hook.get_type() != datum_t::type_t::R_NULL) {
+                existed = true;
+            }
+        }
         /* Parse the write_hook configuration */
         boost::optional<write_hook_config_t> config;
         datum_string_t message("deleted");
@@ -46,10 +61,8 @@ public:
                 const char *data = str.data();
                 bool bad_prefix = (sz < prefix_sz);
                 for (size_t i = 0; !bad_prefix && i < prefix_sz; ++i) {
-                    fprintf(stderr, "asd\n");
                     bad_prefix |= (data[i] != write_hook_blob_prefix[i]);
                 }
-                fprintf(stderr, "done\n");
                 rcheck(!bad_prefix,
                        base_exc_t::LOGIC,
                 "Cannot create a write hook except from a reql_write_hook_function"
@@ -72,7 +85,10 @@ public:
                        base_exc_t::LOGIC,
                        strprintf("Write hook functions must expect 3 arguments."));
 
-                message = datum_string_t("created");
+                message =
+                    existed ?
+                    datum_string_t("replaced") :
+                    datum_string_t("created");
 
             } else if (d.get_type() == datum_t::R_NULL) {
                 got_func = true;
@@ -95,7 +111,10 @@ public:
                    base_exc_t::LOGIC,
                    strprintf("Write hook functions must expect 3 arguments."));
 
-            message = datum_string_t("created");
+            message =
+                existed ?
+                datum_string_t("replaced") :
+                datum_string_t("created");
         }
         try {
             admin_err_t error;
