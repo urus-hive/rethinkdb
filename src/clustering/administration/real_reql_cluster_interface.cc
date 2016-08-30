@@ -46,16 +46,18 @@ real_reql_cluster_interface_t::real_reql_cluster_interface_t(
         multi_table_manager,
         m_rdb_context,
         m_table_meta_client),
-    eviction_manager(
-        m_mailbox_manager->get_me(),
-        &m_namespace_repo,
-        table_query_directory),
     m_changefeed_client(
         m_mailbox_manager,
         [this](const namespace_id_t &id, signal_t *interruptor) {
             return this->m_namespace_repo.get_namespace_interface(id, interruptor);
         }),
-    m_server_config_client(server_config_client)
+    m_server_config_client(server_config_client),
+    eviction_manager(
+        m_mailbox_manager->get_me(),
+        &m_changefeed_client,
+        table_meta_client,
+        &m_namespace_repo,
+        table_query_directory)
 {
     guarantee(m_auth_semilattice_view->home_thread() == home_thread());
     guarantee(m_cluster_semilattice_view->home_thread() == home_thread());

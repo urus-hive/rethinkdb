@@ -106,6 +106,23 @@ env_t::env_t(signal_t *_interruptor,
     rassert(interruptor != NULL);
 }
 
+env_t::env_t(signal_t *_interruptor,
+             return_empty_normal_batches_t _return_empty_normal_batches,
+             reql_version_t _reql_version,
+             auth::user_context_t user_context)
+    : global_optargs_(),
+      m_user_context(user_context),
+      reql_version_(_reql_version),
+      regex_cache_(LRU_CACHE_SIZE),
+      return_empty_normal_batches(_return_empty_normal_batches),
+      interruptor(_interruptor),
+      trace(NULL),
+      evals_since_yield_(0),
+      rdb_ctx_(NULL),
+      eval_callback_(NULL) {
+    rassert(interruptor != NULL);
+}
+
 env_t::~env_t() { }
 
 void env_t::maybe_yield() {

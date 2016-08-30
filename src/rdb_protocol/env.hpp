@@ -60,6 +60,11 @@ public:
     explicit env_t(signal_t *interruptor,
                    return_empty_normal_batches_t return_empty_normal_batches,
                    reql_version_t reql_version);
+    explicit env_t(signal_t *interruptor,
+                   return_empty_normal_batches_t return_empty_normal_batches,
+                   reql_version_t reql_version,
+                   auth::user_context_t user_context);
+
 
     ~env_t();
 
