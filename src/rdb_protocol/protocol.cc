@@ -864,15 +864,14 @@ void rdb_r_unshard_visitor_t::unshard_range_batch(const query_t &q, sorting_t so
     if (q.transforms.size() != 0 || q.terminal) {
         // This asserts that the optargs have been initialized.  (There is always a
         // 'db' optarg.)  We have the same assertion in rdb_read_visitor_t.
-        rassert(q.optargs.has_optarg("db"));
+        rassert(q.serializable_env.global_optargs.has_optarg("db"));
     }
     scoped_ptr_t<profile::trace_t> trace = ql::maybe_make_profile_trace(profile);
     ql::env_t env(
         ctx,
         ql::return_empty_normal_batches_t::NO,
         interruptor,
-        q.optargs,
-        q.m_user_context,
+        q.serializable_env,
         trace.get_or_null());
 
     // Initialize response.
@@ -1210,8 +1209,7 @@ struct rdb_w_shard_visitor_t : public boost::static_visitor<bool> {
                 br.pkey,
                 br.f.compile_wire_func(),
                 temp_write_hook_func,
-                br.optargs,
-                br.m_user_context,
+                br.serializable_env,
                 br.return_changes);
             return true;
         } else {
@@ -1468,6 +1466,9 @@ RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(
 RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(read_response_t, response, event_log, n_shards);
 RDB_IMPL_SERIALIZABLE_0_FOR_CLUSTER(dummy_read_response_t);
 
+RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(
+    serializable_env_t, global_optargs, user_context, deterministic_time);
+
 RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(point_read_t, key);
 RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(dummy_read_t, region);
 RDB_IMPL_SERIALIZABLE_4_FOR_CLUSTER(sindex_rangespec_t,
@@ -1479,37 +1480,34 @@ RDB_IMPL_SERIALIZABLE_4_FOR_CLUSTER(sindex_rangespec_t,
 ARCHIVE_PRIM_MAKE_RANGED_SERIALIZABLE(
         sorting_t, int8_t,
         sorting_t::UNORDERED, sorting_t::DESCENDING);
-RDB_IMPL_SERIALIZABLE_13_FOR_CLUSTER(
+RDB_IMPL_SERIALIZABLE_12_FOR_CLUSTER(
     rget_read_t,
     stamp,
     region,
     current_shard,
     hints,
     primary_keys,
-    optargs,
-    m_user_context,
+    serializable_env,
     table_name,
     batchspec,
     transforms,
     terminal,
     sindex,
     sorting);
-RDB_IMPL_SERIALIZABLE_10_FOR_CLUSTER(
+RDB_IMPL_SERIALIZABLE_9_FOR_CLUSTER(
     intersecting_geo_read_t,
     stamp,
     region,
-    optargs,
-    m_user_context,
+    serializable_env,
     table_name,
     batchspec,
     transforms,
     terminal,
     sindex,
     query_geometry);
-RDB_IMPL_SERIALIZABLE_9_FOR_CLUSTER(
+RDB_IMPL_SERIALIZABLE_8_FOR_CLUSTER(
     nearest_geo_read_t,
-    optargs,
-    m_user_context,
+    serializable_env,
     center,
     max_dist,
     max_results,
@@ -1522,14 +1520,13 @@ RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(
         distribution_read_t, max_depth, result_limit, region);
 
 RDB_IMPL_SERIALIZABLE_2_FOR_CLUSTER(changefeed_subscribe_t, addr, shard_region);
-RDB_IMPL_SERIALIZABLE_8_FOR_CLUSTER(
+RDB_IMPL_SERIALIZABLE_7_FOR_CLUSTER(
     changefeed_limit_subscribe_t,
     addr,
     uuid,
     spec,
     table,
-    optargs,
-    m_user_context,
+    serializable_env,
     region,
     current_shard);
 RDB_IMPL_SERIALIZABLE_2_FOR_CLUSTER(changefeed_stamp_t, addr, region);
@@ -1545,7 +1542,13 @@ RDB_IMPL_SERIALIZABLE_0_FOR_CLUSTER(dummy_write_response_t);
 RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(write_response_t, response, event_log, n_shards);
 
 RDB_IMPL_SERIALIZABLE_6_FOR_CLUSTER(
-        batched_replace_t, keys, pkey, f, write_hook, optargs, return_changes);
+        batched_replace_t,
+        keys,
+        pkey,
+        f,
+        write_hook,
+        serializable_env,
+        return_changes);
 RDB_IMPL_SERIALIZABLE_8_FOR_CLUSTER(
         batched_insert_t,
         inserts,

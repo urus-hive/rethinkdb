@@ -70,7 +70,7 @@ public:
 private:
     scoped_ptr_t<val_t> eval_impl(scope_env_t *env, args_t *, eval_flags_t) const {
         // Return the deterministic time from the env
-        return new_val(env->deterministic_time);
+        return new_val(env->env->get_deterministic_time());
     }
     virtual deterministic_t is_deterministic() const { return deterministic_t::no; }
     virtual const char *name() const { return "now"; }

@@ -302,8 +302,10 @@ test_rdb_env_t::instance_t::instance_t(test_rdb_env_t &&test_env) :
             &rdb_ctx,
             ql::return_empty_normal_batches_t::NO,
             &interruptor,
-            ql::global_optargs_t(),
-            auth::user_context_t(auth::permissions_t(true, true, true, true)),
+            serializable_env_t{
+                ql::global_optargs_t(),
+                auth::user_context_t(auth::permissions_t(true, true, true, true)),
+                ql::datum_t()},
             nullptr /* no profile trace */));
 
     // Set up any databases, tables, and data
@@ -681,8 +683,8 @@ bool test_rdb_env_t::instance_t::get_write_hook(
         UNUSED auth::user_context_t const &user_context,
         UNUSED counted_t<const ql::db_t> db,
         UNUSED const name_string_t &table,
-        UNUSED ql::datum_t *write_hook_datum,
         UNUSED signal_t *local_interruptor,
+        UNUSED ql::datum_t *write_hook_datum_out,
         admin_err_t *error_out) {
     *error_out = admin_err_t{
         "test_rdb_env_t::instance_t doesn't support get_write_hook()",

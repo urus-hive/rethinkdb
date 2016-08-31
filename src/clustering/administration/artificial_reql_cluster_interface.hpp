@@ -219,8 +219,8 @@ public:
         auth::user_context_t const &user_context,
         counted_t<const ql::db_t> db,
         const name_string_t &table,
-        ql::datum_t *write_hook_datum,
         signal_t *interruptor,
+        ql::datum_t *write_hook_datum_out,
         admin_err_t *error_out);
 
     bool sindex_create(

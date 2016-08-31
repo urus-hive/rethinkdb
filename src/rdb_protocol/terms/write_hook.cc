@@ -28,13 +28,13 @@ public:
 
         bool existed = false;
         admin_err_t error;
-        UNUSED datum_t write_hook;
+        datum_t write_hook;
         if (env->env->reql_cluster_interface()->get_write_hook(
                 env->env->get_user_context(),
                 table->db,
                 name_string_t::guarantee_valid(table->name.c_str()),
-                &write_hook,
                 env->env->interruptor,
+                &write_hook,
                 &error)) {
             if (write_hook.has() &&
                 write_hook.get_type() != datum_t::type_t::R_NULL) {
@@ -65,7 +65,7 @@ public:
                 }
                 rcheck(!bad_prefix,
                        base_exc_t::LOGIC,
-                "Cannot create a write hook except from a reql_write_hook_function"
+                       "Cannot create a write hook except from a reql_write_hook_function"
                        " returned from `get_write_hook`.");
 
                 string_read_stream_t rs(str.to_std(), prefix_sz);
@@ -73,7 +73,7 @@ public:
 
                 const write_hook_config_t conf =
                     write_hook_config_t(func,
-                                      reql_version_t::LATEST);
+                                        reql_version_t::LATEST);
 
                 config = conf;
                 config->func.compile_wire_func()->assert_deterministic(
@@ -99,7 +99,7 @@ public:
 
             const write_hook_config_t conf =
                 write_hook_config_t(ql::wire_func_t(v->as_func()),
-                                  reql_version_t::LATEST);
+                                    reql_version_t::LATEST);
 
             config = conf;
             config->func.compile_wire_func()->assert_deterministic(
@@ -117,15 +117,15 @@ public:
                 datum_string_t("created");
         }
         try {
-            admin_err_t error;
+            admin_err_t err;
             if (!env->env->reql_cluster_interface()->set_write_hook(
                     env->env->get_user_context(),
                     table->db,
                     name_string_t::guarantee_valid(table->name.c_str()),
                     config,
                     env->env->interruptor,
-                    &error)) {
-                REQL_RETHROW(error);
+                    &err)) {
+                REQL_RETHROW(err);
             }
         } catch (auth::permission_error_t const &permission_error) {
             rfail(ql::base_exc_t::PERMISSION_ERROR, "%s", permission_error.what());
@@ -154,8 +154,8 @@ public:
                     env->env->get_user_context(),
                     table->db,
                     name_string_t::guarantee_valid(table->name.c_str()),
-                    &write_hook,
                     env->env->interruptor,
+                    &write_hook,
                     &error)) {
                 REQL_RETHROW(error);
             }

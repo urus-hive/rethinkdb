@@ -1244,8 +1244,8 @@ bool real_reql_cluster_interface_t::get_write_hook(
     auth::user_context_t const &user_context,
     counted_t<const ql::db_t> db,
     const name_string_t &table,
-    ql::datum_t *write_hook_datum,
     signal_t *interruptor_on_caller,
+    ql::datum_t *write_hook_datum_out,
     admin_err_t *error_out) {
     guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
         "real_reql_cluster_interface_t should never get queries for system tables");
@@ -1265,7 +1265,7 @@ bool real_reql_cluster_interface_t::get_write_hook(
         &interruptor_on_home,
         &existing_config);
 
-    *write_hook_datum = ql::datum_t::null();
+    *write_hook_datum_out = ql::datum_t::null();
     if (existing_config.config.write_hook) {
 
         write_message_t wm;
@@ -1281,7 +1281,7 @@ bool real_reql_cluster_interface_t::get_write_hook(
         }
         ql::datum_t binary = ql::datum_t::binary(
             datum_string_t(write_hook_blob_prefix + stream.str()));
-        *write_hook_datum =
+        *write_hook_datum_out =
             ql::datum_t{
             std::map<datum_string_t, ql::datum_t>{
                 std::pair<datum_string_t, ql::datum_t>(

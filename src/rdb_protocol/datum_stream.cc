@@ -1063,8 +1063,10 @@ rget_read_t primary_readgen_t::next_read_impl(
         std::move(region),
         active_ranges_to_hints(sorting(batchspec), active_ranges),
         store_keys,
-        global_optargs,
-        m_user_context,
+        serializable_env_t{
+            global_optargs,
+            m_user_context,
+            datum_t()},
         table_name,
         batchspec,
         std::move(transforms),
@@ -1181,8 +1183,10 @@ rget_read_t sindex_readgen_t::next_read_impl(
         region_t::universe(),
         active_ranges_to_hints(sorting(batchspec), active_ranges),
         boost::none,
-        global_optargs,
-        m_user_context,
+        serializable_env_t{
+            global_optargs,
+            m_user_context,
+            datum_t()},
         table_name,
         batchspec,
         std::move(transforms),
@@ -1293,8 +1297,10 @@ intersecting_geo_read_t intersecting_readgen_t::next_read_impl(
     return intersecting_geo_read_t(
         std::move(stamp),
         region_t::universe(),
-        global_optargs,
-        m_user_context,
+        serializable_env_t{
+            global_optargs,
+            m_user_context,
+            datum_t()},
         table_name,
         actual_batchspec,
         std::move(transforms),
@@ -1998,8 +2004,7 @@ union_datum_stream_t::union_datum_stream_t(
         env->get_rdb_ctx(),
         env->return_empty_normal_batches,
         drainer.get_drain_signal(),
-        env->get_all_optargs(),
-        env->get_user_context(),
+        env->get_serializable_env(),
         trace.has() ? trace.get() : nullptr);
 
     coro_streams.reserve(streams.size());

@@ -142,8 +142,7 @@ ql::datum_t real_table_t::read_nearest(
         geo_system,
         table_name,
         sindex,
-        env->get_all_optargs(),
-        env->get_user_context());
+        env->get_serializable_env());
     read_t read(geo_read, env->profile(), read_mode);
     read_response_t res;
     try {
@@ -250,8 +249,7 @@ ql::datum_t real_table_t::write_batched_replace(
                 pkey,
                 func,
                 write_hook,
-                env->get_all_optargs(),
-                env->get_user_context(),
+                env->get_serializable_env(),
                 return_changes);
             write_t w(std::move(write), durability, env->profile(), env->limits());
             write_response_t response;

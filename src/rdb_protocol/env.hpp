@@ -22,7 +22,6 @@
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/optargs.hpp"
 #include "rdb_protocol/protocol.hpp"
-#include "rdb_protocol/pseudo_time.hpp"
 #include "rdb_protocol/val.hpp"
 #include "rdb_protocol/var_types.hpp"
 #include "rdb_protocol/wire_func.hpp"
@@ -51,9 +50,15 @@ public:
     env_t(rdb_context_t *ctx,
           return_empty_normal_batches_t return_empty_normal_batches,
           signal_t *interruptor,
-          global_optargs_t optargs,
-          auth::user_context_t user_context,
+          serializable_env_t s_env,
           profile::trace_t *trace);
+    env_t(rdb_context_t *ctx,
+          return_empty_normal_batches_t _return_empty_normal_batches,
+          signal_t *_interruptor,
+          global_optargs_t _global_optargs,
+          auth::user_context_t _user_context,
+          datum_t _deterministic_time,
+          profile::trace_t *_trace);
 
     // Used in unittest and for some secondary index environments (hence the
     // reql_version parameter).  (For secondary indexes, the interruptor definitely
@@ -89,15 +94,23 @@ public:
 
 
     const global_optargs_t &get_all_optargs() const {
-        return global_optargs_;
+        return serializable.global_optargs;
     }
 
     scoped_ptr_t<val_t> get_optarg(env_t *env, const std::string &key) {
-        return global_optargs_.get_optarg(env, key);
+        return serializable.global_optargs.get_optarg(env, key);
     }
 
     auth::user_context_t const &get_user_context() const {
-        return m_user_context;
+        return serializable.user_context;
+    }
+
+    datum_t get_deterministic_time() {
+        return serializable.deterministic_time;
+    }
+
+    serializable_env_t get_serializable_env() {
+        return serializable;
     }
 
     configured_limits_t limits() const {
@@ -121,12 +134,7 @@ public:
     reql_version_t reql_version() const { return reql_version_; }
 
 private:
-    // The global optargs values passed to .run(...) in the Python, Ruby, and JS
-    // drivers.
-    global_optargs_t global_optargs_;
-
-    // The user that's evaluating this query
-    auth::user_context_t m_user_context;
+    serializable_env_t serializable;
 
     // User specified configuration limits; e.g. array size limits
     const configured_limits_t limits_;
@@ -179,11 +187,9 @@ public:
 class scope_env_t {
 public:
     scope_env_t(env_t *_env, var_scope_t &&_scope)
-        : env(_env), scope(std::move(_scope)),
-          deterministic_time(pseudo::time_now()) { }
+        : env(_env), scope(std::move(_scope)) { }
     env_t *const env;
     const var_scope_t scope;
-    datum_t deterministic_time;
 
     DISABLE_COPYING(scope_env_t);
 };

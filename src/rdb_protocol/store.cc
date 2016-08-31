@@ -294,8 +294,7 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
             ctx,
             ql::return_empty_normal_batches_t::NO,
             interruptor,
-            s.optargs,
-            s.m_user_context,
+            s.serializable_env,
             trace);
         ql::raw_stream_t stream;
         {
@@ -368,8 +367,8 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
             s.region,
             s.table,
             ctx,
-            s.optargs,
-            s.m_user_context,
+            s.serializable_env.global_optargs,
+            s.serializable_env.user_context,
             s.uuid,
             s.spec,
             ql::changefeed::limit_order_t(s.spec.range.sorting),
@@ -446,8 +445,7 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
             ctx,
             ql::return_empty_normal_batches_t::NO,
             interruptor,
-            geo_read.optargs,
-            geo_read.m_user_context,
+            geo_read.serializable_env,
             trace);
 
         response->response = rget_read_response_t();
@@ -527,8 +525,7 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
             ctx,
             ql::return_empty_normal_batches_t::NO,
             interruptor,
-            geo_read.optargs,
-            geo_read.m_user_context,
+            geo_read.serializable_env,
             trace);
 
         response->response = nearest_geo_read_response_t();
@@ -619,14 +616,13 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
             // This asserts that the optargs have been initialized.  (There is always
             // a 'db' optarg.)  We have the same assertion in
             // rdb_r_unshard_visitor_t.
-            rassert(rget.optargs.has_optarg("db"));
+            rassert(rget.serializable_env.global_optargs.has_optarg("db"));
         }
         ql::env_t ql_env(
             ctx,
             ql::return_empty_normal_batches_t::NO,
             interruptor,
-            rget.optargs,
-            rget.m_user_context,
+            rget.serializable_env,
             trace);
         do_read(&ql_env, store, btree, superblock, rget, res,
                 release_superblock_t::RELEASE);
@@ -847,8 +843,7 @@ struct rdb_write_visitor_t : public boost::static_visitor<void> {
             ctx,
             ql::return_empty_normal_batches_t::NO,
             interruptor,
-            br.optargs,
-            br.m_user_context,
+            br.serializable_env,
             trace);
         rdb_modification_report_cb_t sindex_cb(
             store, &sindex_block,
@@ -885,8 +880,10 @@ struct rdb_write_visitor_t : public boost::static_visitor<void> {
             ctx,
             ql::return_empty_normal_batches_t::NO,
             interruptor,
-            ql::global_optargs_t(),
-            bi.m_user_context,
+            serializable_env_t{
+                ql::global_optargs_t(),
+                bi.m_user_context,
+                ql::datum_t()},
             trace);
         datum_replacer_t replacer(&ql_env,
                                   bi);

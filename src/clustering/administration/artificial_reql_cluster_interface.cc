@@ -461,15 +461,15 @@ bool artificial_reql_cluster_interface_t::get_write_hook(
     auth::user_context_t const &user_context,
     counted_t<const ql::db_t> db,
     const name_string_t &table,
-    ql::datum_t *write_hook_datum,
     signal_t *interruptor,
+    ql::datum_t *write_hook_datum_out,
     admin_err_t *error_out) {
     if (db->name == m_database) {
-        *write_hook_datum = ql::datum_t::null();
+        *write_hook_datum_out = ql::datum_t::null();
         return true;
     }
     return m_next->get_write_hook(
-        user_context, db, table, write_hook_datum, interruptor, error_out);
+        user_context, db, table, interruptor, write_hook_datum_out, error_out);
 }
 bool artificial_reql_cluster_interface_t::sindex_create(
         auth::user_context_t const &user_context,
