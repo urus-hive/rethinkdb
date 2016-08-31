@@ -1593,7 +1593,7 @@ class limit_sub_t;
 
 class feed_t : public home_thread_mixin_t, public slow_atomic_countable_t<feed_t> {
 public:
-    feed_t(namespace_id_t const &, name_resolver_t const &);
+    feed_t(namespace_id_t const &, lifetime_t<name_resolver_t const &>);
     virtual ~feed_t();
 
     void add_point_sub(point_sub_t *sub, const store_key_t &key) THROWS_NOTHING;
@@ -3715,7 +3715,9 @@ void feed_t::stop_subs(const auto_drainer_t::lock_t &lock) {
     guarantee(num_subs == 0);
 }
 
-feed_t::feed_t(namespace_id_t const &_table_id, name_resolver_t const &_name_resolver)
+feed_t::feed_t(
+        namespace_id_t const &_table_id,
+        lifetime_t<name_resolver_t const &>_name_resolver)
   : detached(false),
     num_subs(0),
     empty_subs(get_num_threads()),
@@ -3735,7 +3737,7 @@ client_t::client_t(
                 const namespace_id_t &,
                 signal_t *)
             > &_namespace_source,
-        name_resolver_t const &_name_resolver) :
+        lifetime_t<name_resolver_t const &> _name_resolver) :
     manager(_manager),
     namespace_source(_namespace_source),
     name_resolver(_name_resolver)
@@ -3884,7 +3886,7 @@ counted_t<datum_stream_t> client_t::new_stream(
                         access.get(),
                         table_id,
                         &interruptor,
-                        name_resolver);
+                        make_lifetime(name_resolver));
                     feed_it = feeds.insert(
                         std::make_pair(table_id, std::move(val))).first;
                 }

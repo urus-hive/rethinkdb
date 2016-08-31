@@ -97,10 +97,10 @@ protected:
 
 private:
     void maybe_remove_machinery();
+    name_resolver_t const &m_name_resolver;
     std::map<auth::user_context_t, scoped_ptr_t<machinery_t>> machineries;
     new_mutex_t mutex;
     bool begin_destruction_was_called;
-    name_resolver_t const &m_name_resolver;
     auto_drainer_t drainer;
     repeating_timer_t remove_machinery_timer;
 };

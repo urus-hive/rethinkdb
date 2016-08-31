@@ -40,8 +40,8 @@ cfeed_artificial_table_backend_t::cfeed_artificial_table_backend_t(
         rdb_context_t *rdb_context,
         lifetime_t<name_resolver_t const &> name_resolver)
     : artificial_table_backend_t(table_name, rdb_context),
-      begin_destruction_was_called(false),
       m_name_resolver(name_resolver),
+      begin_destruction_was_called(false),
       remove_machinery_timer(
         machinery_expiration_secs * THOUSAND,
         [this]() { maybe_remove_machinery(); }) {

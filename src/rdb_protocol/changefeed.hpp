@@ -216,7 +216,7 @@ public:
                 const namespace_id_t &,
                 signal_t *)
             > &_namespace_source,
-        name_resolver_t const &_name_resolver);
+        lifetime_t<name_resolver_t const &> _name_resolver);
     ~client_t();
     // Throws QL exceptions.
     counted_t<datum_stream_t> new_stream(
@@ -237,7 +237,7 @@ private:
             const namespace_id_t &,
             signal_t *)
         > const namespace_source;
-    lifetime_t<name_resolver_t const &> name_resolver;
+    name_resolver_t const &name_resolver;
     std::map<namespace_id_t, scoped_ptr_t<real_feed_t> > feeds;
     // This lock manages access to the `feeds` map.  The `feeds` map needs to be
     // read whenever `new_stream` is called, and needs to be written to whenever
