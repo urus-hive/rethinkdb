@@ -165,7 +165,7 @@ struct entry_iter_t {
     bool done(value_sizer_t *sizer) const {
         int bs = sizer->block_size().value();
         rassert(offset <= bs, "offset=%d, bs=%d", offset, bs);
-        return offset == bs;
+        return offset >= bs;
     }
 
     static entry_iter_t make(const leaf_node_t *node) {
