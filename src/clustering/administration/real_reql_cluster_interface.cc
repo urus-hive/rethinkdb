@@ -1266,7 +1266,7 @@ bool real_reql_cluster_interface_t::get_write_hook(
 
     *write_hook_datum_out = ql::datum_t::null();
     if (existing_config.config.write_hook) {
-            convert_write_hook_to_datum(existing_config.config.write_hook);
+        *write_hook_datum_out = convert_write_hook_to_datum(existing_config.config.write_hook);
     }
     return true;
 }
