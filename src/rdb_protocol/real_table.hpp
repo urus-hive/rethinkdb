@@ -76,10 +76,6 @@ public:
         dist_unit_t dist_unit,
         const ql::configured_limits_t &limits);
 
-    boost::optional<counted_t<const ql::func_t> > get_write_hook(
-        ql::env_t *env,
-        ignore_write_hook_t ignore_write_hook);
-
     ql::datum_t write_batched_replace(
         ql::env_t *env,
         const std::vector<ql::datum_t> &keys,
@@ -122,6 +118,10 @@ public:
     void write_with_profile(ql::env_t *env, write_t *, write_response_t *response);
 
 private:
+    boost::optional<counted_t<const ql::func_t> > get_write_hook(
+        ql::env_t *env,
+        ignore_write_hook_t ignore_write_hook);
+
     namespace_id_t uuid;
     namespace_interface_access_t namespace_access;
     std::string pkey;

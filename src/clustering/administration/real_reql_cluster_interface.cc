@@ -1266,21 +1266,6 @@ bool real_reql_cluster_interface_t::get_write_hook(
 
     *write_hook_datum_out = ql::datum_t::null();
     if (existing_config.config.write_hook) {
-
-        write_message_t wm;
-        serialize<cluster_version_t::LATEST_DISK>(
-            &wm, existing_config.config.write_hook->func);
-        string_stream_t stream;
-        int write_res = send_write_message(&stream, &wm);
-
-        if (write_res != 0) {
-            error_out->msg = "Invalid write hook";
-            error_out->query_state = query_state_t::FAILED;
-            return false;
-        }
-        ql::datum_t binary = ql::datum_t::binary(
-            datum_string_t(write_hook_blob_prefix + stream.str()));
-        *write_hook_datum_out =
             convert_write_hook_to_datum(existing_config.config.write_hook);
     }
     return true;

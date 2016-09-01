@@ -347,7 +347,7 @@ ql::datum_t convert_write_hook_to_datum(
                                 datum_string_t(
                                     format_write_hook_query(write_hook.get()))))}};
     }
-    return std::move(res);
+    return res;
 }
 
 bool convert_sindexes_from_datum(
