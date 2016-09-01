@@ -9,6 +9,7 @@
 #include "rdb_protocol/changefeed.hpp"
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/error.hpp"
+#include "rdb_protocol/pseudo_time.hpp"
 #include "rpc/connectivity/peer_id.hpp"
 
 class table_eviction_manager_t {
@@ -67,8 +68,9 @@ public:
                     table_meta_client.get());
                 success = true;
             } catch(ql::base_exc_t &ex) {
-                fprintf(stderr, "failed :(\n");
+                fprintf(stderr, "failed :( %s\n", ex.what());
             }
+            coro_t::yield();
         }
 
         // Try to get all changes as a test
@@ -78,8 +80,25 @@ public:
         while (!stream->is_exhausted() && !interruptor.is_pulsed()) {
             std::vector<ql::datum_t> test_datum =
                 stream->next_batch(&fake_env, test_batchspec);
-            for (auto dat : test_datum) {
-                fprintf(stderr, "Datum: %s", debug_str(dat).c_str());
+
+            // There should only be one element, which is the min
+            if (test_datum.size() > 0) {
+                ql::datum_t change = test_datum[0];
+                guarantee(change.has());
+                ql::datum_t new_min = change.get_field("new_val",
+                                                       ql::throw_bool_t::NOTHROW);
+                if (new_min.has() &&
+                    new_min.get_type() != ql::datum_t::type_t::R_NULL) {
+                    fprintf(stderr, "Datum: %s", debug_str(new_min).c_str());
+                    // Set timer based on the value of the new lowest element
+                    //TODO: get value of secondary index if it's not a field
+                    ql::datum_t time = new_min.get_field("num",
+                                                         ql::throw_bool_t::NOTHROW);
+                    int64_t new_delay =
+                        ql::pseudo::time_to_epoch_time(time) -
+                        ql::pseudo::time_to_epoch_time(ql::pseudo::time_now());
+                    set_expiration(new_delay);
+                }
             }
             coro_t::yield();
         }
@@ -108,10 +127,21 @@ public:
             set_expiration(new_sleep);
         }
 
-        // Try sending a test delete
+        namespace_interface_access_t interface_access =
+            namespace_repo->get_namespace_interface();
+        // Do a between to get all the keys on the index that need to be deleted
+
+        datum_range_t datum_range =
+            datum_range_t(datum_t::minval(), key_range_t::open,
+                          ql::pseudo::time_now(), key_range_t::closed());
+        ql::changefeed::keyspec_t::range_t range;
+        range.sindex = "num";
+        range.sorting = ql::changefeed::sorting_t::ASCENDING;
+        range.datumspec = datumspec_t(datum_range);
+
+        // Delete all the things on the index until now
         auth::user_context_t(auth::permissions_t(true, true, true));
-        //write_t write = batched_replace_t();
-        //namespace_repo->get_namespace_interface()->get()->write();
+        write_t write = batched_replace_t();
     }
 
 private:
