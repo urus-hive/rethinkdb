@@ -212,8 +212,9 @@ struct serializable_env_t {
     // The user that's evaluating this query
     auth::user_context_t user_context;
 
-    // The time that the query was compiled at. Used to evaluate r.now in
-    // a deterministic way.
+    // The time that the most recent request started processing, set in fill_response
+    // in query_cache.cc
+    // Used to evaluate r.now in a deterministic way.
     ql::datum_t deterministic_time;
 };
 
