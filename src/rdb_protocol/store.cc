@@ -822,10 +822,7 @@ struct rdb_write_visitor_t : public boost::static_visitor<void> {
             ctx,
             ql::return_empty_normal_batches_t::NO,
             interruptor,
-            serializable_env_t{
-                ql::global_optargs_t(),
-                bi.m_user_context,
-                ql::datum_t()},
+            bi.serializable_env,
             trace);
         datum_replacer_t replacer(&ql_env,
                                   bi);

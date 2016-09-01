@@ -1242,7 +1242,7 @@ struct rdb_w_shard_visitor_t : public boost::static_visitor<bool> {
                                             bi.conflict_behavior,
                                             temp_conflict_func,
                                             bi.limits,
-                                            bi.m_user_context,
+                                            bi.serializable_env,
                                             bi.return_changes);
             return true;
         } else {
@@ -1300,12 +1300,12 @@ batched_insert_t::batched_insert_t(
         conflict_behavior_t _conflict_behavior,
         const boost::optional<counted_t<const ql::func_t> > &_conflict_func,
         const ql::configured_limits_t &_limits,
-        auth::user_context_t user_context,
+        serializable_env_t s_env,
         return_changes_t _return_changes)
         : inserts(std::move(_inserts)), pkey(_pkey),
           conflict_behavior(_conflict_behavior),
           limits(_limits),
-          m_user_context(std::move(user_context)),
+          serializable_env(std::move(s_env)),
           return_changes(_return_changes) {
     r_sanity_check(inserts.size() != 0);
 
@@ -1557,7 +1557,7 @@ RDB_IMPL_SERIALIZABLE_8_FOR_CLUSTER(
         conflict_behavior,
         conflict_func,
         limits,
-        m_user_context,
+        serializable_env,
         return_changes);
 
 RDB_IMPL_SERIALIZABLE_3_SINCE_v1_13(point_write_t, key, data, overwrite);

@@ -609,7 +609,7 @@ struct batched_insert_t {
         conflict_behavior_t _conflict_behavior,
         const boost::optional<counted_t<const ql::func_t> > &_conflict_func,
         const ql::configured_limits_t &_limits,
-        auth::user_context_t user_context,
+        serializable_env_t s_env,
         return_changes_t _return_changes);
 
     std::vector<ql::datum_t> inserts;
@@ -618,7 +618,7 @@ struct batched_insert_t {
     conflict_behavior_t conflict_behavior;
     boost::optional<ql::wire_func_t> conflict_func;
     ql::configured_limits_t limits;
-    auth::user_context_t m_user_context;
+    serializable_env_t serializable_env;
     return_changes_t return_changes;
 };
 RDB_DECLARE_SERIALIZABLE_FOR_CLUSTER(batched_insert_t);

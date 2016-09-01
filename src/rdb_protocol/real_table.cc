@@ -310,7 +310,7 @@ ql::datum_t real_table_t::write_batched_insert(
             conflict_behavior,
             conflict_func,
             env->limits(),
-            env->get_user_context(),
+            env->get_serializable_env(),
             return_changes);
         write_t w(std::move(write), durability, env->profile(), env->limits());
         write_response_t response;
