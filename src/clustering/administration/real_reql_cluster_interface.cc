@@ -1245,7 +1245,7 @@ bool real_reql_cluster_interface_t::get_write_hook(
     const name_string_t &table,
     signal_t *interruptor_on_caller,
     ql::datum_t *write_hook_datum_out,
-    admin_err_t *error_out) {
+    admin_err_t *) {
     guarantee(db->name != name_string_t::guarantee_valid("rethinkdb"),
         "real_reql_cluster_interface_t should never get queries for system tables");
 

@@ -328,10 +328,12 @@ ql::datum_t btree_batched_replacer_t::apply_write_hook(
     const counted_t<const ql::func_t> &write_hook) const {
     ql::datum_t res = res_;
     if (write_hook.has()) {
-        ql::datum_t primary_key =
-            res.get_type() != ql::datum_t::type_t::R_NULL ?
-            res.get_field(pkey, ql::throw_bool_t::NOTHROW) :
-            d.get_field(pkey, ql::throw_bool_t::NOTHROW);
+        ql::datum_t primary_key;
+        if (res.get_type() != ql::datum_t::type_t::R_NULL) {
+            primary_key = res.get_field(pkey, ql::throw_bool_t::NOTHROW);
+        } else if (d.get_type() != ql::datum_t::type_t::R_NULL) {
+            primary_key = d.get_field(pkey, ql::throw_bool_t::NOTHROW);
+        }
         if (!primary_key.has()) {
             primary_key = ql::datum_t::null();
         }
