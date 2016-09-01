@@ -80,7 +80,6 @@ void migrate_metadata_v2_1_to_v2_3(cluster_version_t serialization_version,
         migrate_metadata_v2_1_to_v2_3<cluster_version_t::v2_3>(txn, interruptor);
         break;
     case cluster_version_t::v2_4:
-        migrate_metadata_v2_1_to_v2_3<cluster_version_t::v2_4>(txn, interruptor);
         break;
     case cluster_version_t::v1_14:
     case cluster_version_t::v1_15:
