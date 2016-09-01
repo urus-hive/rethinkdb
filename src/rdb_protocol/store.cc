@@ -709,6 +709,7 @@ void store_t::protocol_read(const read_t &_read,
     response->event_log.push_back(profile::stop_t());
 }
 
+
 class func_replacer_t : public btree_batched_replacer_t {
 public:
     func_replacer_t(ql::env_t *_env,
@@ -717,45 +718,15 @@ public:
                     counted_t<const ql::func_t> wh,
                     return_changes_t _return_changes)
         : env(_env),
-          pkey(_pkey),
+          pkey(std::move(_pkey)),
           f(wf.compile_wire_func()),
-          write_hook(wh),
+          write_hook(std::move(wh)),
           return_changes(_return_changes) { }
     ql::datum_t replace(
         const ql::datum_t &d, size_t) const {
         ql::datum_t res = f->call(env, d, ql::LITERAL_OK)->as_datum();
 
-        if (write_hook.has()) {
-            ql::datum_t primary_key =
-                res.get_type() != ql::datum_t::type_t::R_NULL ?
-                res.get_field(pkey) :
-                d.get_field(pkey);
-            ql::datum_t modified;
-            try {
-               modified = write_hook->call(env,
-                                         std::vector<ql::datum_t>{
-                                             primary_key,
-                                                 d,
-                                                 res})->as_datum();
-            } catch (ql::exc_t &e) {
-                throw ql::exc_t(e.get_type(),
-                                  strprintf("Error in write hook: %s", e.what()),
-                                  e.backtrace(),
-                                  e.dummy_frames());
-            } catch (ql::datum_exc_t &e) {
-                throw ql::datum_exc_t(e.get_type(),
-                                  strprintf("Error in write hook: %s", e.what()));
-            }
-
-            rcheck_toplevel((res.get_type() != ql::datum_t::type_t::R_NULL &&
-                            modified.get_type() != ql::datum_t::type_t::R_NULL) ||
-                            (res.get_type() == ql::datum_t::type_t::R_NULL &&
-                             modified.get_type() == ql::datum_t::type_t::R_NULL),
-                            ql::base_exc_t::OP_FAILED,
-                            "Write hook function returned unexpected NULL value.");
-            res = modified;
-        }
-        return res;
+        return apply_write_hook(env, pkey, d, res, write_hook);
     }
     return_changes_t should_return_changes() const { return return_changes; }
 private:
@@ -792,36 +763,7 @@ public:
                                              newd,
                                              conflict_behavior,
                                              conflict_func);
-        if (write_hook.has()) {
-            ql::datum_t primary_key =
-                res.get_type() != ql::datum_t::type_t::R_NULL ?
-                res.get_field(datum_string_t(pkey)) :
-                d.get_field(datum_string_t(pkey));
-            ql::datum_t modified;
-            try {
-                modified = write_hook->call(env,
-                                          std::vector<ql::datum_t>{
-                                              primary_key,
-                                                  d,
-                                                  res})->as_datum();
-            } catch (ql::exc_t &e) {
-                throw ql::exc_t(e.get_type(),
-                                  strprintf("Error in write hook: %s", e.what()),
-                                  e.backtrace(),
-                                  e.dummy_frames());
-            } catch (ql::datum_exc_t &e) {
-                throw ql::datum_exc_t(e.get_type(),
-                                  strprintf("Error in write hook: %s", e.what()));
-            }
-
-            rcheck_toplevel((res.get_type() != ql::datum_t::type_t::R_NULL &&
-                            modified.get_type() != ql::datum_t::type_t::R_NULL) ||
-                            (res.get_type() == ql::datum_t::type_t::R_NULL &&
-                             modified.get_type() == ql::datum_t::type_t::R_NULL),
-                            ql::base_exc_t::OP_FAILED,
-                            "Write hook function returned unexpected NULL value.");
-            res = modified;
-        }
+        res = apply_write_hook(env, datum_string_t(pkey), d, res, write_hook);
         return res;
     }
     return_changes_t should_return_changes() const { return return_changes; }

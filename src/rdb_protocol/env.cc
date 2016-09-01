@@ -71,7 +71,7 @@ env_t::env_t(rdb_context_t *ctx,
              signal_t *_interruptor,
              serializable_env_t s_env,
              profile::trace_t *_trace)
-    : serializable(s_env),
+    : serializable(std::move(s_env)),
       limits_(from_optargs(ctx, _interruptor, &serializable.global_optargs)),
       reql_version_(reql_version_t::LATEST),
       regex_cache_(LRU_CACHE_SIZE),
@@ -95,7 +95,10 @@ env_t::env_t(rdb_context_t *ctx,
     env_t(ctx,
           _return_empty_normal_batches,
           _interruptor,
-          serializable_env_t{_global_optargs, _user_context, _deterministic_time},
+          serializable_env_t{
+                  std::move(_global_optargs),
+                  std::move(_user_context),
+                  std::move(_deterministic_time)},
           _trace) { }
 
 // Used in constructing the env for rdb_update_single_sindex and many unit tests.

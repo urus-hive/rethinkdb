@@ -214,23 +214,32 @@ std::vector<std::vector<T> > split(std::vector<T> &&v) {
     return out;
 }
 
+boost::optional<counted_t<const ql::func_t> > real_table_t::get_write_hook(
+    ql::env_t *env,
+    ignore_write_hook_t ignore_write_hook) {
+    boost::optional<counted_t<const ql::func_t> > write_hook;
+    table_config_and_shards_t config;
+
+    m_table_meta_client->get_config(uuid, env->interruptor, &config);
+
+    if (config.config.write_hook &&
+        ignore_write_hook == ignore_write_hook_t::NO) {
+        write_hook = config.config.write_hook->func.compile_wire_func();
+    }
+    return write_hook;
+}
+
 ql::datum_t real_table_t::write_batched_replace(
     ql::env_t *env,
     const std::vector<ql::datum_t> &keys,
     const counted_t<const ql::func_t> &func,
     return_changes_t return_changes,
     durability_requirement_t durability,
-    bool ignore_write_hook) {
+    ignore_write_hook_t ignore_write_hook) {
 
     // Get write_hook function
-    boost::optional<counted_t<const ql::func_t> > write_hook;
-    table_config_and_shards_t config;
-
-    m_table_meta_client->get_config(uuid, env->interruptor, &config);
-
-    if (config.config.write_hook && !ignore_write_hook) {
-        write_hook = config.config.write_hook->func.compile_wire_func();
-    }
+    boost::optional<counted_t<const ql::func_t> > write_hook =
+        get_write_hook(env, ignore_write_hook);
 
     std::vector<store_key_t> store_keys;
     store_keys.reserve(keys.size());
@@ -284,17 +293,11 @@ ql::datum_t real_table_t::write_batched_insert(
     boost::optional<counted_t<const ql::func_t> > conflict_func,
     return_changes_t return_changes,
     durability_requirement_t durability,
-    bool ignore_write_hook) {
+    ignore_write_hook_t ignore_write_hook) {
 
     // Get write_hook function
-    boost::optional<counted_t<const ql::func_t> > write_hook;
-    table_config_and_shards_t config;
-
-    m_table_meta_client->get_config(uuid, env->interruptor, &config);
-
-    if (config.config.write_hook && !ignore_write_hook) {
-        write_hook = config.config.write_hook->func.compile_wire_func();
-    }
+    boost::optional<counted_t<const ql::func_t> > write_hook =
+        get_write_hook(env, ignore_write_hook);
 
     ql::datum_t stats((std::map<datum_string_t, ql::datum_t>()));
     std::set<std::string> conditions;

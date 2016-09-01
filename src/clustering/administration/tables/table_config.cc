@@ -8,6 +8,7 @@
 #include "clustering/table_manager/table_meta_client.hpp"
 #include "concurrency/cross_thread_signal.hpp"
 #include "containers/archive/string_stream.hpp"
+#include "rdb_protocol/terms/write_hook.hpp"
 
 table_config_artificial_table_backend_t::~table_config_artificial_table_backend_t() {
     begin_changefeed_destruction();
@@ -318,12 +319,10 @@ ql::datum_t convert_sindexes_to_datum(
     return std::move(sindexes_builder).to_datum();
 }
 
-const char *const write_hook_blob_prefix = "$reql_write_hook_function$";
-
 ql::datum_t convert_write_hook_to_datum(
     const boost::optional<write_hook_config_t> &write_hook) {
 
-    ql::datum_array_builder_t res(ql::configured_limits_t::unlimited);
+    ql::datum_t res = ql::datum_t::null();
     if (write_hook) {
         write_message_t wm;
         serialize<cluster_version_t::LATEST_DISK>(
@@ -337,7 +336,7 @@ ql::datum_t convert_write_hook_to_datum(
 
         ql::datum_t binary = ql::datum_t::binary(
             datum_string_t(write_hook_blob_prefix + stream.str()));
-        res.add(
+        res =
             ql::datum_t{
                 std::map<datum_string_t, ql::datum_t>{
                     std::pair<datum_string_t, ql::datum_t>(
@@ -346,9 +345,9 @@ ql::datum_t convert_write_hook_to_datum(
                             datum_string_t("query"),
                             ql::datum_t(
                                 datum_string_t(
-                                    write_hook->func.print_source())))}});
+                                    format_write_hook_query(write_hook.get()))))}};
     }
-    return std::move(res).to_datum();
+    return std::move(res);
 }
 
 bool convert_sindexes_from_datum(
@@ -587,8 +586,9 @@ bool convert_table_config_and_name_from_datum(
         if (!converter.get("write_hook", &write_hook_datum, error_out)) {
             return false;
         }
-        if (write_hook_datum.arr_size() != 0) {
-            if (!old_config.config.write_hook ||
+        if (write_hook_datum.has()) {
+            if ((!old_config.config.write_hook &&
+                 write_hook_datum.get_type() != ql::datum_t::type_t::R_NULL ) ||
                 write_hook_datum
                 != convert_write_hook_to_datum(old_config.config.write_hook)) {
                 error_out->msg = "The `write_hook` field is read-only and can't" \

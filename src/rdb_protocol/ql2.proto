@@ -579,8 +579,9 @@ message Term {
         // * Write hook Function OPs
         // Creates a new write hook function with a particular definition
         SET_WRITE_HOOK = 189; // Table, Function(2)
-        // Drops a write hook function
+        // Gets an existing write hook function on a table
         GET_WRITE_HOOK = 190; // Table
+
         // * Control Operators
         // Calls a function on data
         FUNCALL  = 64; // Function(*), DATUM... -> DATUM

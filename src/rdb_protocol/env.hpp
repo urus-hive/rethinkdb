@@ -105,11 +105,11 @@ public:
         return serializable.user_context;
     }
 
-    datum_t get_deterministic_time() {
+    datum_t const &get_deterministic_time() {
         return serializable.deterministic_time;
     }
 
-    serializable_env_t get_serializable_env() {
+    serializable_env_t const &get_serializable_env() {
         return serializable;
     }
 

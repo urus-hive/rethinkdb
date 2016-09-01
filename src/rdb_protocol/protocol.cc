@@ -1296,9 +1296,9 @@ bool write_t::shard(const region_t &region,
 batched_insert_t::batched_insert_t(
         std::vector<ql::datum_t> &&_inserts,
         const std::string &_pkey,
-        boost::optional<counted_t<const ql::func_t> > _write_hook,
+        const boost::optional<counted_t<const ql::func_t> > &_write_hook,
         conflict_behavior_t _conflict_behavior,
-        boost::optional<counted_t<const ql::func_t> > _conflict_func,
+        const boost::optional<counted_t<const ql::func_t> > &_conflict_func,
         const ql::configured_limits_t &_limits,
         auth::user_context_t user_context,
         return_changes_t _return_changes)

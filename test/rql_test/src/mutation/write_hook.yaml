@@ -51,7 +51,15 @@ tests:
     ot: partial({'created': 1 })
 
   - cd: tbl.insert({})
-    ot: partial({'first_error': 'Write hook function returned unexpected NULL value.'})
+    ot: partial({'first_error': 'A write hook function must not turn a replace/insert into a deletion.'})
+
+  - js: tbl.setWriteHook(function(a, b, c) { return {};})
+    py: tbl.set_write_hook(lambda a,b,c: {})
+    rb: tbl.set_write_hook(lambda { |a,b,c| {}})
+    ot: partial({'replaced': 1 })
+
+  - cd: tbl.delete()
+    ot: partial({'first_error': 'A write hook function must not turn a deletion into a replace/insert.'})
 
   - cd: tbl.set_write_hook(null)
     ot: partial({'deleted': 1 })

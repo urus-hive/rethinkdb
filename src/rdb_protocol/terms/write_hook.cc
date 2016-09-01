@@ -1,27 +1,36 @@
 // Copyright 2010-2015 RethinkDB, all rights reserved.
-#include "rdb_protocol/terms/terms.hpp"
+#include "rdb_protocol/terms/write_hook.hpp"
 
 #include <string>
 
 #include "clustering/administration/admin_op_exc.hpp"
 #include "containers/archive/string_stream.hpp"
-#include "rdb_protocol/real_table.hpp"
 #include "rdb_protocol/btree.hpp"
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/func.hpp"
 #include "rdb_protocol/op.hpp"
+#include "rdb_protocol/real_table.hpp"
 #include "rdb_protocol/minidriver.hpp"
 #include "rdb_protocol/term_walker.hpp"
+#include "rdb_protocol/terms/terms.hpp"
+
+std::string format_write_hook_query(const write_hook_config_t &config) {
+    std::string ret = "setWriteHook(";
+    ret += config.func.compile_wire_func()->print_js_function();
+    ret += ")";
+    return ret;
+}
 
 namespace ql {
-
-const char *const write_hook_blob_prefix = "$reql_write_hook_function$";
 
 class set_write_hook_term_t : public op_term_t {
 public:
     set_write_hook_term_t(compile_env_t *env, const raw_term_t &term)
         : op_term_t(env, term, argspec_t(2)) { }
 
+    virtual deterministic_t is_deterministic() const final {
+        return deterministic_t::no;
+    }
     virtual scoped_ptr_t<val_t> eval_impl(
         scope_env_t *env, args_t *args, eval_flags_t) const {
         counted_t<table_t> table = args->arg(env, 0)->as_table();

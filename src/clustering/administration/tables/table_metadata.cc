@@ -41,8 +41,8 @@ void serialize(write_message_t *wm, const table_config_t &tc) {
 
 INSTANTIATE_SERIALIZE_FOR_CLUSTER_AND_DISK(table_config_t);
 
-template <cluster_version_t  W>
-archive_result_t deserialize(
+template <cluster_version_t W>
+archive_result_t deserialize_table_config_pre_v2_4(
     read_stream_t *s, table_config_t *tc) {
     archive_result_t res;
 
@@ -66,24 +66,17 @@ archive_result_t deserialize(
     res = deserialize<W>(s, &durability);
     if (bad(res)) { return res; }
 
-    tc->basic = basic;
-    tc->shards = shards;
-    tc->sindexes = sindexes;
-    tc->write_ack_config = write_ack_config;
-    tc->durability = durability;
+    tc->basic = std::move(basic);
+    tc->shards = std::move(shards);
+    tc->sindexes = std::move(sindexes);
+    tc->write_ack_config = std::move(write_ack_config);
+    tc->durability = std::move(durability);
 
     return res;
 }
 
-template archive_result_t deserialize<cluster_version_t::v2_1>(
-        read_stream_t *, table_config_t *);
-template archive_result_t deserialize<cluster_version_t::v2_2>(
-        read_stream_t *, table_config_t *);
-template archive_result_t deserialize<cluster_version_t::v2_3>(
-        read_stream_t *, table_config_t *);
-
 template <cluster_version_t  W>
-archive_result_t deserialize_table_config(
+archive_result_t deserialize(
     read_stream_t *s, table_config_t *tc) {
     archive_result_t res;
 
@@ -111,22 +104,36 @@ archive_result_t deserialize_table_config(
     res = deserialize<W>(s, &durability);
     if (bad(res)) { return res; }
 
-    *tc = table_config_t{basic,
-                         shards,
-                         sindexes,
-                         write_hook,
-                         write_ack_config,
-                         durability};
+    *tc = table_config_t{std::move(basic),
+                         std::move(shards),
+                         std::move(sindexes),
+                         std::move(write_hook),
+                         std::move(write_ack_config),
+                         std::move(durability)};
 
     return res;
 }
 
 template <>
-archive_result_t deserialize<cluster_version_t::v2_4_is_latest>(
+archive_result_t deserialize<cluster_version_t::v2_1>(
     read_stream_t *s, table_config_t *tc) {
-    return deserialize_table_config<cluster_version_t::v2_4_is_latest>(s, tc);
+    return deserialize_table_config_pre_v2_4<cluster_version_t::v2_1>(s, tc);
 }
 
+template <>
+archive_result_t deserialize<cluster_version_t::v2_2>(
+    read_stream_t *s, table_config_t *tc) {
+    return deserialize_table_config_pre_v2_4<cluster_version_t::v2_2>(s, tc);
+}
+
+template <>
+archive_result_t deserialize<cluster_version_t::v2_3>(
+    read_stream_t *s, table_config_t *tc) {
+    return deserialize_table_config_pre_v2_4<cluster_version_t::v2_4>(s, tc);
+}
+
+template archive_result_t deserialize<cluster_version_t::v2_4_is_latest>(
+    read_stream_t *, table_config_t *);
 
 RDB_IMPL_EQUALITY_COMPARABLE_6(table_config_t,
     basic, shards, write_hook, sindexes, write_ack_config, durability);

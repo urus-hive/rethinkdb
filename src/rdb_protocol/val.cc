@@ -35,7 +35,7 @@ public:
         bool nondet_ok,
         durability_requirement_t dur_req,
         return_changes_t return_changes,
-        bool ignore_write_hook) {
+        ignore_write_hook_t ignore_write_hook) {
         std::vector<datum_t > keys{key};
         // We don't need to fetch the value for deterministic replacements.
         std::vector<datum_t > vals{
@@ -80,7 +80,7 @@ public:
         bool nondet_ok,
         durability_requirement_t dur_req,
         return_changes_t return_changes,
-        bool ignore_write_hook) {
+        ignore_write_hook_t ignore_write_hook) {
         std::vector<datum_t > vals{get()};
         std::vector<datum_t > keys{
             vals[0].get_field(
@@ -250,7 +250,7 @@ datum_t table_t::batched_replace(
     bool nondeterministic_replacements_ok,
     durability_requirement_t durability_requirement,
     return_changes_t return_changes,
-    bool ignore_write_hook) {
+    ignore_write_hook_t ignore_write_hook) {
     r_sanity_check(vals.size() == keys.size());
 
     if (vals.empty()) {
@@ -334,7 +334,7 @@ datum_t table_t::batched_insert(
     boost::optional<counted_t<const ql::func_t> > conflict_func,
     durability_requirement_t durability_requirement,
     return_changes_t return_changes,
-    bool ignore_write_hook) {
+    ignore_write_hook_t ignore_write_hook) {
 
     datum_object_builder_t stats;
     std::vector<datum_t> valid_inserts;

@@ -15,6 +15,7 @@
 #include "rdb_protocol/artificial_table/artificial_table.hpp"
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/table_common.hpp"
+#include "rdb_protocol/terms/write_hook.hpp"
 #include "rdb_protocol/val.hpp"
 #include "rpc/semilattice/watchable.hpp"
 #include "rpc/semilattice/view/field.hpp"
@@ -1238,8 +1239,6 @@ bool real_reql_cluster_interface_t::set_write_hook(
     return true;
 }
 
-const char *const write_hook_blob_prefix = "$reql_write_hook_function$";
-
 bool real_reql_cluster_interface_t::get_write_hook(
     auth::user_context_t const &user_context,
     counted_t<const ql::db_t> db,
@@ -1282,15 +1281,7 @@ bool real_reql_cluster_interface_t::get_write_hook(
         ql::datum_t binary = ql::datum_t::binary(
             datum_string_t(write_hook_blob_prefix + stream.str()));
         *write_hook_datum_out =
-            ql::datum_t{
-            std::map<datum_string_t, ql::datum_t>{
-                std::pair<datum_string_t, ql::datum_t>(
-                    datum_string_t("function"), binary),
-                std::pair<datum_string_t, ql::datum_t>(
-                    datum_string_t("query"),
-                    ql::datum_t(
-                        datum_string_t(
-                            existing_config.config.write_hook->func.print_source())))}};
+            convert_write_hook_to_datum(existing_config.config.write_hook);
     }
     return true;
 }
