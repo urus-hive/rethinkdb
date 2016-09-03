@@ -9,29 +9,37 @@
 #include "rdb_protocol/changefeed.hpp"
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/error.hpp"
+#include "rdb_protocol/func.hpp"
 #include "rdb_protocol/pseudo_time.hpp"
+#include "rdb_protocol/shards.hpp"
 #include "rpc/connectivity/peer_id.hpp"
 
-class table_eviction_manager_t {
+
+class eviction_internal_t {
 public:
-    table_eviction_manager_t(namespace_id_t _table_id,
-                             ql::changefeed::client_t *_changefeed_client,
-                             table_meta_client_t *_table_meta_client)
-        : timer([&](){ on_timer(); }),
+    eviction_internal_t(eviction_config_t _eviction_config,
+                      namespace_id_t _table_id,
+                      region_t _region, //TODO check type
+                      namespace_repo_t *_namespace_repo,
+                      ql::changefeed::client_t *_changefeed_client,
+                      table_meta_client_t *_table_meta_client)
+        : eviction_config(_eviction_config),
+          table_id(_table_id),
+          region(_region),
+          timer([&]() {
+                  coro_t::spawn_now_dangerously([&]() {
+                          on_timer();
+                      });
+              }),
+          namespace_repo(_namespace_repo),
           changefeed_client(_changefeed_client),
-          table_meta_client(_table_meta_client),
-          table_id(_table_id)
-      {
-        // TODO construct changefeed to watch things we're the primary for
-        fprintf(stderr, "table_eviction_manager_t\n");
+          table_meta_client(_table_meta_client) {
+        fprintf(stderr, "eviction_internal_t\n");
+        // create a changefeed on this table/range to let us know when
+        // the timer is supposed to change.
     }
 
-    ~table_eviction_manager_t() {
-        fprintf(stderr, "~table_eviction_manager_t\n");
-        interruptor.pulse();
-    }
-
-    void create_changefeed_coro(region_t region) {
+    void changefeed_coro() {
         ql::env_t fake_env(&interruptor,
                            ql::return_empty_normal_batches_t::NO,
                            reql_version_t::LATEST,
@@ -42,7 +50,7 @@ public:
         range.sorting = sorting_t::ASCENDING;
         range.datumspec = ql::datumspec_t(ql::datum_range_t::universe())
             .trim_secondary(region.inner, reql_version_t::LATEST);
-        range.sindex = "num";
+        range.sindex = eviction_config.index_name;
 
         limit.range = range;
         limit.limit = 1;
@@ -92,8 +100,10 @@ public:
                     fprintf(stderr, "Datum: %s", debug_str(new_min).c_str());
                     // Set timer based on the value of the new lowest element
                     //TODO: get value of secondary index if it's not a field
-                    ql::datum_t time = new_min.get_field("num",
-                                                         ql::throw_bool_t::NOTHROW);
+                    ql::datum_t time = new_min.get_field(
+                        datum_string_t(eviction_config.index_name),
+                        ql::throw_bool_t::NOTHROW);
+                    // TODO: don't assume type of index value is valid
                     int64_t new_delay =
                         ql::pseudo::time_to_epoch_time(time) -
                         ql::pseudo::time_to_epoch_time(ql::pseudo::time_now());
@@ -103,24 +113,12 @@ public:
             coro_t::yield();
         }
     }
-    void handle_directory_change(const table_query_bcard_t *value) {
-        fprintf(stderr, "table_eviction_manager for %s, handling %s\n",
-                debug_str(table_id).c_str(),
-                debug_str(value).c_str());
-
-        // Get changefeed
-        region_t region = value->region;
-            //changespec_t()
-
-        coro_t::spawn_sometime([&](){create_changefeed_coro(region);});
-    }
-
-    void set_expiration(int64_t _ms) {
-        timer.cancel();
-        timer.start(_ms);
-    }
 
     void on_timer() {
+        ql::env_t fake_env(&interruptor,
+                           ql::return_empty_normal_batches_t::NO,
+                           reql_version_t::LATEST,
+                           auth::user_context_t(auth::permissions_t(true, true, true)));
         fprintf(stderr, "table_eviction_manager_t on_timer \n");
         int64_t new_sleep = -1;
         if (new_sleep != -1) {
@@ -128,29 +126,202 @@ public:
         }
 
         namespace_interface_access_t interface_access =
-            namespace_repo->get_namespace_interface();
+            namespace_repo->get_namespace_interface(table_id, &interruptor);
         // Do a between to get all the keys on the index that need to be deleted
 
-        datum_range_t datum_range =
-            datum_range_t(datum_t::minval(), key_range_t::open,
-                          ql::pseudo::time_now(), key_range_t::closed());
-        ql::changefeed::keyspec_t::range_t range;
-        range.sindex = "num";
-        range.sorting = ql::changefeed::sorting_t::ASCENDING;
-        range.datumspec = datumspec_t(datum_range);
+        ql::datum_range_t datum_range =
+            ql::datum_range_t(ql::datum_t::minval(), key_range_t::open,
+                              ql::pseudo::time_now(), key_range_t::closed);
 
         // Delete all the things on the index until now
         auth::user_context_t(auth::permissions_t(true, true, true));
-        write_t write = batched_replace_t();
+        // TODO Need to get keys that actually exist
+        std::vector<store_key_t> keys;
+
+        // TODO get actual pkey
+        std::string pkey = "id";
+
+        // TODO make sure admin exists
+        auth::user_context_t sudo_context(auth::username_t("admin"), false);
+
+        // TODO make sure this is not bogus
+        order_source_t order_source;
+
+        // Do read to get keys
+
+        sindex_rangespec_t sindex_rangespec(
+            eviction_config.index_name,
+            region,
+            ql::datumspec_t(datum_range),
+            require_sindexes_t::YES);
+
+        rget_read_t read(
+            boost::none,
+            region,
+            boost::none,
+            boost::none,
+            ql::global_optargs_t(),
+            sudo_context,
+            convert_uuid_to_datum(table_id).as_str().to_std(),
+            ql::batchspec_t::default_for(ql::batch_type_t::TERMINAL),
+            std::vector<ql::transform_variant_t>(),
+            boost::none,
+            sindex_rangespec,
+            sorting_t::ASCENDING);
+
+        read_t between_read(
+            read,
+            profile_bool_t::DONT_PROFILE,
+            read_mode_t::MAJORITY);
+
+        read_response_t read_response;
+        interface_access.get()->read(
+            sudo_context,
+            between_read,
+            &read_response,
+            order_token_t::ignore,//read_token.with_read_mode(),
+            &interruptor);
+
+        // TODO: what does order_token_t actually do
+        // TODO: how do you get the keys out of the read? This is whack
+
+        auto rget_res = boost::get<rget_read_response_t>(&read_response.response);
+        r_sanity_check(rget_res != nullptr);
+        if (auto e = boost::get<ql::exc_t>(&rget_res->result)) {
+            throw *e;
+        }
+
+        // TODO: is this the best way, or should I use a different acc
+        scoped_ptr_t<ql::eager_acc_t> to_array = ql::make_to_array();
+        to_array->add_res(&fake_env,
+                          &rget_res->result,
+                          sorting_t::ASCENDING);
+        scoped_ptr_t<ql::val_t> value =
+            to_array->finish_eager(
+                ql::backtrace_id_t(),
+                false,
+                ql::configured_limits_t::unlimited);
+
+        fprintf(stderr,
+                "PLEASE PLEASE PLEASE: This is a %s",
+                value->get_type_name());
+        
+        // Do write to delete elements
+        batched_replace_t replace(
+            std::move(keys),
+            pkey,
+            eviction_config.func.compile_wire_func(),
+            ql::global_optargs_t(),
+            sudo_context,
+            return_changes_t::NO);
+        write_t replace_write(replace,
+                              profile_bool_t::DONT_PROFILE,
+                              ql::configured_limits_t::unlimited);
+
+
+        write_response_t write_response;
+
+        interface_access.get()->write(
+            sudo_context,
+            replace_write,
+            &write_response,
+            order_token_t::ignore,
+            &interruptor);
+
+        // Not sure we actually care about the response, because failed deletes will
+        // TODO be handled later, but look into it.
+        // DONE!
+    }
+
+    void set_expiration(int64_t _ms) {
+        // TODO: think about negative time/ monotonic time
+        timer.cancel();
+        if (_ms == 0) {
+            on_timer();
+        } else {
+            timer.start(_ms);
+        }
     }
 
 private:
     cond_t interruptor;
+    eviction_config_t eviction_config;
+
+    namespace_id_t table_id;
+    region_t region;
+
     single_callback_timer_t timer;
+
+    scoped_ptr_t<namespace_repo_t> namespace_repo;
+    scoped_ptr_t<ql::changefeed::client_t> changefeed_client;
+    scoped_ptr_t<table_meta_client_t> table_meta_client;
+};
+
+class table_eviction_manager_t {
+public:
+    table_eviction_manager_t(namespace_id_t _table_id,
+                             ql::changefeed::client_t *_changefeed_client,
+                             table_meta_client_t *_table_meta_client,
+                             namespace_repo_t *_namespace_repo)
+        : changefeed_client(_changefeed_client),
+          table_meta_client(_table_meta_client),
+          namespace_repo(_namespace_repo),
+          table_id(_table_id) {
+        // TODO construct changefeed to watch things we're the primary for
+        fprintf(stderr, "table_eviction_manager_t\n");
+    }
+
+    ~table_eviction_manager_t() {
+        fprintf(stderr, "~table_eviction_manager_t\n");
+        interruptor.pulse();
+    }
+
+    void handle_directory_change(const table_query_bcard_t *value) {
+        fprintf(stderr, "table_eviction_manager for %s, handling %s\n",
+                debug_str(table_id).c_str(),
+                debug_str(value).c_str());
+
+        // Get changefeed
+        region_t region = value->region;
+
+        table_config_and_shards_t config;
+        table_meta_client->get_config(table_id,
+                                      &interruptor,
+                                      &config);
+
+        std::map<std::string, sindex_config_t> sindexes = config.config.sindexes;
+
+        // For each eviction/sindex, create an eviction_internal_t
+
+        for (auto pair : sindexes) {
+            for (auto eviction : pair.second.eviction_list) {
+                fprintf(stderr, "Creating eviction_internal for %s in region %s",
+                        eviction.first.c_str(),
+                        debug_str(region).c_str());
+
+                evictions[eviction.first] =
+                    make_scoped<eviction_internal_t>(
+                        eviction.second,
+                        table_id,
+                        region,
+                        namespace_repo.get(),
+                        changefeed_client.get(),
+                        table_meta_client.get());
+                coro_t::spawn_sometime([&]() {
+                        evictions[eviction.first]->changefeed_coro();
+                    });
+            }
+        }
+    }
+
+private:
+    cond_t interruptor;
 
     scoped_ptr_t<ql::changefeed::client_t> changefeed_client;
     scoped_ptr_t<table_meta_client_t> table_meta_client;
+    scoped_ptr_t<namespace_repo_t> namespace_repo;
 
+    std::map<std::string, scoped_ptr_t<eviction_internal_t> > evictions;
     namespace_id_t table_id;
 
 };
@@ -177,24 +348,18 @@ public:
         ;;
     }
 
-    ~eviction_manager_t() {
-        fprintf(stderr, "eviction_manager_t\n");
-    }
+    ~eviction_manager_t() { }
 
     void on_directory_change(
         std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> > key,
         const table_query_bcard_t *value) {
 
         namespace_id_t table_id = key.second.first;
-        fprintf(stderr, "BRANCH ID ============== %s\n", debug_str(key.second.second).c_str());
 
         if (value != nullptr &&
             value->primary &&
             key.first == server_id) {
             // Keep our local directory updated
-            fprintf(stderr, "This is OURS! %s --- %s\n",
-                    debug_str(key.first).c_str(),
-                    debug_str(key.second).c_str());
             region_t region = value->primary->region;
 
             if (table_managers.find(table_id) == table_managers.end()) {
@@ -203,12 +368,12 @@ public:
                     make_scoped<table_eviction_manager_t>(
                         table_id,
                         changefeed_client.get(),
-                        table_meta_client.get());
-                fprintf(stderr,
-                        "Created TABLE_EVICTION_MANAGER_T for %s\n",
-                        debug_str(table_id).c_str());
+                        table_meta_client.get(),
+                        namespace_repo.get());
 
-                table_managers[table_id]->handle_directory_change(value);
+                coro_t::spawn_now_dangerously([&](){
+                        table_managers[table_id]->handle_directory_change(value);
+                    });
             }
         }
     }

@@ -75,39 +75,6 @@ enum class update_sindexes_t {
     LEAVE_ALONE
 };
 
-class eviction_t {
-public:
-    eviction_t(eviction_config_t _eviction) :
-        timer([&](){ on_timer(); }),
-        eviction(_eviction),
-        current_lowest_key(store_key_t::max()) { }
-
-    ~eviction_t() { }
-
-    void set_expiration(int64_t _ms) {
-        timer.cancel();
-        timer.start(_ms);
-    }
-
-    void on_timer() {
-        // TODO: do a callback to get the store_t to check the evictions
-        //int64_t new_sleep = fake_eviction_callback();
-        fprintf(stderr, "TIMER EXPIRED!\n");
-        int64_t new_sleep = -1;
-        if (new_sleep != -1) {
-            set_expiration(new_sleep);
-        }
-
-    }
-private:
-    single_callback_timer_t timer;
-
-    eviction_config_t eviction;
-
-public:
-    store_key_t current_lowest_key;
-};
-
 class store_t final : public store_view_t {
 public:
     using home_thread_mixin_t::assert_thread;
@@ -505,8 +472,6 @@ public:
     auto_drainer_t drainer;
 
 private:
-
-    std::map<std::string, scoped_ptr_t<eviction_t> > evictions;
     DISABLE_COPYING(store_t);
 };
 
