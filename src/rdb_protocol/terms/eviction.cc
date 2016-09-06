@@ -118,7 +118,8 @@ public:
     eviction_list_term_t(compile_env_t *env, const raw_term_t &term)
         : op_term_t(env,
                     term,
-                    argspec_t(0)) { }
+                    argspec_t(1)) {
+    }
 
     virtual scoped_ptr_t<val_t> eval_impl(
         scope_env_t *env, args_t *args, eval_flags_t) const {

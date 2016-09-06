@@ -982,14 +982,6 @@ class EvictionList extends RDBOp
     tt: protoTermType.EVICTION_LIST
     mt: 'evictionList'
 
-class EvictionDrop extends RDBOp
-    tt: protoTermType.EVICTION_LIST
-    mt: 'evictionList'
-
-class EvictionList extends RDBOp
-    tt: protoTermType.EVICTION_DROP
-    mt: 'evictionDrop'
-
 class Config extends RDBOp
     tt: protoTermType.CONFIG
     mt: 'config'

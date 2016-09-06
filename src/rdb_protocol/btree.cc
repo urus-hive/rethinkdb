@@ -967,6 +967,7 @@ void rdb_rget_slice(
         sorting_t sorting,
         rget_read_response_t *response,
         release_superblock_t release_superblock) {
+    debugf("shard ->>> %s\n", debug_str(shard).c_str());
     r_sanity_check(boost::get<ql::exc_t>(&response->result) == NULL);
     PROFILE_STARTER_IF_ENABLED(
         ql_env->profile() == profile_bool_t::PROFILE,
