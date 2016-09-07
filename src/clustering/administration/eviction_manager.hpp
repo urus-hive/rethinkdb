@@ -39,6 +39,11 @@ public:
         // the timer is supposed to change.
     }
 
+    ~eviction_internal_t() {
+        interrupt();
+        debugf("EVICTION_INTERNAL DESTRUCTED!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    }
+
     void changefeed_coro() {
         ql::env_t fake_env(&interruptor,
                            ql::return_empty_normal_batches_t::NO,
@@ -94,6 +99,7 @@ public:
 
                 // There should only be one element, which is the min
                 if (test_datum.size() > 0) {
+                    debugf("ELEMENT!\n");
                     ql::datum_t change = test_datum[0];
                     guarantee(change.has());
                     ql::datum_t new_min = change.get_field("new_val",
@@ -119,6 +125,11 @@ public:
                 debugf("Exception in eviction changefeed");
             }
         }
+    }
+
+    void interrupt() {
+        debugf("Interrupting eviction_internal\n");
+        interruptor.pulse();
     }
 
     void on_timer() {
@@ -278,6 +289,8 @@ private:
     scoped_ptr_t<namespace_repo_t> namespace_repo;
     scoped_ptr_t<ql::changefeed::client_t> changefeed_client;
     scoped_ptr_t<table_meta_client_t> table_meta_client;
+
+    auto_drainer_t drainer;
 };
 
 class table_eviction_manager_t {
@@ -299,13 +312,10 @@ public:
         interruptor.pulse();
     }
 
-    void handle_directory_change(const table_query_bcard_t *value) {
+    void handle_directory_change(table_query_bcard_t value) {
         fprintf(stderr, "table_eviction_manager for %s, handling %s\n",
                 debug_str(table_id).c_str(),
-                debug_str(value).c_str());
-
-        // Get changefeed
-        region_t region = value->region;
+                debug_str(&value).c_str());
 
         table_config_and_shards_t config;
         table_meta_client->get_config(table_id,
@@ -316,27 +326,33 @@ public:
 
         // For each eviction/sindex, create an eviction_internal_t
 
+        // TODO: is there a better way than just destroying and recreating the
+        // eviction_internal_t things
         for (auto pair : sindexes) {
             for (auto eviction : pair.second.eviction_list) {
-                fprintf(stderr, "Creating eviction_internal for %s in region %s",
-                        eviction.first.c_str(),
-                        debug_str(region).c_str());
+                debugf("*************************\n");
+                region_t region = value.region;
 
-                if (evictions.find(eviction.first) == evictions.end()) {
-                    evictions[eviction.first] =
-                        make_scoped<eviction_internal_t>(
-                            eviction.second,
-                            table_id,
-                            region,
-                            namespace_repo.get(),
-                            changefeed_client.get(),
-                            table_meta_client.get());
-                    coro_t::spawn_sometime([&]() {
-                            evictions[eviction.first]->changefeed_coro();
-                        });
-                } else {
-                    // TODO: do something when updating this map
+                debugf("Creating eviction_internal for %s in region %s\n",
+                       eviction.first.c_str(),
+                       debug_str(region).c_str());
+                if (evictions.find(eviction.first) != evictions.end()) {
+                    debugf("Deleting old eviction_internal\n");
+                    evictions[eviction.first]->interrupt();
+                    evictions[eviction.first].reset();
                 }
+                // Get changefeed
+                evictions[eviction.first] =
+                    make_scoped<eviction_internal_t>(
+                        eviction.second,
+                        table_id,
+                        region,
+                        namespace_repo.get(),
+                        changefeed_client.get(),
+                        table_meta_client.get());
+                coro_t::spawn_now_dangerously([&]() {
+                        evictions[eviction.first]->changefeed_coro();
+                    });
             }
         }
     }
@@ -351,6 +367,7 @@ private:
     std::map<std::string, scoped_ptr_t<eviction_internal_t> > evictions;
     namespace_id_t table_id;
 
+    auto_drainer_t drainer;
 };
 
 class eviction_manager_t {
@@ -403,7 +420,7 @@ public:
                         namespace_repo.get());
 
                 coro_t::spawn_now_dangerously([&](){
-                        table_managers[map_key]->handle_directory_change(value);
+                        table_managers[map_key]->handle_directory_change(*value);
                     });
             }
         }
