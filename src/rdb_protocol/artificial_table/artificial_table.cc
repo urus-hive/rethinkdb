@@ -182,7 +182,8 @@ ql::datum_t artificial_table_t::write_batched_replace(
         const std::vector<ql::datum_t> &keys,
         const counted_t<const ql::func_t> &func,
         return_changes_t return_changes,
-        UNUSED durability_requirement_t durability) {
+        UNUSED durability_requirement_t durability,
+        UNUSED ignore_write_hook_t ignore_write_hook) {
     env->get_user_context().require_read_permission(
         m_rdb_context, m_database_id, m_backend->get_table_id());
     env->get_user_context().require_write_permission(
@@ -231,7 +232,8 @@ ql::datum_t artificial_table_t::write_batched_insert(
         conflict_behavior_t conflict_behavior,
         boost::optional<counted_t<const ql::func_t> > conflict_func,
         return_changes_t return_changes,
-        UNUSED durability_requirement_t durability) {
+        UNUSED durability_requirement_t durability,
+        UNUSED ignore_write_hook_t ignore_write_hook) {
     env->get_user_context().require_read_permission(
         m_rdb_context, m_database_id, m_backend->get_table_id());
     env->get_user_context().require_write_permission(

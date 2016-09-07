@@ -17,6 +17,7 @@ namespace changefeed {
 class client_t;
 }
 }
+class table_meta_client_t;
 
 /* `real_table_t` is a concrete subclass of `base_table_t` that routes its queries across
 the network via the clustering logic to a B-tree. The administration logic is responsible
@@ -33,11 +34,13 @@ public:
             namespace_id_t _uuid,
             namespace_interface_access_t _namespace_access,
             const std::string &_pkey,
-            ql::changefeed::client_t *_changefeed_client) :
+            ql::changefeed::client_t *_changefeed_client,
+            table_meta_client_t *table_meta_client) :
         uuid(_uuid),
         namespace_access(_namespace_access),
         pkey(_pkey),
-        changefeed_client(_changefeed_client) { }
+        changefeed_client(_changefeed_client),
+        m_table_meta_client(table_meta_client) { }
 
     namespace_id_t get_id() const;
     const std::string &get_pkey() const;
@@ -78,7 +81,9 @@ public:
         ql::env_t *env,
         const std::vector<ql::datum_t> &keys,
         const counted_t<const ql::func_t> &func,
-        return_changes_t _return_changes, durability_requirement_t durability);
+        return_changes_t _return_changes,
+        durability_requirement_t durability,
+        ignore_write_hook_t ignore_write_hook);
     ql::datum_t write_batched_insert(
         ql::env_t *env,
         std::vector<ql::datum_t> &&inserts,
@@ -86,7 +91,8 @@ public:
         conflict_behavior_t conflict_behavior,
         boost::optional<counted_t<const ql::func_t> > conflict_func,
         return_changes_t return_changes,
-        durability_requirement_t durability);
+        durability_requirement_t durability,
+        ignore_write_hook_t ignore_write_hook);
     bool write_sync_depending_on_durability(ql::env_t *env,
         durability_requirement_t durability);
 
@@ -113,10 +119,15 @@ public:
     void write_with_profile(ql::env_t *env, write_t *, write_response_t *response);
 
 private:
+    boost::optional<counted_t<const ql::func_t> > get_write_hook(
+        ql::env_t *env,
+        ignore_write_hook_t ignore_write_hook);
+
     namespace_id_t uuid;
     namespace_interface_access_t namespace_access;
     std::string pkey;
     ql::changefeed::client_t *changefeed_client;
+    table_meta_client_t *m_table_meta_client;
 };
 
 #endif /* RDB_PROTOCOL_REAL_TABLE_HPP_ */
