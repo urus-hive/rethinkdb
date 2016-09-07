@@ -4,6 +4,8 @@
 #include "errors.hpp"
 #include <boost/algorithm/string/join.hpp>
 
+#include "clustering/administration/artificial_reql_cluster_interface.hpp"
+#include "clustering/administration/auth/username.hpp"
 #include "clustering/administration/datum_adapter.hpp"
 #include "clustering/administration/tables/name_resolver.hpp"
 
@@ -35,14 +37,36 @@ bool permissions_artificial_table_backend_t::read_all_rows_as_vector(
     rows_out->clear();
     on_thread_t on_thread(home_thread());
 
+    cluster_semilattice_metadata_t cluster_metadata =
+        m_name_resolver.get_cluster_metadata();
+
+    // The "admin" user is faked here
+    {
+        ql::datum_t row;
+        if (global_to_datum(
+                username_t("admin"),
+                permissions_t(true, true, true, true),
+                &row)) {
+            rows_out->push_back(std::move(row));
+        }
+    }
+
+    {
+        ql::datum_t row;
+        if (database_to_datum(
+                username_t("admin"),
+                artificial_reql_cluster_interface_t::database_id,
+                permissions_t(true, true, true),
+                cluster_metadata,
+                &row)) {
+            rows_out->push_back(std::move(row));
+        }
+    }
+
     auth_semilattice_metadata_t auth_metadata = m_auth_semilattice_view->get();
     for (auto const &user : auth_metadata.m_users) {
-        if (!static_cast<bool>(user.second.get_ref())) {
-            continue;
-        }
-
-        if (user.first.is_admin()) {
-            // The "admin" user is not displayed.
+        if (user.first.is_admin() || !static_cast<bool>(user.second.get_ref())) {
+            // The "admin" user is faked above and not displayed from the metadata.
             continue;
         }
 
@@ -58,8 +82,6 @@ bool permissions_artificial_table_backend_t::read_all_rows_as_vector(
             }
         }
 
-        cluster_semilattice_metadata_t cluster_metadata =
-            m_name_resolver.get_cluster_metadata();
         for (auto const &database : user.second.get_ref()->get_database_permissions()) {
             ql::datum_t row;
             if (database_to_datum(
@@ -115,6 +137,28 @@ bool permissions_artificial_table_backend_t::read_row(
         return true;
     }
 
+    if (username.is_admin()) {
+        switch (array_size) {
+            case 1:
+                global_to_datum(
+                    username,
+                    permissions_t(true, true, true, true),
+                    row_out);
+                break;
+            case 2:
+                if (database_id == artificial_reql_cluster_interface_t::database_id) {
+                    database_to_datum(
+                        username,
+                        database_id,
+                        permissions_t(true, true, true),
+                        cluster_metadata,
+                        row_out);
+                }
+                break;
+        };
+        return true;
+    }
+
     auth_semilattice_metadata_t auth_metadata = m_auth_semilattice_view->get();
     auto user = auth_metadata.m_users.find(username);
     if (user == auth_metadata.m_users.end() ||
@@ -122,13 +166,8 @@ bool permissions_artificial_table_backend_t::read_row(
         return true;
     }
 
-    if (user->first.is_admin()) {
-        // The "admin" user is not displayed.
-        return true;
-    }
-
     // Note these functions will only set `row_out` on success.
-    switch (primary_key.arr_size()) {
+    switch (array_size) {
         case 1:
             global_to_datum(
                 username,
@@ -174,13 +213,13 @@ bool permissions_artificial_table_backend_t::write_row(
 
     cluster_semilattice_metadata_t cluster_metadata = m_cluster_semilattice_view->get();
 
-    username_t username;
+    username_t username_primary;
     database_id_t database_id_primary;
     namespace_id_t table_id_primary;
     uint8_t array_size = parse_primary_key(
         primary_key,
         cluster_metadata,
-        &username,
+        &username_primary,
         &database_id_primary,
         &table_id_primary,
         error_out);
@@ -188,19 +227,20 @@ bool permissions_artificial_table_backend_t::write_row(
         return false;
     }
 
-    auth_semilattice_metadata_t auth_metadata = m_auth_semilattice_view->get();
-    auto user = auth_metadata.m_users.find(username);
-    if (user == auth_metadata.m_users.end() ||
-            !static_cast<bool>(user->second.get_ref())) {
+    if (username_primary.is_admin()) {
         *error_out = admin_err_t{
-            "No user named `" + username.to_string() + "`.",
+            "The permissions of the user `" + username_primary.to_string() +
+            "` can't be modified.",
             query_state_t::FAILED};
         return false;
     }
 
-    if (user->first.is_admin()) {
+    auth_semilattice_metadata_t auth_metadata = m_auth_semilattice_view->get();
+    auto user = auth_metadata.m_users.find(username_primary);
+    if (user == auth_metadata.m_users.end() ||
+            !static_cast<bool>(user->second.get_ref())) {
         *error_out = admin_err_t{
-            "The permissions of the user `" + username.to_string() + "` can't be modified.",
+            "No user named `" + username_primary.to_string() + "`.",
             query_state_t::FAILED};
         return false;
     }
@@ -211,6 +251,17 @@ bool permissions_artificial_table_backend_t::write_row(
             keys.insert(new_value_inout->get_pair(i).first.to_std());
         }
         keys.erase("id");
+
+        ql::datum_t username = new_value_inout->get_field("user", ql::NOTHROW);
+        if (username.has()) {
+            keys.erase("user");
+            if (username_t(username.as_str().to_std()) != username_primary) {
+                *error_out = admin_err_t{
+                    "The key `user` does not match the primary key.",
+                    query_state_t::FAILED};
+                return false;
+            }
+        }
 
         if (array_size > 1) {
             ql::datum_t database = new_value_inout->get_field("database", ql::NOTHROW);
@@ -520,6 +571,7 @@ bool permissions_artificial_table_backend_t::global_to_datum(
 
         builder.overwrite("id", std::move(id_builder).to_datum());
         builder.overwrite("permissions", std::move(permissions_datum));
+        builder.overwrite("user", convert_string_to_datum(username.to_string()));
 
         *datum_out = std::move(builder).to_datum();
         return true;
@@ -561,6 +613,7 @@ bool permissions_artificial_table_backend_t::database_to_datum(
         builder.overwrite("database", std::move(database_name_or_uuid));
         builder.overwrite("id", std::move(id_builder).to_datum());
         builder.overwrite("permissions", std::move(permissions_datum));
+        builder.overwrite("user", convert_string_to_datum(username.to_string()));
 
         *datum_out = std::move(builder).to_datum();
         return true;
@@ -615,6 +668,7 @@ bool permissions_artificial_table_backend_t::table_to_datum(
         builder.overwrite("id", std::move(id_builder).to_datum());
         builder.overwrite("permissions", std::move(permissions_datum));
         builder.overwrite("table", std::move(table_name_or_uuid));
+        builder.overwrite("user", convert_string_to_datum(username.to_string()));
 
         *datum_out = std::move(builder).to_datum();
         return true;
