@@ -60,8 +60,13 @@ public:
 
         limit.range = range;
         limit.limit = 1;
+        counted_t<ql::datum_stream_t> empty_stream =
+            make_counted<ql::vector_datum_stream_t>(
+                ql::backtrace_id_t(),
+                std::vector<ql::datum_t>(),
+                boost::none);
         ql::changefeed::streamspec_t ss(
-            counted_t<ql::datum_stream_t>(),
+            empty_stream,
             convert_uuid_to_datum(table_id).as_str().to_std(),
             false,
             false,
