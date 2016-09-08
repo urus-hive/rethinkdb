@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Copyright 2015-2016 RethinkDB, all rights reserved.
 
-import copy, itertools, os, random, re, shutil, sys, time, traceback, unittest, warnings
+import inspect, itertools, os, pprint, random, shutil, sys, time, unittest, warnings
 
 try:
     long
