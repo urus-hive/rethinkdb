@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Copyright 2015-2016 RethinkDB, all rights reserved.
 
-import inspect, itertools, os, pprint, random, shutil, sys, time, unittest, warnings
+import copy, itertools, os, random, re, shutil, sys, time, traceback, unittest, warnings
 
 try:
     long
@@ -24,38 +24,39 @@ class BadTableException(AssertionError):
 class BadDataException(AssertionError):
     pass
 
-class EmptyTableManager():
+class TableManager():
     '''Manages a single table to allow for clean re-use between tests'''
     
     # - settings
     
-    tableName = None
-    dbName = None
+    tableName     = None
+    dbName        = None
     
-    primaryKey = None
-    shards = 1
-    replicas = 1
-    durability = 'hard'
-    writeAcks = 'majority'
+    primaryKey    = None
+    shards        = 1
+    replicas      = 1
+    durability    = 'hard'
+    writeAcks     = 'majority'
     
-    minRecords = None  # minimum number of records to fill with
-    minFillSecs = None # minumim seconds to fill
+    minRecords    = None # minimum number of records to fill with
+    minFillSecs   = None # minumim seconds to fill
     
     # - running variables
     
-    records = None     # if set, rangeStart and rangeEnd are ignored 
-    rangeStart = None  # first key in the range of data
-    rangeEnd = None    # last key in the range of data
+    records       = None  # if set, minRecords and minFillSecs are ignored 
+    rangeStart    = None  # first key in the range of data
+    rangeEnd      = None  # last key in the range of data
     
     # - internal cache values
     
-    _conn = None
-    _table = None
+    _table        = None
     _saved_config = None
+    
+    __initalized  = False
     
     # --
     
-    def __init__(self, tableName, dbName, conn, records=None, minRecords=None, minFillSecs=None, primaryKey=None, durability=None, writeAcks=None):
+    def __init__(self, tableName, dbName, records=None, minRecords=None, minFillSecs=None, primaryKey=None, durability=None, writeAcks=None, shards=None, replicas=None):
         
         # -- initial values
         
@@ -64,26 +65,16 @@ class EmptyTableManager():
         self.tableName = str(tableName)
         
         # - dbName
-        assert dbName is not None, 'dbName value required (got None)'
         self.dbName = str(dbName)
-        
-        # - conn
-        assert conn is not None, 'conn value required (got None)'
-        if hasattr(conn, 'reconnect'):
-            self._conn = conn
-        elif hasattr(conn, '__call__') and hasattr(conn(), 'reconnect'):
-            self._conn = conn
-        else:
-            raise ValueError('Bad conn value: %r' % conn)
         
         # - records/minRecords/minFillSecs
         
         if records is not None:
+            assert minRecords is None and minFillSecs is None, "records can't be used with either minRecords or minFillSecs"
             try:
                 self.records = int(records)
-                assert self.records > 0
             except Exception:
-                raise ValueError('GBad minRecords value: %r' % records)
+                raise ValueError('Bad records value: %r' % records)
         else:
             if minRecords is not None:
                 try:
@@ -99,7 +90,7 @@ class EmptyTableManager():
                     raise ValueError('Bad minFillSecs value: %r' % minFillSecs)
         
         # - primaryKey
-        self.primaryKey = primaryKey or 'id'
+        self.primaryKey = primaryKey
         
         # - durability
         if durability is not None:
@@ -109,19 +100,85 @@ class EmptyTableManager():
         if writeAcks is not None:
             self.writeAcks = str(writeAcks)
         
-        # -- inital table creation/fill
+        # - shards
+        if shards is not None:
+            try:
+                self.shards = int(shards)
+                assert self.shards > 0
+            except Exception:
+                raise ValueError('Bad shards value: %r' % shards)
         
-        self._checkTable(repair=True)
-        self._fillInitialData()
+        # - replicas
+        if replicas is not None:
+            try:
+                self.replicas = int(replicas)
+                assert self.replicas > 0
+            except Exception:
+                raise ValueError('Bad replicas value: %r' % replicas)
+    
+    def defaultSettings(self, conn, dbName, records, minRecords, minFillSecs, primaryKey, durability, writeAcks, shards, replicas):
+        '''Set all of the non-set vaules to defaults, plus __conn'''
+        
+        # - conn
+        assert conn is not None, 'conn value required (got None)'
+        if hasattr(conn, 'reconnect'):
+            self.__conn = conn
+        elif hasattr(conn, '__call__'):
+            self.__conn = conn
+        else:
+            raise ValueError('Bad conn value: %r' % conn)
+        
+        # -- defaults
+        
+        if not self.dbName:
+            self.dbName = dbName
+        if not self.records:
+            self.records = records or 0
+        if not self.minRecords:
+            self.minRecords = minRecords
+        if not self.minFillSecs:
+            self.minFillSecs = minFillSecs
+        if not self.primaryKey:
+            self.primaryKey = primaryKey or 'id'
+        if not self.durability:
+            self.durability = durability or 'hard'
+        if not self.writeAcks:
+            self.writeAcks = writeAcks or 'majority'
+        if not self.shards:
+            self.shards = shards or 1
+        if not self.replicas:
+            self.replicas = replicas or 1
+        
+        # -- sanity checks
+        
+        assert isinstance(self.dbName, (str, unicode))
+        assert isinstance(self.tableName, (str, unicode))
+        assert isinstance(self.primaryKey, (str, unicode))
+        assert self.durability in ('hard', 'soft')
+        assert self.writeAcks in ('single', 'majority')
+        
+        assert isinstance(self.records, (int, long, None.__class__))
+        if self.records is not None:
+            self.records >= 0
+        assert isinstance(self.minRecords, (int, long, None.__class__))
+        if self.minRecords is not None:
+            self.minRecords > 0
+        assert isinstance(self.minFillSecs, (int, long, float, None.__class__))
+        if self.minFillSecs is not None:
+            self.minFillSecs > 0
+        assert isinstance(self.shards, (int, long))
+        assert self.shards >= 1
+        assert isinstance(self.replicas, (int, long))
+        assert self.replicas >= 1
     
     @property
     def conn(self):
-        if self._conn is None:
-            raise Exception('conn is not defined')
-        elif hasattr(self._conn, '__call__'):
-            return self._conn()
+        if not self.__conn:
+            raise Exception('conn is not defined. This must be setup using setup() before this is ready to use')
+        elif hasattr(self.__conn, '__call__'):
+            return self.__conn()
         else:
-            return self._conn
+            return self.__conn
     
     @property
     def table(self):
@@ -141,15 +198,14 @@ class EmptyTableManager():
             else:
                 # something went wrong repairing the data, nuke and pave
                 self._checkTable(repair='force')
-                self._fillInitialData()
+                self.__class__.__initalized = False
+                self._checkData(repair=repair)
         self.table.wait().run(self.conn)
     
     def _checkTable(self, repair=False):
-        '''Ensures that the table is in place with the correct data and settings'''
+        '''Ensures that the table is in place with the correct settings'''
         
         r = self.conn._r
-        
-        forceRedo = repair == 'force'
         
         if not repair:
             # -- check-only
@@ -164,7 +220,7 @@ class EmptyTableManager():
                 raise BadTableException('Missing table: %s' % self.tableName)
             
             tableInfo = self.table.config().run(self.conn)
-            
+            pprint.pprint(tableInfo)
             # - primary key
             if tableInfo['primary_key'] != self.primaryKey:
                 raise BadTableException('Expected primary key: %s but got: %s' % (self.primaryKey, tableInfo['primary_key']))
@@ -197,8 +253,8 @@ class EmptyTableManager():
             # - db
             r.expr([self.dbName]).set_difference(r.db_list()).for_each(r.db_create(r.row)).run(self.conn)
             
-            # - forceRedo
-            if forceRedo:
+            # - forceRedo - delete table
+            if repair == 'force':
                 r.expr([self.tableName]).set_difference(r.db(self.dbName).table_list()).for_each(r.db(self.dbName).table_delete(r.row)).run(self.conn)
             
             # - table/primary key
@@ -207,14 +263,14 @@ class EmptyTableManager():
             if primaryKeys != [self.primaryKey]:
                 # bad primary key, drop the table if it exists and create it with the proper key
                 if len(primaryKeys) == 1:
-                    self.conn._r.db(self.dbName).table_drop(self.tableName).run(self.conn)
+                    r.db(self.dbName).table_drop(self.tableName).run(self.conn)
                 elif len(primaryKeys) > 1:
                     raise BadTableException('Somehow there was were multiple tables named %s.%s' %  (self.dbName, self.tableName))
                 r.db(self.dbName).table_create(self.tableName, primary_key=self.primaryKey).run(self.conn)
                 self.table.wait().run(self.conn)
             
             # - remove secondary indexes - todo: make this actually be able to reset indexes
-            self.table.index_status().pluck('index')['index'].for_each(self.table.index_drop(self.conn._r.row)).run(self.conn)
+            self.table.index_status().pluck('index')['index'].for_each(self.table.index_drop(r.row)).run(self.conn)
             
             # - durability/writeAcks
             configInfo = self.table.config().run(self.conn)
@@ -224,18 +280,19 @@ class EmptyTableManager():
                     raise BadTableException('Failed updating table metadata: %s' % str(res))
             
             # - sharding/replication
-            shardInfo = configInfo['shards']
+            shardInfo   = configInfo['shards']
+            serverNames = list(r.db('rethinkdb').table('server_status')['name'].run(self.conn))
             if len(shardInfo) != self.shards or not all([len(x['replicas']) == self.replicas for x in shardInfo]):
-                if len(self.cluster) < self.shards * self.replicas:
-                    raise BadTableException('Cluster does not have enough servers to only put one shard on each: %d vs %d * %d' % (len(self.cluster), self.shards, self.replicas))
+                if len(serverNames) < self.shards * self.replicas:
+                    raise BadTableException('Cluster does not have enough servers to only put one shard on each: %d vs %d * %d' % (len(serverNames), self.shards, self.replicas))
                 
-                replicas = iter(self.cluster[self.shards:])
+                replicas  = iter(serverNames[self.shards:])
                 shardPlan = []
-                for primary in self.cluster[:self.shards]:
+                for primaryName in serverNames[:self.shards]:
                     chosenReplicas = [replicas.next().name for _ in range(0, self.replicas - 1)]
-                    shardPlan.append({'primary_replica':primary.name, 'replicas':[primary.name] + chosenReplicas})
+                    shardPlan.append({'primary_replica':primaryName, 'replicas':[primaryName] + chosenReplicas})
                 
-                res = self.r.db(self.dbName).table(self.tableName).config().update({'shards':shardPlan}).run(self.conn)
+                res = r.db(self.dbName).table(self.tableName).config().update({'shards':shardPlan}).run(self.conn)
                 if res['errors'] != 0:
                     raise BadTableException('Failed updating shards: %s' % str(res))
         
@@ -243,61 +300,29 @@ class EmptyTableManager():
         
         self.table.wait().run(self.conn)
     
-    def _fillInitialData(self):
-        '''Insert inital data, for the base class this is nothing'''
-        pass
-    
-    def _checkData(self, repair=False):
-        '''Ensure that the table is empty, optionally deleting data to get there'''
-        if repair:
-            res = self.table.delete().run(self.conn)
-            if res['errors'] != 0:
-                raise BadDataException('Error deleting contents of table:\n%s' % pprint.pformat(res))
-        else:
-            res = list(self.table.limit(5).run(self.conn))
-            if len(res) > 0:
-                raise BadDataException('Extra record%s%s:\n%s' % (
-                    's' if len(res) > 1 else '',
-                    ', first 5' if len(res) > 4 else '',
-                    pprint.pformat(res)
-                ))
-        
-        self.records = 0
-        self.rangeStart = None
-        self.rangeEnd = None
-
-class SimpleTableManager(EmptyTableManager):
-    '''Records look like: { self.primaryKey: integer }'''
-    
     def _fillInitialData(self, minRecords=None, minFillSecs=None):
-        '''Fill the table with the initial set of data, and record the number of records'''
+        '''Fill the table with the initial set of data, and record the number of records. Records look like: { self.primaryKey: integer }'''
+        print('Filling %s.%s' % (self.dbName, self.tableName))
+        # - short circut for empty tables
+        if not any([self.records, self.minRecords, self.minFillSecs]):
+            self.table.delete().run(self.conn)
+            self.records    = 0
+            self.rangeStart = None
+            self.rangeEnd   = None
+            return
         
         r = self.conn._r
         
-        # - handle pre-created tables
-        
-        existingRecords = self.table.count().run(self.conn)
-        if existingRecords:
-            if self.records:
-                self.rangeStart = 1
-                self.rangeEnd = self.rangeStart + self.records - 1
-                self._checkData(repair=True)
-                return
-            elif self.minRecords and self.minFillSecs is None and self.minRecords < existingRecords:
-                self.records = existingRecords
-                self._checkData(repair=True)
-                return
-            self.table.delete().run(self.conn)
+        # - ensure the table is empty
+        assert self.table.count().run(self.conn) == 0, 'The table %s.%s was not empty' % (self.dbName, self.tableName)
         
         # - default input
-        
         if minRecords is None:
             minRecords = self.minRecords
         if minFillSecs is None:
             minFillSecs = self.minFillSecs
         
         # - fill table
-        
         rangeStart = 1
         records = 0
         rangeEnd = None
@@ -324,136 +349,233 @@ class SimpleTableManager(EmptyTableManager):
             rangeStart = rangeEnd + 1
         
         # - record the range information
-        
         self.records = records
         self.rangeStart = 1
         self.rangeEnd = rangeEnd
+        
+        # - rebalance the data across the shards
+        self.table.rebalance().run(self.conn) # table wait will happen in caller
+        self.__class__.__initalized = True
     
     def _checkData(self, repair=False):
         '''Ensure that the data in the table is as-expected, optionally correcting it. Raises a BadDataException if not.'''
-        
+        print('checkData: %s' % self.__class__.__initalized)
         r = self.conn._r
         
-        # -- check/remove out-of-range items
+        if not self.__class__.__initalized:
+            # - handle first-fill
+            self._fillInitialData()
         
-        # - before
-        if repair:
-            res = self.table.between(r.minval, self.rangeStart).delete().run(self.conn)
-            if res['errors'] != 0:
-                raise BadDataException('Unable to clear extra records before the range:\n%s' % pprint.pformat(res))
-        else:
-            res = list(self.table.between(r.minval, self.rangeStart).limit(5).run(self.conn))
-            if len(res) > 0:
-                raise BadDataException('Extra record%s before range%s:\n%s' % (
-                    's' if len(res) > 1 else '',
-                    ', first 5' if len(res) > 4 else '',
-                    pprint.pformat(res)
-                ))
-        
-        # - after
-        if repair:
-            res = self.table.between(self.rangeEnd, r.maxval, left_bound='open').delete().run(self.conn)
-            if res['errors'] != 0:
-                raise BadDataException('Unable to clear extra records after the range:\n%s' % pprint.pformat(res))
-        else:
-            res = list(self.table.between(self.rangeEnd, r.maxval, left_bound='open').limit(5).run(self.conn))
-            if len(res) > 0:
-                raise BadDataException('Extra record%s after range%s:\n%s' % (
-                    's' if len(res) > 1 else '',
-                    ', first 5' if len(res) > 4 else '',
-                    pprint.pformat(res)
-                ))
-        
-        # -- check/fix in-range records
-        
-        # - extra records (non-integer ids in range)
-        query = self.table.filter(lambda row: row[self.primaryKey].round().ne(row[self.primaryKey]))
-        if repair:
-            res = query.delete().run(self.conn)
-            if res['errors'] != 0:
-                raise BadDataException('Unable to clear extra records in the range:\n%s' % pprint.pformat(res))
-        else:
-            res = list(query.limit(5).run(self.conn))
-            if len(res) > 0:
-                raise BadDataException('Extra record%s in range%s:\n%s' % (
-                    's' if len(res) > 1 else '',
-                    ', first 5' if len(res) > 4 else '',
-                    pprint.pformat(res)
-                ))
-        
-        # - extra fields
-        query = self.table.filter(lambda row: row.keys().count().ne(1))
-        if repair:
-            res = query.replace({self.primaryKey:r.row[self.primaryKey]}).run(self.conn)
-            if res['errors'] != 0:
-                raise BadDataException('Unable to fix records with extra fields in the range:\n%s' % pprint.pformat(res))
-        else:
-            res = list(query.limit(5).run(self.conn))
-            if len(res) > 0:
-                raise BadDataException('Record%s with extra fields in range%s:\n%s' % (
-                    's' if len(res) > 1 else '',
-                    ', first 5' if len(res) > 4 else '',
-                    pprint.pformat(res)
-                ))
-        
-        # -- check/replace any missing records
-        
-        # - missing records
-        batchSize = 1000
-        rangeStart = self.rangeStart
-        while rangeStart < self.rangeEnd:
-            rangeEnd = min(rangeStart + batchSize, self.rangeEnd + 1)
-            query = r.range(rangeStart, rangeEnd).coerce_to('array').set_difference(self.table[self.primaryKey].coerce_to('array'))
+        elif self.records == 0:
+            # - short circut for empty tables
             if repair:
-                res = query.for_each(self.table.insert({self.primaryKey:r.row}, conflict='replace')).run(self.conn)
-                if res and res['errors'] != 0:
-                    raise BadDataException('Unable to fix records with extra fields in the range %d to %d:\n%s' % (rangeStart, rangeEnd, pprint.pformat(res)))
+                res = self.table.delete().run(self.conn)
+                if res['errors'] != 0:
+                    raise BadDataException('Error deleting contents of table:\n%s' % pprint.pformat(res))
+            else:
+                res = list(self.table.limit(5).run(self.conn))
+                if len(res) > 0:
+                    raise BadDataException('Extra record%s%s:\n%s' % (
+                        's' if len(res) > 1 else '',
+                        ', first 5' if len(res) > 4 else '',
+                        utils.pformat(res)
+                    ))
+            
+            self.records    = 0
+            self.rangeStart = None
+            self.rangeEnd   = None
+            return
+        
+        else:
+            # -- check/remove out-of-range items
+            
+            # - before
+            if repair:
+                res = self.table.between(r.minval, self.rangeStart or r.maxval).delete().run(self.conn)
+                if res['errors'] != 0:
+                    raise BadDataException('Unable to clear extra records before the range:\n%s' % utils.pformat(res))
+            else:
+                res = list(self.table.between(r.minval, self.rangeStart or r.maxval).limit(5).run(self.conn))
+                if len(res) > 0:
+                    raise BadDataException('Extra record%s before range%s:\n%s' % (
+                        's' if len(res) > 1 else '',
+                        ', first 5' if len(res) > 4 else '',
+                        utils.pformat(res)
+                    ))
+            
+            # - after
+            if repair:
+                res = self.table.between(self.rangeEnd or r.minval, r.maxval, left_bound='open').delete().run(self.conn)
+                if res['errors'] != 0:
+                    raise BadDataException('Unable to clear extra records after the range:\n%s' % utils.pformat(res))
+            else:
+                res = list(self.table.between(self.rangeEnd or r.minval, r.maxval, left_bound='open').limit(5).run(self.conn))
+                if len(res) > 0:
+                    raise BadDataException('Extra record%s after range%s:\n%s' % (
+                        's' if len(res) > 1 else '',
+                        ', first 5' if len(res) > 4 else '',
+                        utils.pformat(res)
+                    ))
+            
+            # -- check/fix in-range records
+            
+            # - extra records (non-integer ids in range)
+            query = self.table.filter(lambda row: row[self.primaryKey].round().ne(row[self.primaryKey]))
+            if repair:
+                res = query.delete().run(self.conn)
+                if res['errors'] != 0:
+                    raise BadDataException('Unable to clear extra records in the range:\n%s' % utils.pformat(res))
             else:
                 res = list(query.limit(5).run(self.conn))
                 if len(res) > 0:
-                    raise BadDataException('Missing record%s%s:\n%s' % (
+                    raise BadDataException('Extra record%s in range%s:\n%s' % (
                         's' if len(res) > 1 else '',
                         ', first 5' if len(res) > 4 else '',
-                        pprint.pformat(res)
+                        utils.pformat(res)
                     ))
-            rangeStart = rangeEnd
+            
+            # - extra fields
+            query = self.table.filter(lambda row: row.keys().count().ne(1))
+            if repair:
+                res = query.replace({self.primaryKey:r.row[self.primaryKey]}).run(self.conn)
+                if res['errors'] != 0:
+                    raise BadDataException('Unable to fix records with extra fields in the range:\n%s' % utils.pformat(res))
+            else:
+                res = list(query.limit(5).run(self.conn))
+                if len(res) > 0:
+                    raise BadDataException('Record%s with extra fields in range%s:\n%s' % (
+                        's' if len(res) > 1 else '',
+                        ', first 5' if len(res) > 4 else '',
+                        utils.pformat(res)
+                    ))
+            
+            # -- check/replace any missing records
+            
+            # - missing records
+            batchSize = 1000
+            rangeStart = self.rangeStart
+            while rangeStart < self.rangeEnd:
+                rangeEnd = min(rangeStart + batchSize, self.rangeEnd + 1)
+                query = r.range(rangeStart, rangeEnd).coerce_to('array').set_difference(self.table[self.primaryKey].coerce_to('array'))
+                if repair:
+                    res = query.for_each(self.table.insert({self.primaryKey:r.row}, conflict='replace')).run(self.conn)
+                    if res and res['errors'] != 0:
+                        raise BadDataException('Unable to fix records with extra fields in the range %d to %d:\n%s' % (rangeStart, rangeEnd, utils.pformat(res)))
+                else:
+                    res = list(query.limit(5).run(self.conn))
+                    if len(res) > 0:
+                        raise BadDataException('Missing record%s%s:\n%s' % (
+                            's' if len(res) > 1 else '',
+                            ', first 5' if len(res) > 4 else '',
+                            utils.pformat(res)
+                        ))
+                rangeStart = rangeEnd
+        
+        # - rebalance the data across the shards
+        if repair:
+            self.table.rebalance().run(self.conn) # wait will happen in caller
 
-class RdbTestCase(unittest.TestCase):
+class TestCaseCompatible(unittest.TestCase):
+    '''Replace missing bits from various versions of Python'''
+    
+    def __init__(self, *args, **kwargs):
+        super(TestCaseCompatible, self).__init__(*args, **kwargs)
+        if not hasattr(self, 'assertIsNone'):
+            self.assertIsNone = self.replacement_assertIsNone
+        if not hasattr(self, 'assertIsNotNone'):
+            self.assertIsNotNone = self.replacement_assertIsNotNone
+        if not hasattr(self, 'assertGreater'):
+            self.assertGreater = self.replacement_assertGreater
+        if not hasattr(self, 'assertGreaterEqual'):
+            self.assertGreaterEqual = self.replacement_assertGreaterEqual
+        if not hasattr(self, 'assertLess'):
+            self.assertLess = self.replacement_assertLess
+        if not hasattr(self, 'assertLessEqual'):
+            self.assertLessEqual = self.replacement_assertLessEqual
+        if not hasattr(self, 'assertIn'):
+            self.assertIn = self.replacement_assertIn
+        if not hasattr(self, 'assertRaisesRegexp'):
+            self.assertRaisesRegexp = self.replacement_assertRaisesRegexp
+        
+        if not hasattr(self, 'skipTest'):
+            self.skipTest = self.replacement_skipTest
+        
+    def replacement_assertIsNone(self, val):
+        if val is not None:
+            raise AssertionError('%s is not None' % val)
+    
+    def replacement_assertIsNotNone(self, val):
+        if val is None:
+            raise AssertionError('%s is None' % val)
+    
+    def replacement_assertGreater(self, actual, expected):
+        if not actual > expected:
+            raise AssertionError('%s not greater than %s' % (actual, expected))
+    
+    def replacement_assertGreaterEqual(self, actual, expected):
+        if not actual >= expected:
+            raise AssertionError('%s not greater than or equal to %s' % (actual, expected))
+    
+    def replacement_assertLess(self, actual, expected):
+        if not actual < expected:
+            raise AssertionError('%s not less than %s' % (actual, expected))
+    
+    def replacement_assertLessEqual(self, actual, expected):
+        if not actual <= expected:
+            raise AssertionError('%s not less than or equal to %s' % (actual, expected))
+    
+    def replacement_assertIsNotNone(self, val):
+        if val is None:
+            raise AssertionError('Result is None')
+    
+    def replacement_assertIn(self, val, iterable):
+        if not val in iterable:
+            raise AssertionError('%s is not in %s' % (val, iterable))
+    
+    def replacement_assertRaisesRegexp(self, exception, regexp, callable_func, *args, **kwds):
+        try:
+            callable_func(*args, **kwds)
+        except Exception as e:
+            self.assertTrue(isinstance(e, exception), '%s expected to raise %s but instead raised %s: %s\n%s' % (repr(callable_func), repr(exception), e.__class__.__name__, str(e), traceback.format_exc()))
+            self.assertTrue(re.search(regexp, str(e)), '%s did not raise the expected message "%s", but rather: %s' % (repr(callable_func), str(regexp), str(e)))
+        else:
+            self.fail('%s failed to raise a %s' % (repr(callable_func), repr(exception)))
+    
+    def replacement_skipTest(self, message):
+        sys.stderr.write("%s " % message)
+
+class RdbTestCase(TestCaseCompatible):
     
     # -- settings
     
-    servers = None # defaults to shards * replicas
+    servers      = None # defaults to shards * replicas
+    tables       = 1 # a number, name, TableManager, or list of names and TableManager's
+                     # will be translated into a list of TableManager instances
+    
+    use_tls      = False
     server_command_prefix = None
-    server_extra_options = None
+    server_extra_options  = None
     
-    # - main table settings
-    
-    tableManager = EmptyTableManager # set as TableManager class, not instance
-
-    shards = 1
-    replicas = 1
-    tables   = 1 # either a number, a name, or a list of names
+    # - table defaults
     
     primaryKey   = 'id'
-    records      = None
-    minRecords   = None
-    minFillSecs  = None
+    records      = None # if set, minRecords and minFillSecs are ignored 
+    minRecords   = None # minimum number of records to create while filling table
+    minFillSecs  = None # minimum seconds to fill the table for
     durability   = None
     writeAcks    = None
+    shards       = 1
+    replicas     = 1
     
     # - general settings
     
     samplesPerShard = 5 # when making changes the number of changes to make per shard
-    
     destructiveTest = False # if true the cluster should be restarted after this test
     
     # -- class variables
     
-    dbName = None
-    tableName = None
-    
-    db = None
-    table = None
+    dbName            = None # typically 'test'
+    tableName         = None # name of the first table
     
     __cluster         = None
     __conn            = None
@@ -470,34 +592,11 @@ class RdbTestCase(unittest.TestCase):
     # --
     
     def run(self, result=None):
-        if self.tables:
-            defaultDb, defaultTable = utils.get_test_db_table()
-            
-            if not self.dbName:
-                self.dbName = defaultDb
-            
-            if isinstance(self.tables, (int, long)):
-                if self.tables == 1:
-                    self.tableNames = [defaultTable]
-                else:
-                    self.tableNames = ['%s_%d' % (defaultTable, i) for i in range(1, self.tables + 1)]
-            elif isinstance(self.tables, (str, unicode)):
-                self.tableNames = [self.tables]
-            elif hasattr(self.tables, '__iter__'):
-                self.tableNames = [str(x) for x in self.tables]
-            else:
-                raise Exception('The value of tables was not recogised: %r' % self.tables)
-            
-            self.tableName = self.tableNames[0]
-        
-        # -- set db and table
-        self.__class__.db = self.r.db(self.dbName)
-        self.__class__.table = self.db.table(self.tableName)
-        
-        # -- Allow detecting test failure in tearDown
+        # - allow detecting test failure in tearDown
         self.__currentResult = result or self.defaultTestResult()
         self.__problemCount = 0 if result is None else len(self.__currentResult.errors) + len(self.__currentResult.failures)
         
+        # - let supper to do its thing
         super(RdbTestCase, self).run(self.__currentResult)
     
     @property
@@ -517,36 +616,46 @@ class RdbTestCase(unittest.TestCase):
         return self.__table
     
     @property
+    def tableNames(self):
+        return [x.tableName for x in self.tables]
+    
+    @property
     def conn(self):
         '''Retrieve a valid connection to some server in the cluster'''
         
+        return self.conn_function()
+    
+    @classmethod
+    def conn_function(cls, alwaysNew=False):
+        '''Retrieve a valid connection to some server in the cluster'''
+        
         # -- check if we already have a good cached connection
-        if self.__class__.__conn and self.__class__.__conn.is_open():
-            try:
-                self.r.expr(1).run(self.__class__.__conn)
-                return self.__class__.__conn
-            except Exception: pass
-        if self.__class__.conn is not None:
-            try:
-                self.__class__.__conn.close()
-            except Exception: pass
-            self.__class__.__conn = None
+        if not alwaysNew:
+            if cls.__conn and cls.__conn.is_open():
+                try:
+                    cls.r.expr(1).run(cls.__conn)
+                    return cls.__conn
+                except Exception: pass
+            if cls.conn is not None:
+                try:
+                    cls.__conn.close()
+                except Exception: pass
+                cls.__conn = None
         
         # -- try a new connection to each server in order
-        for server in self.cluster:
+        for server in cls.__cluster:
             if not server.ready:
                 continue
             try:
                 ssl = {'ca_certs':self.Cluster.tlsCertPath} if self.use_tls else None
-                self.__class__.__conn = self.r.connect(host=server.host, port=server.driver_port, ssl=ssl)
-                return self.__class__.__conn
+                conn = cls.r.connect(host=server.host, port=server.driver_port, ssl=ssl)
+                if not alwaysNew:
+                    cls.__conn = conn
+                return conn
             except Exception as e: pass
         else:        
             # fail as we have run out of servers
             raise Exception('Unable to get a connection to any server in the cluster')
-    
-    def conn_function(self):
-        return self.conn
     
     def getPrimaryForShard(self, index, tableName=None, dbName=None):
         if tableName is None:
@@ -583,90 +692,118 @@ class RdbTestCase(unittest.TestCase):
         else:
             return None
     
-    def checkCluster(self):
+    @classmethod
+    def checkCluster(cls):
         '''Check that all the servers are running and the cluster is in good shape. Errors on problems'''
         
-        assert self.cluster is not None, 'The cluster was None'
-        self.cluster.check()
-        res = list(self.r.db('rethinkdb').table('current_issues').filter(self.r.row["type"] != "memory_error").run(self.conn))
+        assert cls.cluster is not None, 'The cluster was None'
+        cls.cluster.check()
+        res = list(cls.r.db('rethinkdb').table('current_issues').filter(cls.r.row["type"] != "memory_error").run(cls.conn_function()))
         assert res == [], 'There were unexpected issues: \n%s' % utils.RePrint.pformat(res)
     
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
+        # -- setup tables for management
         
-        # -- start the servers
+        defaultDb, defaultTable = utils.get_test_db_table()
+        if cls.dbName:
+            defaultDb = cls.dbName
+        if cls.tableName:
+            defaultTable = cls.tableName
         
+        # - translate cls.tables into array of TableManager instances
+        if cls.tables:
+            tables = []
+            if isinstance(cls.tables, (int, long)):
+                if cls.tables == 1:
+                    tables = [defaultTable]
+                else:
+                    tables = ['%s_%d' % (defaultTable, i) for i in range(1, cls.tables + 1)]
+            elif isinstance(cls.tables, (str, unicode)):
+                tables = [cls.tables]
+            elif hasattr(cls.tables, '__iter__'):
+                tables = cls.tables
+            else:
+                tables = [cls.tables]
+            
+            for i, table in enumerate(copy.copy(tables)):
+                if isinstance(table, (str, unicode)):
+                    tables[i] = TableManager(table, defaultDb)
+                else:
+                    assert isinstance(table, TableManager), 'Items in cls.tables must be names or TableManager instances: %r' % table
+            
+            for table in tables:
+                table.defaultSettings(
+                    cls.conn_function,
+                    dbName=cls.dbName,
+                    records=cls.records, minRecords=cls.minRecords, minFillSecs=cls.minFillSecs,
+                    primaryKey=cls.primaryKey, durability=cls.durability, writeAcks=cls.writeAcks,
+                    shards=cls.shards, replicas=cls.replicas
+                )
+            print('ppp', cls)
+            cls.tables    = tables
+            cls.dbName    = cls.tables[0].dbName
+            cls.tableName = cls.tables[0].tableName
+        else:
+            cls.tables    = []
+            cls.dbName    = defaultDb
+            cls.tableName = defaultTable
+        
+        cls.__db      = cls.r.db(cls.dbName)
+        cls.__table   = cls.__db.table(cls.tableName)
+    
+    @classmethod
+    def setUpCluster(cls):
         # - check on an existing cluster
-        
-        if self.cluster is not None:
+        if cls.cluster is not None:
             try:
-                self.checkCluster()
+                cls.checkCluster()
             except:
                 try:
-                    self.cluster.check_and_stop()
+                    cls.cluster.check_and_stop()
                 except Exception: pass
-                self.__class__.__cluster = None
-                self.__class__.__conn    = None
-                self.__class__.__table   = None
+                cls.__cluster = None
+                cls.__conn    = None
         
         # - ensure we have a cluster
-        
-        if not isinstance(self.cluster, driver.Cluster):
-            self.__class__.cluster = driver.Cluster()
+        if cls.__cluster is None:
+            cls.__cluster = driver.Cluster(tls=cls.use_tls)
         
         # - make sure we have any named servers
+        servers = [cls.servers] if isinstance(cls.servers, (str, unicode)) else (cls.servers or 0)
+        if hasattr(servers, '__iter__'):
+            for name in servers:
+                firstServer = len(cls.__cluster) == 0
+                if not name in cls.__cluster:
+                    driver.Process(cluster=cls.__cluster, name=name, console_output=True, command_prefix=cls.server_command_prefix, extra_options=cls.server_extra_options, wait_until_ready=firstServer)
         
-        if hasattr(self.servers, '__iter__'):
-            for name in self.servers:
-                firstServer = len(self.cluster) == 0
-                if not name in self.cluster:
-                    driver.Process(cluster=self.cluster, name=name, console_output=True, command_prefix=self.server_command_prefix, extra_options=self.server_extra_options, wait_until_ready=firstServer)
+        # - ensure we have the proper number of servers: enough that each server has only one role
+        serverCount = max(cls.shards * cls.replicas, len(servers) if hasattr(servers, '__iter__') else servers)
+        for _ in range(serverCount - len(cls.__cluster)):
+            firstServer = len(cls.__cluster) == 0
+            driver.Process(cluster=cls.__cluster, console_output=True, command_prefix=cls.server_command_prefix, extra_options=cls.server_extra_options, wait_until_ready=firstServer)
         
-        # - ensure we have the proper number of servers
-        # note: we start up enough servers to make sure they each have only one role
+        cls.__cluster.wait_until_ready()
+    
+    def setUp(self):
+        # - run setUpClass if not run otherwise (fix for Python2.6)
+        if not hasattr(unittest.TestCase, 'setUpClass') and hasattr(self.__class__, 'setUpClass') and not hasattr(self.__class__, self.__class__.__name__ + '_setup'):
+            self.setUpClass()
+            setattr(self.__class__, self.__class__.__name__ + '_setup', True)
         
-        serverCount = max(self.shards * self.replicas, len(self.servers) if hasattr(self.servers, '__iter__') else self.servers)
-        for _ in range(serverCount - len(self.cluster)):
-            firstServer = len(self.cluster) == 0
-            driver.Process(cluster=self.cluster, console_output=True, command_prefix=self.server_command_prefix, extra_options=self.server_extra_options, wait_until_ready=firstServer)
-        
-        self.cluster.wait_until_ready()
-        
-        # -- setup managed table if present
-        
-        if inspect.isclass(self.__class__.tableManager) and issubclass(self.__class__.tableManager, EmptyTableManager):
-            self.__class__.tableManager = self.__class__.tableManager(tableName=self.tableName, dbName=self.dbName, conn=self.conn_function, records=self.records, minRecords=self.minRecords, minFillSecs=self.minFillSecs, primaryKey=self.primaryKey, durability=None, writeAcks=self.writeAcks)
-        
-        # -- ensure db is available
-        
-        self.r.expr([self.dbName]).set_difference(self.r.db_list()).for_each(self.r.db_create(self.r.row)).run(self.conn)
-        
-        # -- setup test table
-        
-        if self.tableName is not None:
-            
-            if isinstance(self.tableManager, EmptyTableManager):
-                self.tableManager.check()
-            else:
-                # - ensure an empty table
-                self.conn._r.expr([self.tableName]).set_difference(self.db.table_list()).for_each(self.db.table_delete(self.conn._r.row)).run(self.conn)
-                self.db.table_create(self.tableName).run(self.conn)
+        # - make sure the servers are running
+        self.setUpCluster()
                 
-                # - shard and replicate the table
-                
-                primaries = iter(self.cluster[:self.shards])
-                replicas = iter(self.cluster[self.shards:])
-                
-                shardPlan = []
-                for primary in primaries:
-                    chosenReplicas = [replicas.next().name for _ in range(0, self.replicas - 1)]
-                    shardPlan.append({'primary_replica':primary.name, 'replicas':[primary.name] + chosenReplicas})
-                res = self.r.db(self.dbName).table(self.tableName).config().update({'shards':shardPlan}).run(self.conn)
-                assert res['errors'] == 0, 'Unable to apply shard plan:\n%s' % pprint.pformat(res)
+        # - ensure db is available
+        if self.dbName:
+            self.r.expr([self.dbName]).set_difference(self.r.db_list()).for_each(self.r.db_create(self.r.row)).run(self.conn)        
         
-        self.table.wait().run(self.conn)
+        # - ensure managed tables are in the right state
+        print('setUp: %s.%s: %s' % (self.dbName, self.tableName, [(x.tableName, repr(x)) for x in self.tables]))
+        for table in self.tables:
+            table.check(repair=True)
     
     def tearDown(self):
-        
         # -- verify that the servers are still running
         
         lastError = None
@@ -683,18 +820,14 @@ class RdbTestCase(unittest.TestCase):
         allGood = self.__problemCount == len(self.__currentResult.errors) + len(self.__currentResult.failures)
         
         if lastError is not None or not allGood:
-            
-            # -- stop all of the servers
-            
+            # - stop all of the servers
             try:
                 self.cluster.check_and_stop()
             except Exception: pass
             
-            # -- save the server data
-                
+            # - save the server data
             try:
                 # - create enclosing dir
-                
                 name = self.id()
                 if name.startswith('__main__.'):
                     name = name[len('__main__.'):]
@@ -703,16 +836,15 @@ class RdbTestCase(unittest.TestCase):
                     os.makedirs(outputFolder)
                 
                 # - copy the servers data
-                
                 for server in self.cluster:
                     shutil.copytree(server.data_path, os.path.join(outputFolder, os.path.basename(server.data_path)))
             
             except Exception as e:
                 warnings.warn('Unable to copy server folder into results: %s' % str(e))
             
-            self.__class__.cluster = None
-            self.__class__._conn = None
-            self.__class__.table = None
+            # - clear internal values
+            self.__class__.__cluster = None
+            self.__class__.__conn    = None
             if lastError:
                 raise lastError
         
@@ -720,9 +852,8 @@ class RdbTestCase(unittest.TestCase):
             try:
                 self.cluster.check_and_stop()
             except Exception: pass
-            self.__class__.cluster = None
-            self.__class__._conn = None
-            self.__class__.table = None
+            self.__class__.__cluster = None
+            self.__class__.__conn    = None
     
     def makeChanges(self, tableName=None, dbName=None, samplesPerShard=None, connections=None):
         '''make a minor change to records, and return those ids'''
@@ -757,21 +888,39 @@ class RdbTestCase(unittest.TestCase):
 
 if __name__ == '__main__':
 
-    class EmptyTableManager_Test(RdbTestCase):
-        tableManager = EmptyTableManager
+    class TableManager_empty_Test(RdbTestCase):
+        records = 0
         
         def test_setup(self):
             self.assertEqual(self.db.table_list().run(self.conn), [self.tableName])
+            self.assertEqual(self.table.count().run(self.conn), 0)
     
-    class SimpleTableManager_minRecords_Test(RdbTestCase):
-        tableManager = SimpleTableManager
+    class TableManager_multiple_tables_Test(RdbTestCase):
+        tables     = 2
+        records    = 4
+        
+        def test_setup(self):
+            tableNames = list(self.db.table_list().run(self.conn))
+            self.assertTrue(self.tableName in tableNames, 'Did not find < %s > in list: %s' % (self.tableName, tableNames))
+            self.assertEqual(len(tableNames), 2)
+            
+            for thisOne in self.tables:
+                actualCount = thisOne.table.count().run(self.conn)
+                self.assertEqual(actualCount, thisOne.records)
+                self.assertEqual(actualCount, self.records)
+    
+    class TableManager_minRecords_Test(RdbTestCase):
+        tables     = 1
         minRecords = 10
         
         def test_setup(self):
             self.assertEqual(self.db.table_list().run(self.conn), [self.tableName])
+            self.assertEqual(len(self.tables), 1)
+            
             actualCount = self.table.count().run(self.conn)
-            self.assertEqual(actualCount, self.tableManager.records)
-            self.assertTrue(actualCount >= self.minRecords, 'To few records, actual: %r vs. expected min: %r' % (actualCount, self.minRecords))
+            self.assertGreaterEqual(self.records, self.minRecords)
+            self.assertEqual(actualCount, self.tables[0].records)
+            self.assertTrue(actualCount >= self.minRecords, 'Too few records, actual: %r vs. expected min: %r' % (actualCount, self.minRecords))
         
         def test__checkData(self):
             # - grab the number of records as a check
@@ -783,21 +932,22 @@ if __name__ == '__main__':
             self.table.get(2).update({'extra':'bit'}).run(self.conn)
             
             # - confirm we error
-            self.assertRaises(BadDataException, self.tableManager._checkData)
+            self.assertRaises(BadDataException, self.tables[0]._checkData)
             
             # - confirm we can fix it
-            self.tableManager._checkData(repair=True)
+            self.tables[0]._checkData(repair=True)
             actualRecords = self.table.count().run(self.conn)
             self.assertEqual(actualRecords, intialRecords, 'After checking the data, did not have the right number of records: %d vs. expected: %d' % (actualRecords, intialRecords))
     
-    class SimpleTableManager_minFillSecs_Test(RdbTestCase):
-        tableManager = SimpleTableManager
+    class TableManager_minFillSecs_Test(RdbTestCase):
         minFillSecs = 1.5
         
         def test_setup(self):
             self.assertEqual(self.db.table_list().run(self.conn), [self.tableName])
+            self.assertEqual(len(self.tables), 1)
+            
             actualCount = self.table.count().run(self.conn)
-            self.assertEqual(actualCount, self.tableManager.records)
+            self.assertEqual(actualCount, self.tables[0].records)
             self.assertTrue(actualCount > 0, 'No records in the table')
         
         def test__checkData(self):
@@ -810,21 +960,22 @@ if __name__ == '__main__':
             self.table.get(2).update({'extra':'bit'}).run(self.conn)
             
             # - confirm we error
-            self.assertRaises(BadDataException, self.tableManager._checkData)
+            self.assertRaises(BadDataException, self.tables[0]._checkData)
             
             # - confirm we can fix it
-            self.tableManager._checkData(repair=True)
+            self.tables[0]._checkData(repair=True)
             actualRecords = self.table.count().run(self.conn)
             self.assertEqual(actualRecords, initialRecords, 'After checking the data, did not have the right number of records: %d vs. expected: %d' % (actualRecords, initialRecords))
         
-    class SimpleTableManager_records_Test(RdbTestCase):
-        tableManager = SimpleTableManager
+    class TableManager_records_Test(RdbTestCase):
         records = 302
         
         def test_setup(self):
             self.assertEqual(self.db.table_list().run(self.conn), [self.tableName])
+            self.assertEqual(len(self.tables), 1)
+            
             actualCount = self.table.count().run(self.conn)
-            self.assertEqual(self.tableManager.records, self.records)
+            self.assertEqual(self.tables[0].records, self.records)
             self.assertEqual(actualCount, self.records, 'Incorrect number of records, actual: %r vs. expected %d' % (actualCount, self.records))
         
         def test__checkData(self):
@@ -838,10 +989,10 @@ if __name__ == '__main__':
             self.table.get(2).update({'extra':'bit'}).run(self.conn)
             
             # - confirm we error
-            self.assertRaises(BadDataException, self.tableManager._checkData)
+            self.assertRaises(BadDataException, self.tables[0]._checkData)
             
             # - confirm we can fix it
-            self.tableManager._checkData(repair=True)
+            self.tables[0]._checkData(repair=True)
             actualRecords = self.table.count().run(self.conn)
             self.assertEqual(actualRecords, self.records, 'After checking the data, did not have the right number of records: %d vs. expected: %d' % (actualRecords, self.records))
     

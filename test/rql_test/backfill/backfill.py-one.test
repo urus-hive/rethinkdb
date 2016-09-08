@@ -1,0 +1,375 @@
+#!/usr/bin/env python
+
+'''Test that backfilling works as expected in a number of scenarios'''
+
+import os, pprint, sys, threading, time
+
+sys.path.append(os.path.join(os.path.dirname(__file__), os.path.pardir, 'common'))
+import driver, utils, rdb_unittest
+
+class JobMonitor(threading.Thread):
+    '''Watch the rethinkdb.jobs table for a specific job type between a source and destination server'''
+    
+    jobType     = None
+    __timeout   = None
+    
+    __testCase  = None
+    __continue  = True
+    __deadline  = True
+    
+    __startTime = None
+    __stopTime  = None
+    __status    = None   # can be: started, running, complete
+    
+    def __init__(self, testCase, jobType, source, dest, timeout=None):
+        super(JobMonitor, self).__init__()
+        
+        # - input validation/defaulting
+        assert isinstance(testCase, BackfillTestCase)
+        self.__testCase = testCase
+        
+        assert jobType is not None
+        self.jobType = str(jobType)
+        
+        assert source is not None
+        if isinstance(source, driver.Process):
+            self.sourceName = source.name
+        else:
+            self.sourceName = str(source)
+        
+        assert dest is not None
+        if isinstance(dest, driver.Process):
+            self.destName = dest.name
+        else:
+            self.destName = str(dest)
+        
+        if timeout:
+            try:
+                self.__timeout = float(timeout)
+                assert self.__timeout > 0
+                self.__deadline = time.time() + self.__timeout
+            except Exception:
+                raise ValueError('Unuseable timeout value: %r' % timeout)
+        
+        # - start monitor
+        self.start()
+    
+    def run(self):
+        self.__status = 'started'
+        self.__startTime = time.time()
+        jobsQuery = self.__testCase.r.db('rethinkdb').table('jobs').filter({
+            'type': self.jobType,
+            'info': {
+                'db':self.__testCase.dbName, 'table':self.__testCase.tableName,
+                'destination_server':self.destName, 'source_server':self.sourceName
+            }
+        }).coerce_to('ARRAY')
+        
+        conn = self.__testCase.conn_function(alwaysNew=True)
+        
+        while self.__continue and (self.__deadline is None or time.time() < self.__deadline):
+            jobs = jobsQuery.run(conn)
+            if jobs:
+                self.__status = 'running'
+            elif self.__status == 'running':
+                self.__status = 'complete'
+                break
+            time.sleep(.05)
+        self.__stopTime = time.time()
+        self.__continue = False
+    
+    def assertDone(self):
+        self.join(self.__deadline - time.time() if self.__deadline else .5)
+        timeString = 'after %.2f secs' % (self.__startTime - self.__stopTime if self.__stopTime else time.time() - self.__startTime)
+        if self.__status == 'started':
+            raise self.__testCase.fail('Did not find %s job on table %s.%s from %s -> %s %s' % (self.jobType, self.__testCase.dbName, self.__testCase.tableName, self.sourceName, self.destName, timeString))
+        elif self.__status == 'running':
+            raise self.__testCase.fail('%s job on table %s.%s is still runing %s' % (self.jobType, self.__testCase.dbName, self.__testCase.tableName, timeString))
+        elif self.__status == 'complete':
+            pass
+        else:
+            raise Exception('Unkown status: %s' % self.__status)
+
+class BackfillTestCase(rdb_unittest.RdbTestCase):
+    
+    servers     = 4
+    shards      = 3
+    replicas    = 1
+    
+    tables      = 1
+    minFillSecs = 5
+    
+    def unusedServer(self, dbName=None, tableName=None):
+        '''Find a server that does not currently host any shards for the given (default) table'''
+        
+        r = self.r
+        
+        if dbName is None:
+            dbName = self.dbName
+        if tableName is None:
+            tableName = self.tableName
+        
+        unusedServers = r.db('rethinkdb').table('server_config')['name'].coerce_to('array').set_difference(r.db('rethinkdb').table('table_config').filter({'db':dbName, 'name':tableName}).concat_map(lambda row: row['shards']['replicas']).reduce(lambda left, right: left.set_union(right))).run(self.conn)
+        self.assertTrue(len(unusedServers) >= 1, 'There were no un-involved servers for table %s.%s, this should not happen' % (dbName, tableName))
+        
+        return self.cluster[unusedServers[0]]
+    
+    def test_basic_backfill(self):
+        
+        sourceServer = self.getPrimaryForShard(0)
+        sourceConn = self.r.connect(host=sourceServer.host, port=sourceServer.driver_port)
+        
+        destServer = self.unusedServer()
+        destConn = self.r.connect(host=destServer.host, port=destServer.driver_port)
+        
+        tableUUID = self.table.info()['id'].run(self.conn)
+        
+        # -- get min/max for shard
+        
+        minMaxQuery = self.r.do([self.table.min(index=self.primaryKey)[self.primaryKey], self.table.max(index=self.primaryKey)[self.primaryKey]])
+        shardMin, shardMax = minMaxQuery.run(sourceConn, read_mode='_debug_direct')
+        
+        # -- check that destServer does not have any data
+        
+        # - _debug_direct read
+        self.assertRaises(self.r.ReqlOpFailedError, self.table.limit(1).run, destConn, read_mode='_debug_direct')
+        
+        # - check for file on destination
+        self.assertFalse(tableUUID in os.listdir(destServer.data_path), 'destination server already had a file for the table')
+        
+        # -- trigger backfill
+        
+        shardData = self.table.config()['shards'].run(sourceConn)
+        self.assertEqual(shardData[0]['replicas'], [sourceServer.name], 'Current replicas for shard 0 was not just %s as expected: %s' % (sourceServer.name, pprint.pformat(shardData)))
+        shardData[0]['replicas'].append(destServer.name)
+        self.table.config().update({'shards':shardData}).run(sourceConn)
+        
+        # -- watch for backfill to complete
+        
+        backfillMonitor = JobMonitor(self, 'backfill', sourceServer, destServer, timeout=self.minFillSecs * 3)
+        backfillMonitor.assertDone()
+        
+        # -- check that destServer now has the data
+        
+        # - _debug_direct read
+        finalShardMin, finalShardMax = minMaxQuery.run(sourceConn, read_mode='_debug_direct')
+        self.assertEqual(shardMin, finalShardMin, 'The minium value on new shard does not match the original shard: %r vs. expected: %r' % (shardMin, finalShardMin))
+        self.assertEqual(shardMax, finalShardMax, 'The maximum value on new shard does not match the original shard: %r vs. expected: %r' % (shardMax, finalShardMax))
+        
+        # - check for file on destination
+        self.assertTrue(tableUUID in os.listdir(destServer.data_path), 'destination server did not have a file for the table')
+    
+    def test_two_source_backfill_contiguous(self):
+        
+        minMaxQuery = self.r.do([self.table.min(index=self.primaryKey)[self.primaryKey], self.table.max(index=self.primaryKey)[self.primaryKey]])
+        
+        # -- choose servers/shards
+        
+        sourceServerA = self.getPrimaryForShard(0)
+        sourceConnA = self.r.connect(host=sourceServerA.host, port=sourceServerA.driver_port)
+        shardMinA, shardMaxA = minMaxQuery.run(sourceConnA, read_mode='_debug_direct')
+        
+        sourceServerB = self.getPrimaryForShard(1)
+        sourceConnB = self.r.connect(host=sourceServerB.host, port=sourceServerB.driver_port)
+        shardMinB, shardMaxB = minMaxQuery.run(sourceConnB, read_mode='_debug_direct')
+        
+        destServer = self.unusedServer()
+        destConn = self.r.connect(host=destServer.host, port=destServer.driver_port)
+        
+        tableUUID = self.table.info()['id'].run(self.conn)
+        
+        # this works, but is not strictly assured
+        assert shardMaxA == shardMinB - 1
+        
+        # -- check that destServer does not have any data
+        
+        # - _debug_direct read
+        self.assertRaises(self.r.ReqlOpFailedError, self.table.limit(1).run, destConn, read_mode='_debug_direct')
+        
+        # - check for file on destination
+        self.assertFalse(tableUUID in os.listdir(destServer.data_path), 'destination server already had a file for the table')
+        
+        # -- trigger backfill
+        
+        shardData = self.table.config()['shards'].run(self.conn)
+        self.assertEqual(shardData[0]['replicas'], [sourceServerA.name], 'Current replicas for shard 0 was not just %s as expected: %s' % (sourceServerA.name, pprint.pformat(shardData)))
+        self.assertEqual(shardData[1]['replicas'], [sourceServerB.name], 'Current replicas for shard 1 was not just %s as expected: %s' % (sourceServerB.name, pprint.pformat(shardData)))
+        shardData[0]['replicas'].append(destServer.name)
+        shardData[1]['replicas'].append(destServer.name)
+        self.table.config().update({'shards':shardData}).run(self.conn)
+        
+        # -- watch for backfill to complete
+        
+        backfillAMonitor = JobMonitor(self, 'backfill', sourceServerA, destServer, timeout=self.minFillSecs * 3)
+        backfillBMonitor = JobMonitor(self, 'backfill', sourceServerB, destServer, timeout=self.minFillSecs * 3)
+        
+        backfillAMonitor.assertDone()
+        backfillBMonitor.assertDone()
+        
+        # -- check that destServer now has the data
+        
+        # - _debug_direct read
+        finalShardMin, finalShardMax = minMaxQuery.run(destConn, read_mode='_debug_direct')
+        self.assertEqual(finalShardMin, shardMinA, 'The minium value on disk for dest server does not match the original shard: %r vs. expected: %r' % (finalShardMin, shardMinA))
+        self.assertEqual(finalShardMax, shardMaxB, 'The maximum value on disk for dest server does not match the original shard: %r vs. expected: %r' % (finalShardMax, shardMaxB))
+        
+        # - check for file on destination
+        self.assertTrue(tableUUID in os.listdir(destServer.data_path), 'destination server did not have a file for the table')
+    
+    def test_two_source_backfill_noncontiguous(self):
+        
+        minMaxQuery = self.r.do([self.table.min(index=self.primaryKey)[self.primaryKey], self.table.max(index=self.primaryKey)[self.primaryKey]])
+        
+        # -- choose servers/shards
+        
+        sourceServerA = self.getPrimaryForShard(0)
+        sourceConnA = self.r.connect(host=sourceServerA.host, port=sourceServerA.driver_port)
+        shardMinA, shardMaxA = minMaxQuery.run(sourceConnA, read_mode='_debug_direct')
+        
+        sourceServerB = self.getPrimaryForShard(2)
+        sourceConnB = self.r.connect(host=sourceServerB.host, port=sourceServerB.driver_port)
+        shardMinB, shardMaxB = minMaxQuery.run(sourceConnB, read_mode='_debug_direct')
+        
+        destServer = self.unusedServer()
+        destConn = self.r.connect(host=destServer.host, port=destServer.driver_port)
+        
+        tableUUID = self.table.info()['id'].run(self.conn)
+        
+        # this works, but is not strictly assured
+        assert shardMaxA < shardMinB
+        assert shardMaxA != shardMinB - 1
+        
+        # -- check that destServer does not have any data
+        
+        # - _debug_direct read
+        self.assertRaises(self.r.ReqlOpFailedError, self.table.limit(1).run, destConn, read_mode='_debug_direct')
+        
+        # - check for file on destination
+        self.assertFalse(tableUUID in os.listdir(destServer.data_path), 'destination server already had a file for the table')
+        
+        # -- trigger backfill
+        
+        shardData = self.table.config()['shards'].run(self.conn)
+        self.assertEqual(shardData[0]['replicas'], [sourceServerA.name], 'Current replicas for shard 0 was not just %s as expected: %s' % (sourceServerA.name, pprint.pformat(shardData)))
+        self.assertEqual(shardData[2]['replicas'], [sourceServerB.name], 'Current replicas for shard 1 was not just %s as expected: %s' % (sourceServerB.name, pprint.pformat(shardData)))
+        shardData[0]['replicas'].append(destServer.name)
+        shardData[2]['replicas'].append(destServer.name)
+        self.table.config().update({'shards':shardData}).run(self.conn)
+        
+        # -- watch for backfill to complete
+        
+        backfillAMonitor = JobMonitor(self, 'backfill', sourceServerA, destServer, timeout=self.minFillSecs * 3)
+        backfillBMonitor = JobMonitor(self, 'backfill', sourceServerB, destServer, timeout=self.minFillSecs * 3)
+        
+        backfillAMonitor.assertDone()
+        backfillBMonitor.assertDone()
+        
+        # -- check that destServer now has the data
+        
+        # - _debug_direct read
+        finalShardMin, finalShardMax = minMaxQuery.run(destConn, read_mode='_debug_direct')
+        self.assertEqual(finalShardMin, shardMinA, 'The minium value on disk for dest server does not match the original shard: %r vs. expected: %r' % (finalShardMin, shardMinA))
+        self.assertEqual(finalShardMax, shardMaxB, 'The maximum value on disk for dest server does not match the original shard: %r vs. expected: %r' % (finalShardMax, shardMaxB))
+        
+        # - check for file on destination
+        self.assertTrue(tableUUID in os.listdir(destServer.data_path), 'destination server did not have a file for the table')
+    
+    def test_backfill_to_primary(self):
+        '''Replace the primary with an uninvolved server'''
+        
+        minMaxQuery = self.r.do([self.table.min(index=self.primaryKey)[self.primaryKey], self.table.max(index=self.primaryKey)[self.primaryKey]])
+        
+        # -- choose servers
+        
+        source = self.getPrimaryForShard(0)
+        sourceConn = self.r.connect(host=source.host, port=source.driver_port)
+        sourceMin, sourceMax = minMaxQuery.run(sourceConn, read_mode='_debug_direct')
+        
+        dest = self.unusedServer()
+        destConn = self.r.connect(host=dest.host, port=dest.driver_port)
+        
+        tableUUID = self.table.info()['id'].run(self.conn)
+        
+        # -- check that destServer does not have any data
+        
+        # - _debug_direct read
+        self.assertRaises(self.r.ReqlOpFailedError, self.table.limit(1).run, destConn, read_mode='_debug_direct')
+        
+        # - check for file on destination
+        self.assertFalse(tableUUID in os.listdir(dest.data_path), 'destination server already had a file for the table')
+        
+        # -- make dest the primary
+        
+        shardData = self.table.config()['shards'].run(self.conn)
+        self.assertEqual(shardData[0]['replicas'], [source.name], 'Current replicas for shard 0 was not just %s as expected: %s' % (source.name, pprint.pformat(shardData)))
+        shardData[0]['primary_replica'] = dest.name
+        shardData[0]['replicas'] = [dest.name]
+        self.table.config().update({'shards':shardData}).run(self.conn)
+        
+        # -- watch for the backfill to complete
+        
+        backfillMonitor = JobMonitor(self, 'backfill', source, dest, timeout=self.minFillSecs * 3)
+        backfillMonitor.assertDone()
+        
+        # -- check that destServer now has the data
+        
+        # - _debug_direct read
+        finalShardMin, finalShardMax = minMaxQuery.run(destConn, read_mode='_debug_direct')
+        self.assertEqual(finalShardMin, sourceMin, 'The minium value on disk for dest server does not match the original shard: %r vs. expected: %r' % (finalShardMin, sourceMin))
+        self.assertEqual(finalShardMax, sourceMax, 'The maximum value on disk for dest server does not match the original shard: %r vs. expected: %r' % (finalShardMax, sourceMax))
+        
+        # - check for file on destination
+        self.assertTrue(tableUUID in os.listdir(dest.data_path), 'destination server did not have a file for the table')
+        
+        # -- check that source no longer had the data
+        
+        self.table.wait().run(self.conn)
+        
+        # - _debug_direct read
+        self.assertRaises(self.r.ReqlOpFailedError, self.table.limit(1).run, sourceConn, read_mode='_debug_direct')
+        
+        # - check for file on destination
+        self.assertFalse(tableUUID in os.listdir(source.data_path), 'source server still has a file for the table')
+    
+    def test_kill_backfill_dest(self):
+        
+        minMaxQuery = self.r.do([self.table.min(index=self.primaryKey)[self.primaryKey], self.table.max(index=self.primaryKey)[self.primaryKey]])
+        
+        # -- choose servers
+        
+        source = self.getPrimaryForShard(0)
+        sourceConn = self.r.connect(host=source.host, port=source.driver_port)
+        sourceMin, sourceMax = minMaxQuery.run(sourceConn, read_mode='_debug_direct')
+        
+        dest = self.unusedServer()
+        destConn = self.r.connect(host=dest.host, port=dest.driver_port)
+        
+        tableUUID = self.table.info()['id'].run(self.conn)
+        
+        # -- check that destServer does not have any data
+        
+        # - _debug_direct read
+        self.assertRaises(self.r.ReqlOpFailedError, self.table.limit(1).run, destConn, read_mode='_debug_direct')
+        
+        # - check for file on destination
+        self.assertFalse(tableUUID in os.listdir(dest.data_path), 'destination server already had a file for the table')
+        
+        # -- start the backfill
+        
+        shardData = self.table.config()['shards'].run(self.conn)
+        self.assertEqual(shardData[0]['replicas'], [source.name], 'Current replicas for shard 0 was not just %s as expected: %s' % (source.name, pprint.pformat(shardData)))
+        shardData[0]['replicas'].append(dest.name)
+        self.table.config().update({'shards':shardData}).run(self.conn)
+        
+        # -- kill the server after a moment
+        
+        time.sleep(.2)
+        dest.stop()
+        
+        # -- start the server again and watch fo the backfill to be complete 
+        
+        dest.start()
+        
+    
+if __name__ == '__main__':
+    rdb_unittest.main()
