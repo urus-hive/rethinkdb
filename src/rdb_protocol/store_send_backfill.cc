@@ -29,8 +29,9 @@ public:
             THROWS_NOTHING {
         rassert(!inner_aborted && remaining > 0);
         --remaining;
-        rassert(key_range_t::right_bound_t(item.range.left) >=
+        guarantee(key_range_t::right_bound_t(item.range.left) >=
             *threshold_ptr);
+        guarantee(!item.range.is_empty());
         *threshold_ptr = item.range.right;
         inner_aborted =
             continue_bool_t::ABORT == inner->on_pre_item(std::move(item));
@@ -41,7 +42,7 @@ public:
             const key_range_t::right_bound_t &new_threshold) THROWS_NOTHING {
         rassert(!inner_aborted && remaining > 0);
         --remaining;
-        rassert(new_threshold >= *threshold_ptr);
+        guarantee(new_threshold > *threshold_ptr);
         *threshold_ptr = new_threshold;
         inner_aborted =
             continue_bool_t::ABORT == inner->on_empty_range(new_threshold);
@@ -156,8 +157,9 @@ public:
     continue_bool_t on_item(backfill_item_t &&item) {
         rassert(remaining > 0);
         --remaining;
-        rassert(key_range_t::right_bound_t(item.range.left) >=
+        guarantee(key_range_t::right_bound_t(item.range.left) >=
             *threshold_ptr);
+        guarantee(!item.range.is_empty());
         *threshold_ptr = item.range.right;
         inner->on_item(*metainfo_ptr, std::move(item));
         return remaining == 0
@@ -167,7 +169,7 @@ public:
             const key_range_t::right_bound_t &new_threshold) {
         rassert(remaining > 0);
         --remaining;
-        rassert(new_threshold >= *threshold_ptr);
+        guarantee(new_threshold > *threshold_ptr);
         *threshold_ptr = new_threshold;
         inner->on_empty_range(*metainfo_ptr, new_threshold);
         return remaining == 0
