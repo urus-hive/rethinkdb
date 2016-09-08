@@ -44,8 +44,9 @@ public:
         debugf("EVICTION_INTERNAL DESTRUCTED!!!!!!!!!!!!!!!!!!!!!!!!!\n");
     }
 
-    void changefeed_coro() {
-        ql::env_t fake_env(&interruptor,
+    void changefeed_coro(auto_drainer_t *changefeed_drainer) {
+        auto_drainer_t::lock_t lock(changefeed_drainer);
+        ql::env_t fake_env(lock.get_drain_signal(),
                            ql::return_empty_normal_batches_t::NO,
                            reql_version_t::LATEST,
                            auth::user_context_t(auth::permissions_t(true, true, true)));
@@ -75,6 +76,7 @@ public:
             ql::datum_t::boolean(false),
             limit);
         bool success = false;
+        bool skip_reading = false;
         counted_t<ql::datum_stream_t> stream;
 
         while (!success) {
@@ -85,10 +87,12 @@ public:
                     ss,
                     table_id,
                     ql::backtrace_id_t(),
-                    table_meta_client.get());
+                    table_meta_client);
                 success = true;
             } catch(ql::base_exc_t &ex) {
                 fprintf(stderr, "failed :( %s\n", ex.what());
+            } catch(interrupted_exc_t &ex) {
+                break;
             }
             coro_t::yield();
         }
@@ -97,7 +101,9 @@ public:
         const ql::batchspec_t test_batchspec =
             ql::batchspec_t::default_for(
                 ql::batch_type_t::NORMAL_FIRST);
-        while (!stream->is_exhausted() && !interruptor.is_pulsed()) {
+        while (!skip_reading &&
+               !stream->is_exhausted() &&
+               !interruptor.is_pulsed()) {
             try {
                 std::vector<ql::datum_t> test_datum =
                     stream->next_batch(&fake_env, test_batchspec);
@@ -128,6 +134,8 @@ public:
             } catch (ql::base_exc_t &e) {
                 // TODO: deal with this
                 debugf("Exception in eviction changefeed");
+            } catch (interrupted_exc_t) {
+                break;
             }
         }
     }
@@ -291,9 +299,9 @@ private:
 
     ql::datum_t wakeup_time;
 
-    scoped_ptr_t<namespace_repo_t> namespace_repo;
-    scoped_ptr_t<ql::changefeed::client_t> changefeed_client;
-    scoped_ptr_t<table_meta_client_t> table_meta_client;
+    namespace_repo_t *namespace_repo;
+    ql::changefeed::client_t *changefeed_client;
+    table_meta_client_t *table_meta_client;
 
     auto_drainer_t drainer;
 };
@@ -352,11 +360,12 @@ public:
                         eviction.second,
                         table_id,
                         region,
-                        namespace_repo.get(),
-                        changefeed_client.get(),
-                        table_meta_client.get());
+                        namespace_repo,
+                        changefeed_client,
+                        table_meta_client);
                 coro_t::spawn_now_dangerously([&]() {
-                        evictions[eviction.first]->changefeed_coro();
+                        evictions[eviction.first]->changefeed_coro(
+                            &(changefeed_client->drainer));
                     });
             }
         }
@@ -365,14 +374,12 @@ public:
 private:
     cond_t interruptor;
 
-    scoped_ptr_t<ql::changefeed::client_t> changefeed_client;
-    scoped_ptr_t<table_meta_client_t> table_meta_client;
-    scoped_ptr_t<namespace_repo_t> namespace_repo;
+    ql::changefeed::client_t *changefeed_client;
+    table_meta_client_t *table_meta_client;
+    namespace_repo_t *namespace_repo;
 
     std::map<std::string, scoped_ptr_t<eviction_internal_t> > evictions;
     namespace_id_t table_id;
-
-    auto_drainer_t drainer;
 };
 
 class eviction_manager_t {
@@ -420,9 +427,9 @@ public:
                 table_managers[map_key] =
                     make_scoped<table_eviction_manager_t>(
                         table_id,
-                        changefeed_client.get(),
-                        table_meta_client.get(),
-                        namespace_repo.get());
+                        changefeed_client,
+                        table_meta_client,
+                        namespace_repo);
 
                 coro_t::spawn_now_dangerously([&](){
                         table_managers[map_key]->handle_directory_change(*value);
@@ -436,9 +443,9 @@ private:
 
     peer_id_t server_id;
 
-    scoped_ptr_t<ql::changefeed::client_t> changefeed_client;
-    scoped_ptr_t<table_meta_client_t> table_meta_client;
-    scoped_ptr_t<namespace_repo_t> namespace_repo;
+    ql::changefeed::client_t *changefeed_client;
+    table_meta_client_t *table_meta_client;
+    namespace_repo_t *namespace_repo;
 
     UNUSED watchable_map_t<std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> >,
                     table_query_bcard_t> *directory;

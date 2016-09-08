@@ -249,6 +249,7 @@ private:
     // otherwise most of the calls to `new_stream` that block will see the table
     // as soon as they're woken up and won't have to do a second read.
     rwlock_t feeds_lock;
+public:
     auto_drainer_t drainer;
 };
 
