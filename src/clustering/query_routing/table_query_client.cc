@@ -3,10 +3,12 @@
 
 #include <functional>
 
+#include "arch/timing.hpp"
 #include "clustering/query_routing/primary_query_client.hpp"
 #include "clustering/table_contract/cpu_sharding.hpp"
 #include "clustering/table_manager/multi_table_manager.hpp"
 #include "concurrency/cross_thread_signal.hpp"
+#include "concurrency/exponential_backoff.hpp"
 #include "concurrency/fifo_enforcer.hpp"
 #include "concurrency/watchable.hpp"
 #include "rdb_protocol/env.hpp"
@@ -95,6 +97,44 @@ bool table_query_client_t::check_readiness(table_readiness_t readiness,
     return true;
 }
 
+void retry_query(
+        const std::function<void()> &run_query,
+        const bool retry_on_indeterminate,
+        signal_t *interruptor) {
+    // TODO! Instead of retrying the whole operation, we should
+    // retry individual shards.
+
+    // TODO! Make configurable
+    double retry_timeout = 10.0;
+
+    signal_timer_t timeout(static_cast<int64_t>(retry_timeout * 1000.0));
+    exponential_backoff_t retry_backoff(
+        10, std::max<uint64_t>(10, retry_timeout * 1000.0 / 10.0));
+    while (true) {
+        try {
+            run_query();
+            return;
+        } catch (const cannot_perform_query_exc_t &not_performed_e) {
+            if (retry_on_indeterminate
+                || not_performed_e.get_query_state() == query_state_t::FAILED) {
+                wait_any_t interrupt_signal(&timeout, interruptor);
+                try {
+                    retry_backoff.failure(&interrupt_signal);
+                } catch (const interrupted_exc_t &) {
+                    if (interruptor->is_pulsed()) {
+                        throw;
+                    } else {
+                        throw not_performed_e;
+                    }
+                }
+                // Go around the loop again
+            } else {
+                throw not_performed_e;
+            }
+        }
+    }
+}
+
 void table_query_client_t::read(
         auth::user_context_t const &user_context,
         const read_t &r,
@@ -114,21 +154,25 @@ void table_query_client_t::read(
     user_context.require_read_permission(ctx, table_basic_config.database, table_id);
 
     order_token.assert_read_mode();
-    if (r.read_mode == read_mode_t::OUTDATED) {
-        guarantee(!r.route_to_primary());
-        /* This seems kind of silly. We do it this way because
-           `dispatch_outdated_read` needs to be able to see `outdated_read_info_t`,
-           which is defined in the `private` section. */
-        dispatch_outdated_read(r, response, interruptor);
-    } else if (r.read_mode == read_mode_t::DEBUG_DIRECT) {
-        guarantee(!r.route_to_primary());
-        dispatch_debug_direct_read(r, response, interruptor);
-    } else {
-        dispatch_immediate_op<read_t, fifo_enforcer_sink_t::exit_read_t, read_response_t>(
+
+    // TODO! These invalidate the order_token, maybe
+    retry_query([&]() {
+        if (r.read_mode == read_mode_t::OUTDATED) {
+            guarantee(!r.route_to_primary());
+            /* This seems kind of silly. We do it this way because
+                `dispatch_outdated_read` needs to be able to see `outdated_read_info_t`,
+                which is defined in the `private` section. */
+            dispatch_outdated_read(r, response, interruptor);
+        } else if (r.read_mode == read_mode_t::DEBUG_DIRECT) {
+            guarantee(!r.route_to_primary());
+            dispatch_debug_direct_read(r, response, interruptor);
+        } else {
+            dispatch_immediate_op<read_t, fifo_enforcer_sink_t::exit_read_t, read_response_t>(
                 &primary_query_client_t::new_read_token,
                 &primary_query_client_t::read,
                 r, response, order_token, interruptor);
-    }
+        }
+    }, true, interruptor);
 }
 
 void table_query_client_t::write(
@@ -150,10 +194,12 @@ void table_query_client_t::write(
     user_context.require_write_permission(ctx, table_basic_config.database, table_id);
 
     order_token.assert_write_mode();
-    dispatch_immediate_op<write_t, fifo_enforcer_sink_t::exit_write_t, write_response_t>(
-        &primary_query_client_t::new_write_token,
-        &primary_query_client_t::write,
-        w, response, order_token, interruptor);
+    retry_query([&]() {
+        dispatch_immediate_op<write_t, fifo_enforcer_sink_t::exit_write_t, write_response_t>(
+            &primary_query_client_t::new_write_token,
+            &primary_query_client_t::write,
+            w, response, order_token, interruptor);
+    }, false, interruptor);
 }
 
 std::set<region_t> table_query_client_t::get_sharding_scheme()
