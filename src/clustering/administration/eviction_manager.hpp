@@ -64,7 +64,7 @@ public:
 
         range.datumspec = ql::datumspec_t(ql::datum_range_t::universe())
             .trim_secondary(region.inner, reql_version_t::LATEST);
-        debugf("Trimmed datumspec is %s\n", debug_str(range.datumspec.covering_range()).c_str());
+
         range.sindex = eviction_config.index_name;
 
         limit.range = range;
@@ -101,7 +101,10 @@ public:
                     success = true;
                 } catch(ql::base_exc_t &ex) {
                     fprintf(stderr, "failed :( %s\n", ex.what());
+                    break;
                 } catch(interrupted_exc_t &ex) {
+                    fprintf(stderr, "Interrupted :O\n");
+                    done = true;
                     break;
                 }
                 coro_t::yield();
@@ -112,6 +115,7 @@ public:
                 ql::batchspec_t::default_for(
                     ql::batch_type_t::NORMAL_FIRST);
             while (success &&
+                   !done &&
                    !stream->is_exhausted() &&
                    !waiter.is_pulsed()) {
                 coro_t::yield();
@@ -144,9 +148,10 @@ public:
                 } catch (ql::base_exc_t &e) {
                     // TODO: deal with this
                     debugf("Exception in eviction changefeed: %s", e.what());
+                    done = true;
                     break;
                 } catch (interrupted_exc_t) {
-                    done = 1;
+                    done = true;
                     break;
                 }
             }
