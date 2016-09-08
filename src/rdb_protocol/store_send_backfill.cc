@@ -42,7 +42,7 @@ public:
             const key_range_t::right_bound_t &new_threshold) THROWS_NOTHING {
         rassert(!inner_aborted && remaining > 0);
         --remaining;
-        guarantee(new_threshold > *threshold_ptr);
+        guarantee(new_threshold >= *threshold_ptr);
         *threshold_ptr = new_threshold;
         inner_aborted =
             continue_bool_t::ABORT == inner->on_empty_range(new_threshold);
@@ -169,7 +169,7 @@ public:
             const key_range_t::right_bound_t &new_threshold) {
         rassert(remaining > 0);
         --remaining;
-        guarantee(new_threshold > *threshold_ptr);
+        guarantee(new_threshold >= *threshold_ptr);
         *threshold_ptr = new_threshold;
         inner->on_empty_range(*metainfo_ptr, new_threshold);
         return remaining == 0
@@ -251,6 +251,7 @@ continue_bool_t store_t::send_backfill(
         });
     for (const auto &pair : reference_timestamps) {
         key_range_t::right_bound_t threshold(pair.first.left);
+        key_range_t::right_bound_t prev_thr = threshold;
         while (threshold != pair.first.right) {
             scoped_ptr_t<txn_t> txn;
             scoped_ptr_t<real_superblock_t> sb;
@@ -271,6 +272,9 @@ continue_bool_t store_t::send_backfill(
             continue_bool_t cont = btree_send_backfill(sb.get(),
                 release_superblock_t::RELEASE, &sizer, to_do, pair.second,
                 &pre_item_adapter, &limiter, memory_tracker, interruptor);
+
+            guarantee(threshold > prev_thr);
+            prev_thr = threshold;
 
             /* Check if the backfill was aborted because of exhausting the memory
             limit, or because the pre_item_adapter aborted.
