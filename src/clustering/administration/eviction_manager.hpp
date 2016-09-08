@@ -5,6 +5,7 @@
 #include "clustering/administration/auth/user_context.hpp"
 #include "clustering/administration/namespace_interface_repository.hpp"
 #include "clustering/query_routing/metadata.hpp"
+#include "concurrency/cross_thread_signal.hpp"
 #include "concurrency/watchable_map.hpp"
 #include "rdb_protocol/changefeed.hpp"
 #include "rdb_protocol/env.hpp"
@@ -15,7 +16,7 @@
 #include "rpc/connectivity/peer_id.hpp"
 
 
-class eviction_internal_t {
+class eviction_internal_t : home_thread_mixin_t {
 public:
     eviction_internal_t(eviction_config_t _eviction_config,
                       namespace_id_t _table_id,
@@ -46,7 +47,10 @@ public:
 
     void changefeed_coro(auto_drainer_t *changefeed_drainer) {
         auto_drainer_t::lock_t lock(changefeed_drainer);
-        ql::env_t fake_env(lock.get_drain_signal(),
+        auto_drainer_t::lock_t self_lock(&drainer);
+        cross_thread_signal_t interruptor_on_home(&interruptor, home_thread());
+        wait_any_t waiter(lock.get_drain_signal(), &interruptor_on_home);
+        ql::env_t fake_env(&waiter,
                            ql::return_empty_normal_batches_t::NO,
                            reql_version_t::LATEST,
                            auth::user_context_t(auth::permissions_t(true, true, true)));
@@ -57,6 +61,7 @@ public:
 
         range.datumspec = ql::datumspec_t(ql::datum_range_t::universe())
             .trim_secondary(region.inner, reql_version_t::LATEST);
+        debugf("Trimmed datumspec is %s\n", debug_str(range.datumspec.covering_range()).c_str());
         range.sindex = eviction_config.index_name;
 
         limit.range = range;
@@ -75,8 +80,8 @@ public:
             ql::configured_limits_t::unlimited,
             ql::datum_t::boolean(false),
             limit);
+
         bool success = false;
-        bool skip_reading = false;
         counted_t<ql::datum_stream_t> stream;
 
         while (!success) {
@@ -101,17 +106,18 @@ public:
         const ql::batchspec_t test_batchspec =
             ql::batchspec_t::default_for(
                 ql::batch_type_t::NORMAL_FIRST);
-        while (!skip_reading &&
+        while (success &&
                !stream->is_exhausted() &&
-               !interruptor.is_pulsed()) {
+               !waiter.is_pulsed()) {
+            coro_t::yield();
             try {
                 std::vector<ql::datum_t> test_datum =
                     stream->next_batch(&fake_env, test_batchspec);
 
                 // There should only be one element, which is the min
                 if (test_datum.size() > 0) {
-                    debugf("ELEMENT!\n");
                     ql::datum_t change = test_datum[0];
+                    debugf("ELEMENT: %s\n", change.print().c_str());
                     guarantee(change.has());
                     ql::datum_t new_min = change.get_field("new_val",
                                                            ql::throw_bool_t::NOTHROW);
@@ -130,14 +136,15 @@ public:
                         set_expiration(new_delay*1000);
                     }
                 }
-                coro_t::yield();
             } catch (ql::base_exc_t &e) {
                 // TODO: deal with this
-                debugf("Exception in eviction changefeed");
+                debugf("Exception in eviction changefeed: %s", e.what());
+                continue;
             } catch (interrupted_exc_t) {
                 break;
             }
         }
+        debugf("THIS IS BAD, WE'RE NOT SUPPOSED TO BE HERE\n");
     }
 
     void interrupt() {
@@ -146,7 +153,8 @@ public:
     }
 
     void on_timer() {
-        ql::env_t fake_env(&interruptor,
+        cross_thread_signal_t interruptor_on_home(&interruptor, home_thread());
+        ql::env_t fake_env(&interruptor_on_home,
                            ql::return_empty_normal_batches_t::NO,
                            reql_version_t::LATEST,
                            auth::user_context_t(auth::permissions_t(true, true, true)));
@@ -181,6 +189,7 @@ public:
         // Do read to get keys
 
         fprintf(stderr, "===== Region: %s", debug_str(region).c_str());
+        debugf("Datum Range is minval to %s\n", wakeup_time.print().c_str());
         sindex_rangespec_t sindex_rangespec(
             eviction_config.index_name,
             region,
@@ -189,7 +198,7 @@ public:
 
         rget_read_t read(
             boost::none,
-            region,
+            region_t::universe(),
             boost::none,
             boost::none,
             ql::global_optargs_t(),
@@ -206,16 +215,23 @@ public:
             profile_bool_t::DONT_PROFILE,
             read_mode_t::MAJORITY);
 
+        bool trying_read = true;
         read_response_t read_response;
-        interface_access.get()->read(
-            sudo_context,
-            between_read,
-            &read_response,
-            order_token_t::ignore,//read_token.with_read_mode(),
-            &interruptor);
-
-        // TODO: what does order_token_t actually do
-        // TODO: how do you get the keys out of the read? This is whack
+        while (trying_read) {
+            try {
+                interface_access.get()->read(
+                    sudo_context,
+                    between_read,
+                    &read_response,
+                    order_token_t::ignore,//read_token.with_read_mode(),
+                    &interruptor);
+                trying_read = false;
+            } catch (cannot_perform_query_exc_t &ex) {
+                debugf("%s\n", ex.what());
+                // Do nothing
+            }
+            coro_t::yield();
+        }
 
         auto rget_res = boost::get<rget_read_response_t>(&read_response.response);
         r_sanity_check(rget_res != nullptr);
@@ -264,12 +280,21 @@ public:
 
             write_response_t write_response;
 
-            interface_access.get()->write(
-                sudo_context,
-                replace_write,
-                &write_response,
-                order_token_t::ignore,
-            &interruptor);
+            bool trying_write = true;
+            while (trying_write) {
+                try {
+                    interface_access.get()->write(
+                        sudo_context,
+                        replace_write,
+                        &write_response,
+                        order_token_t::ignore,
+                        &interruptor);
+                    trying_write = false;
+                } catch(cannot_perform_query_exc_t &ex) {
+                    // Do nothing
+                }
+                coro_t::yield();
+            }
         }
 
         // Not sure we actually care about the response, because failed deletes will
@@ -406,25 +431,45 @@ public:
 
     ~eviction_manager_t() { }
 
-    void on_directory_change(
+    void on_directory_change_coro(
         std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> > key,
         const table_query_bcard_t *value) {
-
         namespace_id_t table_id = key.second.first;
 
-        if (value != nullptr &&
-            value->primary &&
-            key.first == server_id) {
+        if (key.first == server_id) {
+            if (value == nullptr) {
+                fprintf(stderr, "WE SHOULD HAVE DELETED SOMETHING!!!\n");
+            } else {
+                // We should care about this
+                fprintf(stderr, "-----> %s REGION: %s\n",
+                        value->primary ? "PRIMARY" : "IGNORED",
+                        debug_str(value->region).c_str());
+            }
+        }
+        bool added = false;
+        bool dropped = false;
+        if (key.first == server_id) {
+            if (value != nullptr) {
+                if (value->primary) {
+                    added = true;
+                } else {
+                    // We became a secondary, also drop it
+                    dropped = true;
+                }
+            } else {
+                // Deleted from the map, so delete it
+                dropped = true;
+            }
+        }
+        if (added) {
             // Keep our local directory updated
             region_t region = value->primary->region;
             debugf("on_directory_change region: %s\n", debug_str(region).c_str());
 
-            std::pair<namespace_id_t, region_t> map_key =
-                std::pair<namespace_id_t, region_t>(table_id, region);
-            if (table_managers.find(map_key) == table_managers.end()) {
+            if (table_managers.find(key.second) == table_managers.end()) {
                 debugf("Eviction table manager doesn't exist\n");
                 // Create new table_eviction_manager for table
-                table_managers[map_key] =
+                table_managers[key.second] =
                     make_scoped<table_eviction_manager_t>(
                         table_id,
                         changefeed_client,
@@ -432,13 +477,26 @@ public:
                         namespace_repo);
 
                 coro_t::spawn_now_dangerously([&](){
-                        table_managers[map_key]->handle_directory_change(*value);
+                        table_managers[key.second]->handle_directory_change(*value);
                     });
+            }
+        } else if (dropped) {
+            // We may not have anything but the key
+            if (table_managers.find(key.second) != table_managers.end()) {
+                table_managers.erase(key.second);
             }
         }
     }
+
+    void on_directory_change(
+        std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> > key,
+        const table_query_bcard_t *value) {
+        coro_t::spawn_now_dangerously([=]() {
+                on_directory_change_coro(key, value);
+            });
+    }
 private:
-    std::map<std::pair<namespace_id_t, region_t>,
+    std::map<std::pair<namespace_id_t, branch_id_t>,
              scoped_ptr_t<table_eviction_manager_t> > table_managers;
 
     peer_id_t server_id;

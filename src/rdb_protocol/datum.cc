@@ -1515,8 +1515,9 @@ datum_t datum_t::get_field(const char *key, throw_bool_t throw_bool) const {
 template <class json_writer_t>
 void datum_t::write_json_unchecked_stack(json_writer_t *writer) const {
     switch (get_type()) {
-    case MINVAL: rfail_datum(base_exc_t::LOGIC, "Cannot convert `r.minval` to JSON.");
-    case MAXVAL: rfail_datum(base_exc_t::LOGIC, "Cannot convert `r.maxval` to JSON.");
+    case MINVAL:
+        //rfail_datum(base_exc_t::LOGIC, "Cannot convert `r.minval` to JSON.");
+    case MAXVAL: //rfail_datum(base_exc_t::LOGIC, "Cannot convert `r.maxval` to JSON.");
     case R_NULL: writer->Null(); break;
     case R_BINARY: pseudo::encode_base64_ptype(as_binary(), writer); break;
     case R_BOOL: writer->Bool(as_bool()); break;
