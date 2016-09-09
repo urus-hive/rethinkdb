@@ -66,6 +66,7 @@ action mailbox. */
 
 class multi_table_manager_t : public home_thread_mixin_t {
 public:
+    friend class eviction_manager_t;
     multi_table_manager_t(
         const server_id_t &_server_id,
         mailbox_manager_t *_mailbox_manager,

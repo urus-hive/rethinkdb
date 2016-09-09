@@ -124,7 +124,24 @@ public:
     virtual scoped_ptr_t<val_t> eval_impl(
         scope_env_t *env, args_t *args, eval_flags_t) const {
         counted_t<table_t> table = args->arg(env, 0)->as_table();
-        return new_val(datum_t(1.0));
+
+        /* Fetch a list of all sindexes and their configs and statuses */
+        std::map<std::string, std::pair<sindex_config_t, sindex_status_t> >
+            configs_and_statuses;
+        admin_err_t error;
+        if (!env->env->reql_cluster_interface()->sindex_list(
+                table->db, name_string_t::guarantee_valid(table->name.c_str()),
+                env->env->interruptor, &error, &configs_and_statuses)) {
+            REQL_RETHROW(error);
+        }
+
+        ql::datum_array_builder_t res(ql::configured_limits_t::unlimited);
+        for (const auto &pair : configs_and_statuses) {
+            for (const auto &eviction : pair.second.first.eviction_list) {
+                res.add(ql::datum_t(datum_string_t(eviction.first)));
+            }
+        }
+        return new_val(std::move(res).to_datum());
     }
     virtual const char *name() const { return "eviction_list"; }
 };

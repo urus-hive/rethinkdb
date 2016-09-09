@@ -52,11 +52,12 @@ real_reql_cluster_interface_t::real_reql_cluster_interface_t(
             return this->m_namespace_repo.get_namespace_interface(id, interruptor);
         }),
     m_server_config_client(server_config_client),
-    eviction_manager(
+    m_eviction_manager(
         m_mailbox_manager->get_me(),
         &m_changefeed_client,
-        table_meta_client,
+        m_table_meta_client,
         &m_namespace_repo,
+        multi_table_manager,
         table_query_directory)
 {
     guarantee(m_auth_semilattice_view->home_thread() == home_thread());
@@ -1234,7 +1235,6 @@ bool real_reql_cluster_interface_t::eviction_create(
             table_config_and_shards_change_t::eviction_create_t{name, config});
         m_table_meta_client->set_config(
             table_id, table_config_and_shards_change, &interruptor_on_home);
-        eviction_manager.on_eviction_change(name, eviction_change_t::ADD);
         return true;
     } catch (const config_change_exc_t &e) {
         *error_out = admin_err_t{
@@ -1270,7 +1270,6 @@ bool real_reql_cluster_interface_t::eviction_drop(
             table_config_and_shards_change_t::eviction_drop_t{name});
         m_table_meta_client->set_config(
             table_id, table_config_and_shards_change, &interruptor_on_home);
-        eviction_manager.on_eviction_change(name, eviction_change_t::DROP);
 
         return true;
     } catch (const config_change_exc_t &e) {

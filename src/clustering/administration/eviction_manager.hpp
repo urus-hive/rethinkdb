@@ -4,6 +4,7 @@
 
 #include "clustering/administration/auth/user_context.hpp"
 #include "clustering/administration/namespace_interface_repository.hpp"
+#include "clustering/table_manager/multi_table_manager.hpp"
 #include "clustering/query_routing/metadata.hpp"
 #include "concurrency/cross_thread_signal.hpp"
 #include "concurrency/watchable_map.hpp"
@@ -22,11 +23,11 @@ public:
     friend class table_eviction_manager_t;
 
     eviction_internal_t(eviction_config_t _eviction_config,
-                      namespace_id_t _table_id,
-                      region_t _region, //TODO check type
-                      namespace_repo_t *_namespace_repo,
-                      ql::changefeed::client_t *_changefeed_client,
-                      table_meta_client_t *_table_meta_client)
+                        namespace_id_t _table_id,
+                        region_t _region, //TODO check type
+                        namespace_repo_t *_namespace_repo,
+                        ql::changefeed::client_t *_changefeed_client,
+                        table_meta_client_t *_table_meta_client)
         : eviction_config(_eviction_config),
           table_id(_table_id),
           region(_region),
@@ -343,21 +344,30 @@ private:
     auto_drainer_t drainer;
 };
 
-enum class eviction_change_t { DROP = 0, ADD = 1 };
 class table_eviction_manager_t {
 public:
-    table_eviction_manager_t(namespace_id_t _table_id,
-                             region_t _region,
-                             ql::changefeed::client_t *_changefeed_client,
-                             table_meta_client_t *_table_meta_client,
-                             namespace_repo_t *_namespace_repo)
+    table_eviction_manager_t(
+        namespace_id_t _table_id,
+        const clone_ptr_t<watchable_t<table_config_t> > &_table_config,
+        region_t _region,
+        ql::changefeed::client_t *_changefeed_client,
+        table_meta_client_t *_table_meta_client,
+        namespace_repo_t *_namespace_repo)
         : region(_region),
           changefeed_client(_changefeed_client),
           table_meta_client(_table_meta_client),
           namespace_repo(_namespace_repo),
-          table_id(_table_id) {
+          table_id(_table_id),
+          table_config(_table_config),
+          table_config_subs([this]() {
+                  coro_t::spawn_now_dangerously([this]() {
+                          handle_eviction_change();
+                      });
+              }) {
         // TODO construct changefeed to watch things we're the primary for
         fprintf(stderr, "table_eviction_manager_t\n");
+        watchable_t<table_config_t>::freeze_t freeze(table_config);
+        table_config_subs.reset(table_config, &freeze);
     }
 
     ~table_eviction_manager_t() {
@@ -365,37 +375,41 @@ public:
         interruptor.pulse();
     }
 
-    void handle_eviction_change(std::string name, eviction_change_t change) {
+    void handle_eviction_change() {
         fprintf(stderr, "table_eviction_manager for %s, handling eviction change\n",
                 debug_str(table_id).c_str());
-        table_config_and_shards_t config;
-        table_meta_client->get_config(table_id,
-                                      &interruptor,
-                                      &config);
-        std::map<std::string, sindex_config_t> sindexes = config.config.sindexes;
+        table_config_t config = table_config->get();
 
-        if (change == eviction_change_t::ADD) {
-            for (auto &pair : sindexes) {
-                auto eviction = pair.second.eviction_list.find(name);
-                if (eviction != pair.second.eviction_list.end()) {
-                    evictions[eviction->first] =
-                        make_scoped<eviction_internal_t>(
-                            eviction->second,
-                            table_id,
-                            region,
-                            namespace_repo,
-                            changefeed_client,
-                            table_meta_client);
-                    coro_t::spawn_now_dangerously([&]() {
-                            evictions[eviction->first]->changefeed_coro(
-                                &(changefeed_client->drainer));
-                        });
-                }
+        std::map<std::string, sindex_config_t> sindexes = config.sindexes;
+
+        std::map<std::string, eviction_config_t> temp_evictions;
+        for (auto sindex : sindexes) {
+            for (auto eviction : sindex.second.eviction_list) {
+                temp_evictions[eviction.first] = eviction.second;
             }
-        } else {
-            auto eviction = evictions.find(name);
-            if (eviction != evictions.end()) {
-                evictions.erase(name);
+        }
+        // TODO: this algoritm sucks
+        // Delete old evictions
+        for (auto &eviction : evictions) {
+            if (temp_evictions.find(eviction.first) == temp_evictions.end()) {
+                evictions.erase(eviction.first);
+            }
+        }
+        // Add new evictions
+        for (auto eviction : temp_evictions) {
+            if (evictions.find(eviction.first) == evictions.end()) {
+                evictions[eviction.first] =
+                    make_scoped<eviction_internal_t>(
+                        eviction.second,
+                        table_id,
+                        region,
+                        namespace_repo,
+                        changefeed_client,
+                        table_meta_client);
+                coro_t::spawn_now_dangerously([&]() {
+                        evictions[eviction.first]->changefeed_coro(
+                            &(changefeed_client->drainer));
+                    });
             }
         }
     }
@@ -405,12 +419,9 @@ public:
                 debug_str(table_id).c_str(),
                 debug_str(&value).c_str());
 
-        table_config_and_shards_t config;
-        table_meta_client->get_config(table_id,
-                                      &interruptor,
-                                      &config);
+        table_config_t config = table_config->get();
 
-        std::map<std::string, sindex_config_t> sindexes = config.config.sindexes;
+        std::map<std::string, sindex_config_t> sindexes = config.sindexes;
 
         // For each eviction/sindex, create an eviction_internal_t
 
@@ -456,6 +467,10 @@ private:
 
     std::map<std::string, scoped_ptr_t<eviction_internal_t> > evictions;
     namespace_id_t table_id;
+    scoped_ptr_t<ql::table_t> table;
+
+    clone_ptr_t<watchable_t<table_config_t> > const table_config;
+    watchable_t<table_config_t>::subscription_t table_config_subs;
 };
 
 class eviction_manager_t {
@@ -465,12 +480,14 @@ public:
         ql::changefeed::client_t *_changefeed_client,
         table_meta_client_t *_table_meta_client,
         namespace_repo_t *_namespace_repo,
+        multi_table_manager_t *_multi_table_manager,
         watchable_map_t<std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> >,
         table_query_bcard_t> *d) :
         server_id(_server_id),
         changefeed_client(_changefeed_client),
         table_meta_client(_table_meta_client),
         namespace_repo(_namespace_repo),
+        multi_table_manager(_multi_table_manager),
         directory(d),
         directory_subs(
             d,
@@ -511,6 +528,12 @@ public:
                 table_managers[key.second] =
                     make_scoped<table_eviction_manager_t>(
                         table_id,
+                        multi_table_manager->tables[table_id]
+                        ->active->get_raft()->get_committed_state()->subview(
+                            [](const raft_member_t<table_raft_state_t>
+                               ::state_and_config_t &sc) -> table_config_t {
+                                return sc.state.config.config;
+                            }),
                         region,
                         changefeed_client,
                         table_meta_client,
@@ -536,14 +559,6 @@ public:
             });
     }
 
-    void on_eviction_change(std::string eviction_name, eviction_change_t change) {
-        for (auto pair = table_managers.begin(); pair != table_managers.end(); ++pair) {
-            debugf("Updating evictions!\n");
-            coro_t::spawn_now_dangerously([=]() {
-                    pair->second->handle_eviction_change(eviction_name, change);
-                });
-        }
-    }
 private:
     std::map<std::pair<namespace_id_t, branch_id_t>,
              scoped_ptr_t<table_eviction_manager_t> > table_managers;
@@ -553,6 +568,8 @@ private:
     ql::changefeed::client_t *changefeed_client;
     table_meta_client_t *table_meta_client;
     namespace_repo_t *namespace_repo;
+
+    multi_table_manager_t *multi_table_manager;
 
     UNUSED watchable_map_t<std::pair<peer_id_t, std::pair<namespace_id_t, branch_id_t> >,
                            table_query_bcard_t> *directory;

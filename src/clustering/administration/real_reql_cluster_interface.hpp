@@ -286,7 +286,7 @@ private:
     ql::changefeed::client_t m_changefeed_client;
     server_config_client_t *m_server_config_client;
 
-    eviction_manager_t eviction_manager;
+    eviction_manager_t m_eviction_manager;
 
     void wait_for_cluster_metadata_to_propagate(
             const cluster_semilattice_metadata_t &metadata,
