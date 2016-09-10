@@ -634,6 +634,7 @@ void server_t::foreach_limit(
             auto_drainer_t::lock_t lc_lock(&(*lc)->drainer);
             rwlock_in_line_t lc_spot(&(*lc)->lock, access_t::write);
             lc_spot.write_signal()->wait_lazily_unordered();
+            boost::optional<exc_t> error;
             try {
                 if ((*lc)->sindex_id != sindex_id) {
                     // Abort limit managers that don't match the index ID.
@@ -647,7 +648,10 @@ void server_t::foreach_limit(
                 }
                 f(spot.get(), &lspot, &lc_spot, (*lc).get());
             } catch (const exc_t &e) {
-                (*lc)->abort(e);
+                error = e;
+            }
+            if (error) {
+                (*lc)->abort(*error);
                 auto_drainer_t::lock_t sub_keepalive(keepalive);
                 auto sub_spot = make_scoped<rwlock_in_line_t>(
                     &clients_lock, access_t::read);
