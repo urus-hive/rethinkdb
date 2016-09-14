@@ -796,6 +796,44 @@ private:
     std::string table_name;
 };
 
+class vector_reader_t : public reader_t {
+public:
+    explicit vector_reader_t(std::vector<datum_t> &&_items) :
+        finished(false) {
+        for (auto it = _items.begin(); it != _items.end(); ++it) {
+            rget_item_t item;
+            item.data = std::move(*it);
+            items.push_back(std::move(item));
+        }
+    }
+    virtual ~vector_reader_t() {}
+    virtual void add_transformation(transform_variant_t &&) {}
+    virtual bool add_stamp(changefeed_stamp_t) {
+        r_sanity_fail();
+    }
+    virtual boost::optional<active_state_t> get_active_state() {
+        r_sanity_fail();
+    }
+    virtual void accumulate(env_t *, eager_acc_t *, const terminal_variant_t &) {}
+    virtual void accumulate_all(env_t *, eager_acc_t *) {}
+    virtual std::vector<datum_t> next_batch(env_t *, const batchspec_t &) {
+        return std::vector<datum_t>();
+    }
+    std::vector<rget_item_t> raw_next_batch(
+        env_t *, const batchspec_t &) final {
+        return std::move(items);
+        finished = true;
+    }
+    virtual bool is_finished() const {
+        return true;
+    }
+    virtual changefeed::keyspec_t get_changespec() const;
+
+private:
+    std::vector<rget_item_t> items;
+    bool finished;
+};
+
 // For reads that generate read_response_t results.
 class rget_response_reader_t : public reader_t {
 public:
