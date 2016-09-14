@@ -5,7 +5,6 @@
 #include "rdb_protocol/artificial_table/backend.hpp"
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/func.hpp"
-#include "rdb_protocol/shards.hpp"
 #include "rdb_protocol/table_common.hpp"
 
 /* Determines how many coroutines we spawn for a batched replace or insert. */
@@ -141,7 +140,7 @@ scoped_ptr_t<ql::reader_t> artificial_table_t::read_all_with_sindexes(
     std::vector<ql::datum_t> items_vector;
 
     for (size_t i = 0; i < items.arr_size(); ++i) {
-        items_vector.push_back(items.get(i));
+        items_vector.push_back(std::move(items.get(i)));
     }
 
     return make_scoped<ql::vector_reader_t>(std::move(items_vector));
