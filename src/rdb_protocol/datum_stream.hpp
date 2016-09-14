@@ -825,7 +825,7 @@ public:
         finished = true;
     }
     virtual bool is_finished() const {
-        return true;
+        return finished;
     }
     virtual changefeed::keyspec_t get_changespec() const;
 
