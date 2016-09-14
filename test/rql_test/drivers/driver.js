@@ -706,7 +706,7 @@ function anything() {
     }
     fun.hasDesc = true;
     fun.toString = function() {
-        return 'Always true';
+        return '<no error>';
     }
     fun.toJSON = fun.toString;
     return fun;

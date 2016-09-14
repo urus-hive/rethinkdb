@@ -122,7 +122,7 @@ class Anything(object):
         return cls.__instance 
     
     def __str__(self):
-        return "anything()"
+        return "<no error>"
     
     def __repr__(self):
         return self.__str__()
