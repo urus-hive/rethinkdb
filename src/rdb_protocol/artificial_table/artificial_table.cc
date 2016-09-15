@@ -126,6 +126,7 @@ scoped_ptr_t<ql::reader_t> artificial_table_t::read_all_with_sindexes(
         sorting_t sorting,
         read_mode_t read_mode) {
     // This is because eq_join needs to get a reader.
+    r_sanity_check(sindex == get_pkey());
     counted_t<ql::datum_stream_t> datum_stream =
         read_all(env, sindex, bt, table_name, datumspec, sorting, read_mode);
 
