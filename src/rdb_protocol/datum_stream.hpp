@@ -832,13 +832,16 @@ public:
             item.data = std::move(*it);
             rget_items.push_back(std::move(item));
         }
+        items.clear();
         finished = true;
         return std::move(rget_items);
     }
     virtual bool is_finished() const {
         return finished;
     }
-    virtual changefeed::keyspec_t get_changespec() const;
+    virtual changefeed::keyspec_t get_changespec() const {
+        r_sanity_fail();
+    }
 
 private:
     bool finished;

@@ -350,10 +350,6 @@ changefeed::keyspec_t empty_reader_t::get_changespec() const {
         table_name);
 }
 
-changefeed::keyspec_t vector_reader_t::get_changespec() const {
-    r_sanity_fail();
-}
-
 raw_stream_t rget_response_reader_t::unshard(
     sorting_t sorting,
     rget_read_response_t &&res) {
