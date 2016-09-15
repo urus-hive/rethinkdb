@@ -42,8 +42,8 @@ scoped_ptr_t<ql::reader_t> real_table_t::read_all_with_sindexes(
         const ql::datumspec_t &datumspec,
         sorting_t sorting,
         read_mode_t read_mode) {
-    // This is a separate method becuase we need the sindex values from the rget_reader_t
-    // in order to make the algoritm in eq_join work. The other method sometimes does
+    // This is a separate method because we need the sindex values from the rget_reader_t
+    // in order to make the algorithm in eq_join work. The other method sometimes does
     // not fill in this information.
 
     if (datumspec.is_empty()) {
