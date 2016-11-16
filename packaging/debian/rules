@@ -18,7 +18,7 @@ install: build
 
 build:
 	./configure
-	$(MAKE) DEBUG=$(DEBUG) PVERSION=$(PVERSION) VERBOSE=1 SYMBOLS=1
+	$(MAKE) DEBUG=$(DEBUG) PVERSION=$(PVERSION) VERBOSE=1 SYMBOLS=1 ALLOW_WARNINGS=1
 	touch build
 
 binary-indep: install
