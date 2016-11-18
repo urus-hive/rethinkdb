@@ -1,0 +1,9 @@
+diff -ruN --label original original ./build/gyp/gyp
+--- original
++++ ./build/gyp/gyp	2016-11-17 15:07:42.616409368 -0500
+@@ -1,4 +1,4 @@
+-#!/bin/bash
++#!/usr/bin/env bash
+ # Copyright 2013 The Chromium Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
