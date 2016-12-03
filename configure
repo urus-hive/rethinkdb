@@ -18,7 +18,7 @@ init () {
     min_coffee_version=1.7.0
     max_coffee_version=99.99.99
     min_browserify_version=13.0.0
-    max_browserify_version=13.1.0
+    max_browserify_version=13.1.1
     min_python_version=2.6.0
     
     osx_min_version=10.7
