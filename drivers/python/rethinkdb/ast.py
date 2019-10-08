@@ -44,7 +44,7 @@ class Repl(object):
     def set(cls, conn):
         cls.threadData.repl = conn
         cls.replActive = True
-    
+
     @classmethod
     def clear(cls):
         if 'repl' in cls.threadData.__dict__:
@@ -252,6 +252,24 @@ class RqlQuery(object):
 
     def mod(self, *args):
         return Mod(self, *args)
+
+    def bit_and(self, *args):
+        return BitAnd(self, *args)
+
+    def bit_or(self, *args):
+        return BitOr(self, *args)
+
+    def bit_xor(self, *args):
+        return BitXor(self, *args)
+
+    def bit_not(self, *args):
+        return BitNot(self, *args)
+
+    def bit_sal(self, *args):
+        return BitSal(self, *args)
+
+    def bit_sar(self, *args):
+        return BitSar(self, *args)
 
     def floor(self, *args):
         return Floor(self, *args)
@@ -736,11 +754,9 @@ class ReQLDecoder(py_json.JSONDecoder):
                                    'have expected field "epoch_time".')
                                   % py_json.dumps(obj))
 
-        if 'timezone' in obj:
-            return datetime.datetime.fromtimestamp(obj['epoch_time'],
-                                                   RqlTzinfo(obj['timezone']))
-        else:
-            return datetime.datetime.utcfromtimestamp(obj['epoch_time'])
+        tzinfo = RqlTzinfo(obj["timezone"]) if "timezone" in obj else None
+        tz_epoch = datetime.datetime(1970, 1, 1, tzinfo=tzinfo)
+        return tz_epoch + datetime.timedelta(0, 0, 0, obj["epoch_time"])
 
     def convert_grouped_data(self, obj):
         if 'data' not in obj:
@@ -952,6 +968,36 @@ class Div(RqlBiOperQuery):
 class Mod(RqlBiOperQuery):
     tt = pTerm.MOD
     st = "%"
+
+
+class BitAnd(RqlBiOperQuery):
+    tt = pTerm.BIT_AND
+    st = "bit_and"
+
+
+class BitOr(RqlBiOperQuery):
+    tt = pTerm.BIT_OR
+    st = "bit_or"
+
+
+class BitXor(RqlBiOperQuery):
+    tt = pTerm.BIT_XOR
+    st = "bit_xor"
+
+
+class BitNot(RqlMethodQuery):
+    tt = pTerm.BIT_NOT
+    st = "bit_not"
+
+
+class BitSal(RqlBiOperQuery):
+    tt = pTerm.BIT_SAL
+    st = "bit_sal"
+
+
+class BitSar(RqlBiOperQuery):
+    tt = pTerm.BIT_SAR
+    st = "bit_sar"
 
 
 class Floor(RqlMethodQuery):
@@ -1525,7 +1571,6 @@ class Sync(RqlMethodQuery):
 class Grant(RqlMethodQuery):
     tt = pTerm.GRANT
     st = 'grant'
-
 
 class GrantTL(RqlTopLevelQuery):
     tt = pTerm.GRANT

@@ -7,7 +7,7 @@
 #include "rdb_protocol/env.hpp"
 #include "rdb_protocol/func.hpp"
 #include "rdb_protocol/protocol.hpp"
-#include "rdb_protocol/ql2.pb.h"
+#include "rdb_protocol/ql2proto.hpp"
 #include "rdb_protocol/term_walker.hpp"
 #include "stl_utils.hpp"
 
@@ -237,9 +237,15 @@ archive_result_t deserialize<cluster_version_t::v2_3>(
 }
 
 template <>
-archive_result_t deserialize<cluster_version_t::v2_4_is_latest>(
+archive_result_t deserialize<cluster_version_t::v2_4>(
         read_stream_t *s, wire_func_t *wf) {
-    return deserialize_wire_func<cluster_version_t::v2_4_is_latest>(s, wf);
+    return deserialize_wire_func<cluster_version_t::v2_4>(s, wf);
+}
+
+template <>
+archive_result_t deserialize<cluster_version_t::v2_5_is_latest>(
+        read_stream_t *s, wire_func_t *wf) {
+    return deserialize_wire_func<cluster_version_t::v2_5_is_latest>(s, wf);
 }
 
 template <cluster_version_t W>

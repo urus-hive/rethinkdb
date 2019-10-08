@@ -107,8 +107,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_0(type_t) RDB_MAKE_SERIALIZABLE_0(type_t); \
 
 #define RDB_IMPL_SERIALIZABLE_0_FOR_CLUSTER(type_t) \
-    RDB_MAKE_SERIALIZABLE_0_FOR_CLUSTER(type_t); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_0_FOR_CLUSTER(type_t);
 
 #define RDB_IMPL_SERIALIZABLE_0_SINCE_v1_13(type_t) \
     RDB_IMPL_SERIALIZABLE_0(type_t); \
@@ -133,6 +132,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_0_SINCE_v2_4(type_t) \
     RDB_IMPL_SERIALIZABLE_0(type_t); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_0_SINCE_v2_5(type_t) \
+    RDB_IMPL_SERIALIZABLE_0(type_t); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_0(type_t) \
     template <cluster_version_t W> \
     friend void serialize(UNUSED write_message_t *wm, UNUSED const type_t &thing) { \
@@ -177,8 +180,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_1(type_t, field1) RDB_MAKE_SERIALIZABLE_1(type_t, field1); \
 
 #define RDB_IMPL_SERIALIZABLE_1_FOR_CLUSTER(type_t, field1) \
-    RDB_MAKE_SERIALIZABLE_1_FOR_CLUSTER(type_t, field1); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_1_FOR_CLUSTER(type_t, field1);
 
 #define RDB_IMPL_SERIALIZABLE_1_SINCE_v1_13(type_t, field1) \
     RDB_IMPL_SERIALIZABLE_1(type_t, field1); \
@@ -203,6 +205,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_1_SINCE_v2_4(type_t, field1) \
     RDB_IMPL_SERIALIZABLE_1(type_t, field1); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_1_SINCE_v2_5(type_t, field1) \
+    RDB_IMPL_SERIALIZABLE_1(type_t, field1); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_1(type_t, field1) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -257,8 +263,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_2(type_t, field1, field2) RDB_MAKE_SERIALIZABLE_2(type_t, field1, field2); \
 
 #define RDB_IMPL_SERIALIZABLE_2_FOR_CLUSTER(type_t, field1, field2) \
-    RDB_MAKE_SERIALIZABLE_2_FOR_CLUSTER(type_t, field1, field2); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_2_FOR_CLUSTER(type_t, field1, field2);
 
 #define RDB_IMPL_SERIALIZABLE_2_SINCE_v1_13(type_t, field1, field2) \
     RDB_IMPL_SERIALIZABLE_2(type_t, field1, field2); \
@@ -283,6 +288,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_2_SINCE_v2_4(type_t, field1, field2) \
     RDB_IMPL_SERIALIZABLE_2(type_t, field1, field2); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_2_SINCE_v2_5(type_t, field1, field2) \
+    RDB_IMPL_SERIALIZABLE_2(type_t, field1, field2); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_2(type_t, field1, field2) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -347,8 +356,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_3(type_t, field1, field2, field3) RDB_MAKE_SERIALIZABLE_3(type_t, field1, field2, field3); \
 
 #define RDB_IMPL_SERIALIZABLE_3_FOR_CLUSTER(type_t, field1, field2, field3) \
-    RDB_MAKE_SERIALIZABLE_3_FOR_CLUSTER(type_t, field1, field2, field3); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_3_FOR_CLUSTER(type_t, field1, field2, field3);
 
 #define RDB_IMPL_SERIALIZABLE_3_SINCE_v1_13(type_t, field1, field2, field3) \
     RDB_IMPL_SERIALIZABLE_3(type_t, field1, field2, field3); \
@@ -373,6 +381,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_3_SINCE_v2_4(type_t, field1, field2, field3) \
     RDB_IMPL_SERIALIZABLE_3(type_t, field1, field2, field3); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_3_SINCE_v2_5(type_t, field1, field2, field3) \
+    RDB_IMPL_SERIALIZABLE_3(type_t, field1, field2, field3); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_3(type_t, field1, field2, field3) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -447,8 +459,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_4(type_t, field1, field2, field3, field4) RDB_MAKE_SERIALIZABLE_4(type_t, field1, field2, field3, field4); \
 
 #define RDB_IMPL_SERIALIZABLE_4_FOR_CLUSTER(type_t, field1, field2, field3, field4) \
-    RDB_MAKE_SERIALIZABLE_4_FOR_CLUSTER(type_t, field1, field2, field3, field4); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_4_FOR_CLUSTER(type_t, field1, field2, field3, field4);
 
 #define RDB_IMPL_SERIALIZABLE_4_SINCE_v1_13(type_t, field1, field2, field3, field4) \
     RDB_IMPL_SERIALIZABLE_4(type_t, field1, field2, field3, field4); \
@@ -473,6 +484,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_4_SINCE_v2_4(type_t, field1, field2, field3, field4) \
     RDB_IMPL_SERIALIZABLE_4(type_t, field1, field2, field3, field4); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_4_SINCE_v2_5(type_t, field1, field2, field3, field4) \
+    RDB_IMPL_SERIALIZABLE_4(type_t, field1, field2, field3, field4); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_4(type_t, field1, field2, field3, field4) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -557,8 +572,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_5(type_t, field1, field2, field3, field4, field5) RDB_MAKE_SERIALIZABLE_5(type_t, field1, field2, field3, field4, field5); \
 
 #define RDB_IMPL_SERIALIZABLE_5_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5) \
-    RDB_MAKE_SERIALIZABLE_5_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_5_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5);
 
 #define RDB_IMPL_SERIALIZABLE_5_SINCE_v1_13(type_t, field1, field2, field3, field4, field5) \
     RDB_IMPL_SERIALIZABLE_5(type_t, field1, field2, field3, field4, field5); \
@@ -583,6 +597,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_5_SINCE_v2_4(type_t, field1, field2, field3, field4, field5) \
     RDB_IMPL_SERIALIZABLE_5(type_t, field1, field2, field3, field4, field5); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_5_SINCE_v2_5(type_t, field1, field2, field3, field4, field5) \
+    RDB_IMPL_SERIALIZABLE_5(type_t, field1, field2, field3, field4, field5); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_5(type_t, field1, field2, field3, field4, field5) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -677,8 +695,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_6(type_t, field1, field2, field3, field4, field5, field6) RDB_MAKE_SERIALIZABLE_6(type_t, field1, field2, field3, field4, field5, field6); \
 
 #define RDB_IMPL_SERIALIZABLE_6_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6) \
-    RDB_MAKE_SERIALIZABLE_6_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_6_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6);
 
 #define RDB_IMPL_SERIALIZABLE_6_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6) \
     RDB_IMPL_SERIALIZABLE_6(type_t, field1, field2, field3, field4, field5, field6); \
@@ -703,6 +720,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_6_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6) \
     RDB_IMPL_SERIALIZABLE_6(type_t, field1, field2, field3, field4, field5, field6); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_6_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6) \
+    RDB_IMPL_SERIALIZABLE_6(type_t, field1, field2, field3, field4, field5, field6); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_6(type_t, field1, field2, field3, field4, field5, field6) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -807,8 +828,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_7(type_t, field1, field2, field3, field4, field5, field6, field7) RDB_MAKE_SERIALIZABLE_7(type_t, field1, field2, field3, field4, field5, field6, field7); \
 
 #define RDB_IMPL_SERIALIZABLE_7_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7) \
-    RDB_MAKE_SERIALIZABLE_7_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_7_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7);
 
 #define RDB_IMPL_SERIALIZABLE_7_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7) \
     RDB_IMPL_SERIALIZABLE_7(type_t, field1, field2, field3, field4, field5, field6, field7); \
@@ -833,6 +853,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_7_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7) \
     RDB_IMPL_SERIALIZABLE_7(type_t, field1, field2, field3, field4, field5, field6, field7); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_7_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7) \
+    RDB_IMPL_SERIALIZABLE_7(type_t, field1, field2, field3, field4, field5, field6, field7); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_7(type_t, field1, field2, field3, field4, field5, field6, field7) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -947,8 +971,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_8(type_t, field1, field2, field3, field4, field5, field6, field7, field8) RDB_MAKE_SERIALIZABLE_8(type_t, field1, field2, field3, field4, field5, field6, field7, field8); \
 
 #define RDB_IMPL_SERIALIZABLE_8_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8) \
-    RDB_MAKE_SERIALIZABLE_8_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_8_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8);
 
 #define RDB_IMPL_SERIALIZABLE_8_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8) \
     RDB_IMPL_SERIALIZABLE_8(type_t, field1, field2, field3, field4, field5, field6, field7, field8); \
@@ -973,6 +996,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_8_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8) \
     RDB_IMPL_SERIALIZABLE_8(type_t, field1, field2, field3, field4, field5, field6, field7, field8); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_8_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8) \
+    RDB_IMPL_SERIALIZABLE_8(type_t, field1, field2, field3, field4, field5, field6, field7, field8); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_8(type_t, field1, field2, field3, field4, field5, field6, field7, field8) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -1097,8 +1124,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_9(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9) RDB_MAKE_SERIALIZABLE_9(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9); \
 
 #define RDB_IMPL_SERIALIZABLE_9_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9) \
-    RDB_MAKE_SERIALIZABLE_9_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_9_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9);
 
 #define RDB_IMPL_SERIALIZABLE_9_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9) \
     RDB_IMPL_SERIALIZABLE_9(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9); \
@@ -1123,6 +1149,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_9_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9) \
     RDB_IMPL_SERIALIZABLE_9(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_9_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9) \
+    RDB_IMPL_SERIALIZABLE_9(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_9(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -1257,8 +1287,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_10(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10) RDB_MAKE_SERIALIZABLE_10(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10); \
 
 #define RDB_IMPL_SERIALIZABLE_10_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10) \
-    RDB_MAKE_SERIALIZABLE_10_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_10_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10);
 
 #define RDB_IMPL_SERIALIZABLE_10_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10) \
     RDB_IMPL_SERIALIZABLE_10(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10); \
@@ -1283,6 +1312,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_10_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10) \
     RDB_IMPL_SERIALIZABLE_10(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_10_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10) \
+    RDB_IMPL_SERIALIZABLE_10(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_10(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -1427,8 +1460,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_11(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11) RDB_MAKE_SERIALIZABLE_11(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11); \
 
 #define RDB_IMPL_SERIALIZABLE_11_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11) \
-    RDB_MAKE_SERIALIZABLE_11_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_11_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11);
 
 #define RDB_IMPL_SERIALIZABLE_11_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11) \
     RDB_IMPL_SERIALIZABLE_11(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11); \
@@ -1453,6 +1485,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_11_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11) \
     RDB_IMPL_SERIALIZABLE_11(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_11_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11) \
+    RDB_IMPL_SERIALIZABLE_11(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_11(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -1607,8 +1643,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_12(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12) RDB_MAKE_SERIALIZABLE_12(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12); \
 
 #define RDB_IMPL_SERIALIZABLE_12_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12) \
-    RDB_MAKE_SERIALIZABLE_12_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_12_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12);
 
 #define RDB_IMPL_SERIALIZABLE_12_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12) \
     RDB_IMPL_SERIALIZABLE_12(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12); \
@@ -1633,6 +1668,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_12_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12) \
     RDB_IMPL_SERIALIZABLE_12(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_12_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12) \
+    RDB_IMPL_SERIALIZABLE_12(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_12(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -1797,8 +1836,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13) RDB_MAKE_SERIALIZABLE_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13); \
 
 #define RDB_IMPL_SERIALIZABLE_13_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13) \
-    RDB_MAKE_SERIALIZABLE_13_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_13_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13);
 
 #define RDB_IMPL_SERIALIZABLE_13_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13) \
     RDB_IMPL_SERIALIZABLE_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13); \
@@ -1823,6 +1861,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_13_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13) \
     RDB_IMPL_SERIALIZABLE_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_13_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13) \
+    RDB_IMPL_SERIALIZABLE_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -1997,8 +2039,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_14(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14) RDB_MAKE_SERIALIZABLE_14(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14); \
 
 #define RDB_IMPL_SERIALIZABLE_14_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14) \
-    RDB_MAKE_SERIALIZABLE_14_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_14_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14);
 
 #define RDB_IMPL_SERIALIZABLE_14_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14) \
     RDB_IMPL_SERIALIZABLE_14(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14); \
@@ -2023,6 +2064,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_14_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14) \
     RDB_IMPL_SERIALIZABLE_14(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_14_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14) \
+    RDB_IMPL_SERIALIZABLE_14(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_14(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -2207,8 +2252,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_15(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15) RDB_MAKE_SERIALIZABLE_15(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15); \
 
 #define RDB_IMPL_SERIALIZABLE_15_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15) \
-    RDB_MAKE_SERIALIZABLE_15_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_15_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15);
 
 #define RDB_IMPL_SERIALIZABLE_15_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15) \
     RDB_IMPL_SERIALIZABLE_15(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15); \
@@ -2233,6 +2277,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_15_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15) \
     RDB_IMPL_SERIALIZABLE_15(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_15_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15) \
+    RDB_IMPL_SERIALIZABLE_15(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_15(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -2427,8 +2475,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_16(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16) RDB_MAKE_SERIALIZABLE_16(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16); \
 
 #define RDB_IMPL_SERIALIZABLE_16_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16) \
-    RDB_MAKE_SERIALIZABLE_16_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_16_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16);
 
 #define RDB_IMPL_SERIALIZABLE_16_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16) \
     RDB_IMPL_SERIALIZABLE_16(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16); \
@@ -2453,6 +2500,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_16_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16) \
     RDB_IMPL_SERIALIZABLE_16(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_16_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16) \
+    RDB_IMPL_SERIALIZABLE_16(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_16(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -2657,8 +2708,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_17(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17) RDB_MAKE_SERIALIZABLE_17(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17); \
 
 #define RDB_IMPL_SERIALIZABLE_17_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17) \
-    RDB_MAKE_SERIALIZABLE_17_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_17_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17);
 
 #define RDB_IMPL_SERIALIZABLE_17_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17) \
     RDB_IMPL_SERIALIZABLE_17(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17); \
@@ -2683,6 +2733,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_17_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17) \
     RDB_IMPL_SERIALIZABLE_17(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_17_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17) \
+    RDB_IMPL_SERIALIZABLE_17(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_17(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -2897,8 +2951,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_18(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18) RDB_MAKE_SERIALIZABLE_18(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18); \
 
 #define RDB_IMPL_SERIALIZABLE_18_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18) \
-    RDB_MAKE_SERIALIZABLE_18_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_18_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18);
 
 #define RDB_IMPL_SERIALIZABLE_18_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18) \
     RDB_IMPL_SERIALIZABLE_18(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18); \
@@ -2923,6 +2976,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_18_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18) \
     RDB_IMPL_SERIALIZABLE_18(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_18_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18) \
+    RDB_IMPL_SERIALIZABLE_18(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_18(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \
@@ -3147,8 +3204,7 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_19(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19) RDB_MAKE_SERIALIZABLE_19(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19); \
 
 #define RDB_IMPL_SERIALIZABLE_19_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19) \
-    RDB_MAKE_SERIALIZABLE_19_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19); \
-    INSTANTIATE_SERIALIZABLE_FOR_CLUSTER(type_t);
+    RDB_MAKE_SERIALIZABLE_19_FOR_CLUSTER(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19);
 
 #define RDB_IMPL_SERIALIZABLE_19_SINCE_v1_13(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19) \
     RDB_IMPL_SERIALIZABLE_19(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19); \
@@ -3173,6 +3229,10 @@ struct always_false
 #define RDB_IMPL_SERIALIZABLE_19_SINCE_v2_4(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19) \
     RDB_IMPL_SERIALIZABLE_19(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19); \
     INSTANTIATE_SERIALIZABLE_SINCE_v2_4(type_t)
+
+#define RDB_IMPL_SERIALIZABLE_19_SINCE_v2_5(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19) \
+    RDB_IMPL_SERIALIZABLE_19(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19); \
+    INSTANTIATE_SERIALIZABLE_SINCE_v2_5(type_t)
 #define RDB_MAKE_ME_SERIALIZABLE_19(type_t, field1, field2, field3, field4, field5, field6, field7, field8, field9, field10, field11, field12, field13, field14, field15, field16, field17, field18, field19) \
     template <cluster_version_t W> \
     friend void serialize(write_message_t *wm, const type_t &thing) { \

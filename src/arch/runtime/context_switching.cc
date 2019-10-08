@@ -209,70 +209,104 @@ bool artificial_stack_context_ref_t::is_nil() {
 artificial_stack_t::artificial_stack_t(void (*initial_fun)(void), size_t _stack_size)
     : stack(_stack_size), stack_size(_stack_size), overflow_protection_enabled(false) {
 
-    /* Tell the operating system that it can unmap the stack space
-    (except for the first page, which we are definitely going to need).
-    This is an optimization to keep memory consumption in check. */
+    // Tell the operating system that it can unmap the stack space
+    // (except for the first page, which we are definitely going to need).
+    // This is an optimization to keep memory consumption in check.
     guarantee(stack_size >= static_cast<size_t>(getpagesize()));
     madvise(stack.get(), stack_size - getpagesize(), MADV_DONTNEED);
 
-    /* Register our stack with Valgrind so that it understands what's going on
-    and doesn't create spurious errors */
+    // Register our stack with Valgrind so that it understands what's going on
+    // and doesn't create spurious errors.
 #ifdef VALGRIND
     valgrind_stack_id = VALGRIND_STACK_REGISTER(stack.get(), (intptr_t)stack.get() + stack_size);
 #endif
 
-    /* Set up the stack... */
+    // Setup the new stack (grows downwards).
+    //
+    // +---------------+ <- (1) initial sp.
+    // |               |
+    // +---------------+ <- (2) sp aligned as needed.
+    // |               |
+    // +---------------+ <- (3) sp after allocating (fake) caller stack frame;
+    // |  initial_fun  |    will be the stack pointer at entry to initial_fun.
+    // +---------------+ <- (4) sp after pushing the return address, initial_fun.
+    // |               |
+    // |  callee-save  |
+    // |   registers   |
+    // |               |
+    // +---------------+ <- (5) sp after allocating space for callee-save registers.
+    //
+    // When swapcontext is called it will pop the callee-save registers off of the
+    // stack (may be junk), pop initial_fun off the stack and then jump to initial_fun.
+    uintptr_t *sp;
 
-    uintptr_t *sp; /* A pointer into the stack. Note that uintptr_t is ideal since it points to something of the same size as the native word or pointer. */
-
-    /* Start at the beginning. */
+    // (1) initialize sp to point at the top of the stack.
     sp = reinterpret_cast<uintptr_t *>(uintptr_t(stack.get()) + stack_size);
 
-    /* Align stack. The x86-64 ABI requires the stack pointer to always be
-    16-byte-aligned at function calls. That is, "(%rsp - 8) is always a multiple
-    of 16 when control is transferred to the function entry point". */
+    // (2) align sp to meet platform ABI requirements.
+    // Note: not all platforms require 16-byte alignment, but it is easier to do it
+    // everywhere.
     sp = reinterpret_cast<uintptr_t *>(uintptr_t(sp) & static_cast<uintptr_t>(-16L));
 
-    // Currently sp is 16-byte aligned.
+    // (3) allocate caller stack frame.
+#if defined(__i386__) || defined(__x86_64__)
+    // The x86-64 ABI requires the stack pointer to always be 16-byte-aligned at
+    // function calls. That is, "(%rsp - 8) is always a multiple of 16 when control
+    // is transferred to the function entry point".
+    const size_t min_frame = 1;
+#elif defined(__s390x__)
+    // The s390x ABI requires a 160-byte caller allocated register save area.
+    const size_t min_frame = 20;
+#elif defined(__arm__)
+    // This slot is used to store r12.
+    const size_t min_frame = 1;
+#elif defined(__arm64__)
+    // The ARM64 ABI requires the stack pointer to always be 16-byte-aligned at
+    // all registers.
+    const size_t min_frame = 1;
+#elif defined(__powerpc64__)
+    const size_t min_frame = 4;
+#endif
+    // Zero the caller stack frame. Prevents Valgrind complaining about uninitialized
+    // value errors when throwing an uncaught exception.
+    for (size_t i = 0; i < min_frame; i++) {
+        sp--;
+        *sp = 0;
+    }
 
-    /* Set up the instruction pointer; this will be popped off the stack by ret (or popped
-    explicitly, for ARM) in swapcontext once all the other registers have been "restored". */
+    // (4) write the return address to the stack.
     sp--;
-
-    /* This seems to prevent Valgrind from complaining about uninitialized value
-    errors when throwing an uncaught exception. My assembly-fu isn't strong
-    enough to explain why, though. */
-    /* Also, on ARM, this gets popped into `r12` */
-    *sp = 0;
-
-    sp--;
-
-    // Subtracted 2*sizeof(uintptr_t), so sp is still double-word-size (16-byte for amd64) aligned.
-
     *sp = reinterpret_cast<uintptr_t>(initial_fun);
 
+    // (5) allocate space for callee-save registers. These will be popped off the
+    // stack by swapcontext but initial_fun should ignore their contents so we
+    // don't initialize them to anything.
+    // See swapcontext for more information about the way registers are restored.
 #if defined(__i386__)
-    /* For i386, we are obligated (by the A.B.I. specification) to preserve esi, edi, ebx, ebp, and esp. We do not push esp onto the stack, though, since we will have needed to retrieve it anyway in order to get to the point on the stack from which we would pop. */
-    sp -= 4;
+    sp -= 4; // esi, edi, ebx and ebp.
 #elif defined(__x86_64__)
-    /* These registers (r12, r13, r14, r15, rbx, rbp) are going to be popped off
-    the stack by swapcontext; they're callee-saved, so whatever happens to be in
-    them will be ignored. */
-    sp -= 6;
+    sp -= 6; // r12-r15, rbx and rbp.
 #elif defined(__arm__)
-    /* We must preserve r4, r5, r6, r7, r8, r9, r10, and r11. Because we have to store the LR (r14) in swapcontext as well, we also store r12 in swapcontext to keep the stack double-word-aligned. However, we already accounted for both of those by decrementing sp twice above (once for r14 and once for r12, say). */
-    sp -= 8;
+    // Note: r12 is also stored, in the 'caller frame' slot above the return
+    // address.
+    sp -= 8; // r4-r11.
+#elif defined(__arm64__) || defined(__aarch64__)
+    sp -= 20; // d8-d15 + x19-x30 + x30
+#elif defined(__s390x__)
+    sp -= 16; // r6-r13 and f8-f15.
+#elif defined (__powerpc64__)
+    // Considering the performance, non volatile floating point and vector
+    // registers are saved and restored for powerpc.  There are no failures
+    // seen during context switch on ubuntu/RHEL powerpc64le systems.
+    sp -= 20; // r14-r31, toc, cr.
 #else
 #error "Unsupported architecture."
 #endif
 
-    // Subtracted (multiple of 2)*sizeof(uintptr_t), so sp is still double-word-size (16-byte for amd64, 8-byte for i386 and ARM) aligned.
-
-    /* Set up stack pointer. */
+    // Save stack pointer.
     context.pointer = sp;
 
-    /* Our coroutines never return, so we don't put anything else on the stack.
-    */
+    // Our coroutines never return, so we don't put anything else on the stack.
 }
 
 artificial_stack_t::~artificial_stack_t() {
@@ -423,8 +457,8 @@ void context_switch(artificial_stack_context_ref_t *current_context_out, artific
 }
 
 asm(
-#if defined(__i386__) || defined(__x86_64__) || defined(__arm__)
-// We keep the i386, x86_64, and ARM stuff interleaved in order to enforce commonality.
+#if defined(__i386__) || defined(__x86_64__) || defined(__arm__) || defined (__s390x__) || defined (__powerpc64__)
+// We keep architecture-specific code interleaved in order to enforce commonality.
 #if defined(__x86_64__)
 #if defined(__LP64__) || defined(__LLP64__)
 // Pointers are of the right size
@@ -442,16 +476,21 @@ asm(
     /* `current_pointer_out` is in `%rdi`. `dest_pointer` is in `%rsi`. */
 #elif defined(__arm__)
     /* `current_pointer_out` is in `r0`. `dest_pointer` is in `r1` */
+#elif defined(__s390x_)
+    /* `current_pointer_out` is in `%r2`. `dest_pointer` is in `%r3`. */
+#elif defined(__powerpc64__)
+    /* `current_pointer_out` is in `r3`. `dest_pointer` is in `r4` */
 #endif
 
-    /* Save preserved registers (the return address is already on the stack). */
+    // Save preserved registers.
 #if defined(__i386__)
-    /* For i386, we must preserve esi, edi, ebx, ebp, and esp. */
+    // Preserve esi, edi, ebx, and ebp. The return address is already on the stack.
     "push %esi\n"
     "push %edi\n"
     "push %ebx\n"
     "push %ebp\n"
 #elif defined(__x86_64__)
+    // Preserve r12-r15, rbx, and rbp. The return address is already on the stack.
     "pushq %r12\n"
     "pushq %r13\n"
     "pushq %r14\n"
@@ -459,10 +498,63 @@ asm(
     "pushq %rbx\n"
     "pushq %rbp\n"
 #elif defined(__arm__)
-    /* Note that we push `LR` (`r14`) since that's not implicitly done at a call on ARM. We include `r12` just to keep the stack double-word-aligned. The order here is really important, as it must match the way we set up the stack in artificial_stack_t::artificial_stack_t. For consistency with the other architectures, we push `r12` first, then `r14`, then the rest. */
+    // Preserve r4-r12 and the return address (r14). For consistency with x86 r12 is
+    // pushed first, followed by r14 and then r4-r11.
     "push {r12}\n"
     "push {r14}\n"
     "push {r4-r11}\n"
+#elif defined(__arm64__) || defined(__aarch64__)
+    // Preserve d8-d15 + x19-x29 and the return address (x30).
+    // Note: x30 is stored twice due to alignment requirements
+    "sub sp, sp, #0xb0\n"
+    "stp d8,  d9,  [sp, #0x00]\n"
+    "stp d10, d11, [sp, #0x10]\n"
+    "stp d12, d13, [sp, #0x20]\n"
+    "stp d14, d15, [sp, #0x30]\n"
+    "stp x19, x20, [sp, #0x40]\n"
+    "stp x21, x22, [sp, #0x50]\n"
+    "stp x23, x24, [sp, #0x60]\n"
+    "stp x25, x26, [sp, #0x70]\n"
+    "stp x27, x28, [sp, #0x80]\n"
+    "stp x29, x30, [sp, #0x90]\n"
+    "str x30, [sp, #0xa0]\n"
+#elif defined(__s390x__)
+    // Preserve r6-r13, the return address (r14), and f8-f15.
+    "aghi %r15, -136\n"
+    "stmg %r6, %r14, 64(%r15)\n"
+    "std %f8, 0(%r15)\n"
+    "std %f9, 8(%r15)\n"
+    "std %f10, 16(%r15)\n"
+    "std %f11, 24(%r15)\n"
+    "std %f12, 32(%r15)\n"
+    "std %f13, 40(%r15)\n"
+    "std %f14, 48(%r15)\n"
+    "std %f15, 56(%r15)\n"
+#elif defined(__powerpc64__)
+    "addi 1, 1, -(21*8)\n"
+    "std 2, (8*0)(1)\n"
+    "std 14, (8*1)(1)\n"
+    "std 15, (8*2)(1)\n"
+    "std 16, (8*3)(1)\n"
+    "std 17, (8*4)(1)\n"
+    "std 18, (8*5)(1)\n"
+    "std 19, (8*6)(1)\n"
+    "std 20, (8*7)(1)\n"
+    "std 21, (8*8)(1)\n"
+    "std 22, (8*9)(1)\n"
+    "std 23, (8*10)(1)\n"
+    "std 24, (8*11)(1)\n"
+    "std 25, (8*12)(1)\n"
+    "std 26, (8*13)(1)\n"
+    "std 27, (8*14)(1)\n"
+    "std 28, (8*15)(1)\n"
+    "std 29, (8*16)(1)\n"
+    "std 30, (8*17)(1)\n"
+    "std 31, (8*18)(1)\n"
+    "mfcr 0\n"
+    "std 0, (8*19)(1)\n"
+    "mflr 0\n"
+    "std 0, (8*20)(1)\n"
 #endif
 
     /* Save old stack pointer. */
@@ -477,6 +569,15 @@ asm(
 #elif defined(__arm__)
     /* On ARM, the first argument is in `r0`. `r13` is the stack pointer. */
     "str r13, [r0]\n"
+#elif defined(__arm64__) || defined(__aarch64__)
+    /* On ARM64, the first argument is in `x0`. `sp` is the stack pointer and `x4` is a scratch register. */
+    "mov x4, sp\n"
+    "str x4, [x0]\n"
+#elif defined(__s390x__)
+    /* On s390x, the first argument is in r2. r15 is the stack pointer. */
+    "stg %r15, 0(%r2)\n"
+#elif defined(__powerpc64__)
+    "std  1, 0(3)\n"
 #endif
 
     /* Load the new stack pointer and the preserved registers. */
@@ -491,6 +592,14 @@ asm(
 #elif defined(__arm__)
     /* On ARM, the second argument is in `r1` */
     "mov r13, r1\n"
+#elif defined(__arm64__) || defined(__aarch64__)
+    /* On ARM64, the second argument is in `x1` */
+    "mov sp, x1\n"
+#elif defined(__s390x__)
+    /* On s390x, the second argument is in r3 */
+    "lgr %r15, %r3\n"
+#elif defined(__powerpc64__)
+    "mr 1, 4\n"
 #endif
 
 #if defined(__i386__)
@@ -509,6 +618,55 @@ asm(
     "pop {r4-r11}\n"
     "pop {r14}\n"
     "pop {r12}\n"
+#elif defined(__arm64__) || defined(__aarch64__)
+    "ldp d8,  d9,  [sp, #0x00]\n"
+    "ldp d10, d11, [sp, #0x10]\n"
+    "ldp d12, d13, [sp, #0x20]\n"
+    "ldp d14, d15, [sp, #0x30]\n"
+    "ldp x19, x20, [sp, #0x40]\n"
+    "ldp x21, x22, [sp, #0x50]\n"
+    "ldp x23, x24, [sp, #0x60]\n"
+    "ldp x25, x26, [sp, #0x70]\n"
+    "ldp x27, x28, [sp, #0x80]\n"
+    "ldp x29, x30, [sp, #0x90]\n"
+    "ldr x4, [sp, #0xa0]\n"
+    "add sp, sp, #0xb0\n"
+#elif defined(__s390x__)
+    "lmg %r6, %r14, 64(%r15)\n"
+    "ld %f8, 0(%r15)\n"
+    "ld %f9, 8(%r15)\n"
+    "ld %f10, 16(%r15)\n"
+    "ld %f11, 24(%r15)\n"
+    "ld %f12, 32(%r15)\n"
+    "ld %f13, 40(%r15)\n"
+    "ld %f14, 48(%r15)\n"
+    "ld %f15, 56(%r15)\n"
+    "aghi %r15, 136\n"
+#elif defined(__powerpc64__)
+    "ld 2, (8*0)(1)\n"
+    "ld 14, (8*1)(1)\n"
+    "ld 15, (8*2)(1)\n"
+    "ld 16, (8*3)(1)\n"
+    "ld 17, (8*4)(1)\n"
+    "ld 18, (8*5)(1)\n"
+    "ld 19, (8*6)(1)\n"
+    "ld 20, (8*7)(1)\n"
+    "ld 21, (8*8)(1)\n"
+    "ld 22, (8*9)(1)\n"
+    "ld 23, (8*10)(1)\n"
+    "ld 24, (8*11)(1)\n"
+    "ld 25, (8*12)(1)\n"
+    "ld 26, (8*13)(1)\n"
+    "ld 27, (8*14)(1)\n"
+    "ld 28, (8*15)(1)\n"
+    "ld 29, (8*16)(1)\n"
+    "ld 30, (8*17)(1)\n"
+    "ld 31, (8*18)(1)\n"
+    "ld 0, (8*19)(1)\n"
+    "mtcr 0\n"
+    "ld 0, (8*20)(1)\n"
+    "mtlr 0\n"
+    "addi 1, 1, (8*21)\n"
 #endif
 
 #if defined(__i386__) || defined(__x86_64__)
@@ -521,6 +679,15 @@ asm(
     /* Above, we popped `LR` (`r14`) off the stack, so the bx instruction will
     jump to the correct return address. */
     "bx r14\n"
+#elif defined(__arm64__) || defined(__aarch64__)
+    /* Above, we stored the `x30` the return address in a variable register `x4` so the ret instruction will
+    return it to jump. */
+    "ret x4\n"
+#elif defined(__s390x__)
+    /* Above, we popped the return address (r14) off the stack. */
+    "br %r14\n"
+#elif defined(__powerpc64__)
+    "blr\n"
 #endif
 
 #else

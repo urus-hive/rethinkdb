@@ -14,16 +14,18 @@
 struct log_serializer_dynamic_config_t {
     log_serializer_dynamic_config_t() {
         read_ahead = true;
-        io_batch_factor = DEFAULT_IO_BATCH_FACTOR;
+        // This is probably too low, thanks to status quo bias (the status quo having
+        // been to never compute checksums).
+        checksum_threshold = 65536;
     }
 
-    /* The (minimal) batch size of i/o requests being taken from a single i/o account.
-    It is a factor because the actual batch size is this factor multiplied by the
-    i/o priority of the account. */
-    int32_t io_batch_factor;
-
-    /* Enable reading more data than requested to let the cache warmup more quickly esp. on rotational drives */
+    /* Enable reading more data than requested to let the cache warmup more quickly
+       esp. on rotational drives */
     bool read_ahead;
+    /* The threshold above which we don't checksum blocks -- instead we fdatasync before
+       writing the serializer superblock.  Designed to make single-document writes
+       fast. */
+    uint32_t checksum_threshold;
 };
 
 /* This is equivalent to log_serializer_static_config_t below, but is an on-disk
@@ -37,7 +39,9 @@ struct log_serializer_on_disk_static_config_t {
     uint64_t extent_index(int64_t offset) const { return offset / extent_size_; }
 
     // Minimize calls to these.
-    max_block_size_t max_block_size() const { return max_block_size_t::unsafe_make(block_size_); }
+    max_block_size_t max_block_size() const {
+        return max_block_size_t::unsafe_make(block_size_);
+    }
     uint64_t extent_size() const { return extent_size_; }
 };
 

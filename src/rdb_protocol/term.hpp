@@ -5,9 +5,23 @@
 #include "containers/counted.hpp"
 #include "rdb_protocol/datum.hpp"
 #include "rdb_protocol/error.hpp"
-#include "rdb_protocol/ql2.pb.h"
+#include "rdb_protocol/ql2proto.hpp"
 #include "rdb_protocol/val.hpp"
 #include "rdb_protocol/term_storage.hpp"
+
+/* Here is some basic info about ReQL code to be aware of:
+
+   - Compile time happens when a term_t is constructed, and runtime
+     happens when eval is called on it. So evaluating arguments in the
+     constructor goes poorly.
+
+   - If a term can push work to the shards it has to be in the first
+     group of term_forbids_writes.  Related code has some basic type
+     checking -- grep for all appearances of a term name so you can
+     see every switch statement it's used in.
+
+   - Calling arg(0) more than once can re-evaluate the argument.
+*/
 
 namespace ql {
 
@@ -21,7 +35,7 @@ class table_t;
 class table_slice_t;
 class var_captures_t;
 class compile_env_t;
-enum class deterministic_t;
+class deterministic_t;
 
 enum eval_flags_t {
     NO_FLAGS = 0,

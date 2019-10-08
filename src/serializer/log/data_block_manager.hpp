@@ -8,10 +8,12 @@
 #include "concurrency/new_semaphore.hpp"
 #include "concurrency/pump_coro.hpp"
 #include "containers/intrusive_list.hpp"
+#include "containers/optional.hpp"
 #include "containers/priority_queue.hpp"
 #include "containers/scoped.hpp"
 #include "containers/two_level_array.hpp"
 #include "perfmon/types.hpp"
+#include "serializer/checksum.hpp"
 #include "serializer/log/config.hpp"
 #include "serializer/log/extent_manager.hpp"
 #include "serializer/types.hpp"
@@ -21,13 +23,14 @@ class log_serializer_t;
 class data_block_manager_t;
 class gc_entry_t;
 
+struct dbm_metablock_mixin_t;
+
 struct gc_entry_less_t {
     bool operator() (const gc_entry_t *x, const gc_entry_t *y);
 };
 
 namespace data_block_manager {
 struct shutdown_callback_t;  // see log_serializer.hpp.
-struct metablock_mixin_t;  // see log_serializer.hpp.
 }  // namespace data_block_manager
 
 class data_block_manager_t {
@@ -44,11 +47,11 @@ public:
     database FD. When restarting an existing database, call start() with the last
     metablock. */
 
-    static void prepare_initial_metablock(data_block_manager::metablock_mixin_t *mb);
-    void start_existing(file_t *dbfile, const data_block_manager::metablock_mixin_t *last_metablock);
+    static void prepare_initial_metablock(dbm_metablock_mixin_t *mb);
+    void start_existing(file_t *dbfile, const dbm_metablock_mixin_t *last_metablock);
 
     buf_ptr_t read(int64_t off_in, block_size_t block_size,
-                 file_account_t *io_account);
+                   file_account_t *io_account);
 
     /* exposed gc api */
     /* mark a buffer as garbage */
@@ -68,7 +71,7 @@ public:
     /* garbage collect the extents which meet the gc_criterion */
     void start_gc();
 
-    void prepare_metablock(data_block_manager::metablock_mixin_t *metablock);
+    void prepare_metablock(dbm_metablock_mixin_t *metablock);
     bool do_we_want_to_start_gcing() const;
 
     // This stops further GC rounds from starting, but it doesn't wait for all
@@ -81,13 +84,17 @@ public:
     // ratio of garbage to blocks in the system
     double garbage_ratio() const;
 
-    std::vector<counted_t<ls_block_token_pointee_t> >
-    many_writes(const std::vector<buf_write_info_t> &writes,
+    // Potentially computes a checksum of the blocks to be written, depending on config.
+    // Caller may ignore that information, or use it to save an fdatasync.
+    std::vector<counted_t<block_token_t> >
+    many_writes(const buf_write_info_t *writes,
+                size_t writes_count,
                 file_account_t *io_account,
                 iocallback_t *cb);
 
-    std::vector<std::vector<counted_t<ls_block_token_pointee_t> > >
-    gimme_some_new_offsets(const std::vector<buf_write_info_t> &writes);
+    std::vector<std::vector<counted_t<block_token_t> > >
+    gimme_some_new_offsets(const buf_write_info_t *writes, size_t writes_count,
+                           uint64_t *cumulative_aligned_size_out);
 
     bool is_gc_active() const;
 
@@ -221,8 +228,8 @@ private:
     to improve GC efficiency on drives with slow random access. */
     struct gc_index_write_t {
         gc_index_write_t(
-            std::vector<counted_t<ls_block_token_pointee_t> > &&old_block_tokens_,
-            std::vector<counted_t<ls_block_token_pointee_t> > &&new_block_tokens_,
+            std::vector<counted_t<block_token_t>> &&old_block_tokens_,
+            std::vector<counted_t<block_token_t>> &&new_block_tokens_,
             std::vector<gc_write_t> &&writes_,
             gc_state_t *gc_state_,
             scoped_device_block_aligned_ptr_t<char> &&gc_blocks_)
@@ -231,8 +238,8 @@ private:
               writes(std::move(writes_)),
               gc_state(gc_state_),
               gc_blocks(std::move(gc_blocks_)) { }
-        std::vector<counted_t<ls_block_token_pointee_t> > old_block_tokens;
-        std::vector<counted_t<ls_block_token_pointee_t> > new_block_tokens;
+        std::vector<counted_t<block_token_t>> old_block_tokens;
+        std::vector<counted_t<block_token_t>> new_block_tokens;
         std::vector<gc_write_t> writes;
         gc_state_t *gc_state;
         scoped_device_block_aligned_ptr_t<char> gc_blocks;
@@ -265,11 +272,11 @@ private:
     DISABLE_COPYING(data_block_manager_t);
 };
 
-// Exposed for unit tests.  Returns a super-interval of [block_offset,
+// Exposed for unit tests.  Returns a super-interval of [block_offset, block_offset +
 // ser_block_size) that is almost appropriate for a read-ahead disk read -- it still
 // needs to be stretched to be aligned with disk block boundaries.
 void unaligned_read_ahead_interval(const int64_t block_offset,
-                                   const uint32_t ser_block_size,
+                                   const uint16_t ser_block_size,
                                    const int64_t extent_size,
                                    const int64_t read_ahead_size,
                                    const std::vector<uint32_t> &boundaries,

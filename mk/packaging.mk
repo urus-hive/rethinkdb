@@ -9,13 +9,12 @@ OSX_PACKAGE_DIR := $(PACKAGES_DIR)/osx
 OSX_PACKAGING_DIR := $(PACKAGING_DIR)/osx
 
 DEBIAN_PKG_DIR := $(PACKAGING_DIR)/debian
-SUPPRESSED_LINTIAN_TAGS := new-package-should-close-itp-bug
 DEB_CONTROL_ROOT := $(DEB_PACKAGE_DIR)/DEBIAN
 
 DIST_FILE_LIST_REL := admin demos drivers mk packaging scripts src test
-DIST_FILE_LIST_REL += configure COPYRIGHT Makefile NOTES.md README.md
+DIST_FILE_LIST_REL += configure LICENSE Makefile NOTES.md README.md
 
-DIST_FILE_LIST := $(foreach x,$(DIST_FILE_LIST_REL),$/$x)
+DIST_FILE_LIST := $(foreach x,$(DIST_FILE_LIST_REL),$(TOP)/$x)
 
 RETHINKDB_VERSION_DEB := $(subst -,+,$(RETHINKDB_VERSION))~$(PACKAGE_BUILD_NUMBER)$(UBUNTU_RELEASE)$(DEB_RELEASE)
 
@@ -42,8 +41,35 @@ DSC_CONFIGURE_DEFAULT = --prefix=/usr --sysconfdir=/etc --localstatedir=/var
 DIST_CONFIGURE_DEFAULT_FETCH = $(foreach pkg, $(DIST_SUPPORT_PACKAGES), --fetch $(pkg))
 DIST_SUPPORT = $(foreach pkg, $(DIST_SUPPORT_PACKAGES), $(SUPPORT_SRC_DIR)/$(pkg)_$($(pkg)_VERSION))
 
-DEB_BUILD_DEPENDS := g++, libboost-dev, libssl-dev, curl, m4, debhelper
-DEB_BUILD_DEPENDS += , fakeroot, python, libncurses5-dev, libcurl4-openssl-dev, libssl-dev
+DEB_BUILD_DEPENDS := libboost-dev, curl, m4, debhelper
+DEB_BUILD_DEPENDS += , fakeroot, python, libncurses5-dev, libcurl4-openssl-dev
+
+ifneq ($(UBUNTU_RELEASE),)
+  ifneq ($(filter $(UBUNTU_RELEASE), trusty xenial),)
+    # RethinkDB fails to compile with GCC 6 (#5757)
+    DEB_BUILD_DEPENDS += , g++-5, libssl-dev
+    DSC_CONFIGURE_DEFAULT += CXX=g++-5
+  else
+    # RethinkDB fails to compile with GCC 6 (#5757) -- and there is
+    # no GCC 5 in later Ubuntus.  We need to use libssl1.0-dev on
+    # zesty to be compatible with libcurl when linking.
+    ifneq ($(filter $(UBUNTU_RELEASE), zesty),)
+      DEB_BUILD_DEPENDS += , libssl1.0-dev
+    else
+      DEB_BUILD_DEPENDS += , libssl-dev
+    endif
+    DEB_BUILD_DEPENDS += , clang
+    DSC_CONFIGURE_DEFAULT += CXX=clang++
+  endif
+else ifneq ($(DEB_RELEASE),)
+  ifneq ($(filter $(DEB_RELEASE), jessie),)
+    DEB_BUILD_DEPENDS += , g++, libssl-dev
+  else
+    # As with Ubuntus.
+    DEB_BUILD_DEPENDS += , clang, libssl1.0-dev
+    DSC_CONFIGURE_DEFAULT += CXX=clang++
+  endif
+endif
 
 ifneq (1,$(BUILD_PORTABLE))
   DEB_BUILD_DEPENDS += , protobuf-compiler, libprotobuf-dev
@@ -160,8 +186,7 @@ $(DIST_DIR)/VERSION.OVERRIDE: FORCE | reset-dist-dir
 	$P ECHO "> $@"
 	echo -n $(RETHINKDB_CODE_VERSION) > $@
 
-PRECOMPILED_ASSETS := $(DIST_DIR)/precompiled/bundle_assets/web_assets.cc
-PRECOMPILED_ASSETS += $(DIST_DIR)/precompiled/proto/rdb_protocol/ql2.pb.h
+PRECOMPILED_ASSETS := $(DIST_DIR)/precompiled/proto/rdb_protocol/ql2.pb.h
 PRECOMPILED_ASSETS += $(DIST_DIR)/precompiled/proto/rdb_protocol/ql2.pb.cc
 
 .PRECIOUS: $(PRECOMPILED_ASSETS)

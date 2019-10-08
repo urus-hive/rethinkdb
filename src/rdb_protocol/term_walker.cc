@@ -5,7 +5,7 @@
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/minidriver.hpp"
 #include "rdb_protocol/pseudo_time.hpp"
-#include "rdb_protocol/ql2.pb.h"
+#include "rdb_protocol/ql2proto.hpp"
 #include "rdb_protocol/term_storage.hpp"
 
 namespace ql {
@@ -170,13 +170,6 @@ private:
             return parent->bt_reg->new_frame(prev, d);
         }
 
-        datum_t get_time_now() {
-            if (!parent->time_now.has()) {
-                parent->time_now = pseudo::time_now();
-            }
-            return parent->time_now;
-        }
-
         // True if writes are still legal at this node.  Basically:
         // * Once writes become illegal, they are never legal again.
         // * Writes are legal at the root.
@@ -192,7 +185,6 @@ private:
     backtrace_registry_t *bt_reg;
     intrusive_list_t<walker_frame_t> frames;
     rapidjson::Value::AllocatorType *allocator;
-    datum_t time_now;
 };
 
 void preprocess_term_tree(rapidjson::Value *term_tree,
@@ -259,6 +251,12 @@ bool term_type_is_valid(Term::TermType type) {
     case Term::MUL:
     case Term::DIV:
     case Term::MOD:
+    case Term::BIT_AND:
+    case Term::BIT_OR:
+    case Term::BIT_XOR:
+    case Term::BIT_NOT:
+    case Term::BIT_SAL:
+    case Term::BIT_SAR:
     case Term::APPEND:
     case Term::PREPEND:
     case Term::DIFFERENCE:
@@ -450,6 +448,12 @@ bool term_is_write_or_meta(Term::TermType type) {
     case Term::MUL:
     case Term::DIV:
     case Term::MOD:
+    case Term::BIT_AND:
+    case Term::BIT_OR:
+    case Term::BIT_XOR:
+    case Term::BIT_NOT:
+    case Term::BIT_SAL:
+    case Term::BIT_SAR:
     case Term::APPEND:
     case Term::PREPEND:
     case Term::DIFFERENCE:
@@ -638,6 +642,12 @@ bool term_forbids_writes(Term::TermType type) {
     case Term::MUL:
     case Term::DIV:
     case Term::MOD:
+    case Term::BIT_AND:
+    case Term::BIT_OR:
+    case Term::BIT_XOR:
+    case Term::BIT_NOT:
+    case Term::BIT_SAL:
+    case Term::BIT_SAR:
     case Term::APPEND:
     case Term::PREPEND:
     case Term::DIFFERENCE:

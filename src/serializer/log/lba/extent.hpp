@@ -2,8 +2,12 @@
 #ifndef SERIALIZER_LOG_LBA_EXTENT_HPP_
 #define SERIALIZER_LOG_LBA_EXTENT_HPP_
 
-#include "serializer/log/extent_manager.hpp"
+#include <vector>
+
+#include "containers/optional.hpp"
 #include "arch/types.hpp"
+#include "serializer/log/extent_manager.hpp"
+#include "serializer/log/types.hpp"
 
 struct extent_block_t;
 
@@ -11,11 +15,15 @@ class extent_t {
     friend struct extent_block_t;
 
 public:
-    extent_t(extent_manager_t *em, file_t *file);   // Creates new extent
-    extent_t(extent_manager_t *em, file_t *file, int64_t loc, size_t size);   // Recreates extent at given offset (used during startup)
+    // Creates new extent
+    extent_t(extent_manager_t *em, file_t *file);
+    // Recreates extent at given offset (used during startup)
+    extent_t(extent_manager_t *em, file_t *file, int64_t loc, size_t size);
 
-    void destroy(extent_transaction_t *txn);   // Releases extent and destroys structure in memory
-    void shutdown();   // Only destroys structure in memory
+    // Releases extent and destroys structure in memory
+    void destroy(extent_transaction_t *txn);
+    // Only destroys structure in memory
+    void shutdown();
 
 public:
     struct read_callback_t : private iocallback_t {
@@ -26,13 +34,14 @@ public:
     };
     void read(size_t pos, size_t length, void *buffer, read_callback_t *);
 
-    void append(void *buffer, size_t length, file_account_t *io_account);
+    void append(void *buffer, size_t length, file_account_t *io_account,
+                optional<std::vector<checksum_filerange>> *checksums);
 
-    struct sync_callback_t {
-        virtual void on_extent_sync() = 0;
-        virtual ~sync_callback_t() {}
+    struct completion_callback_t {
+        virtual void on_extent_completion() = 0;
+        virtual ~completion_callback_t() {}
     };
-    void sync(sync_callback_t *cb);
+    void wait_for_write_completion(completion_callback_t *cb);
 
     extent_reference_t extent_ref;
     size_t amount_filled;

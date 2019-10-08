@@ -38,7 +38,7 @@
 #include "rpc/semilattice/view.hpp"
 #include "time.hpp"
 
-#include "rdb_protocol/ql2.pb.h"
+#include "rdb_protocol/ql2proto.hpp"
 #include "rdb_protocol/query_server.hpp"
 #include "rdb_protocol/query_cache.hpp"
 #include "rdb_protocol/response.hpp"
@@ -174,12 +174,13 @@ void http_conn_cache_t::on_ring() {
 }
 
 size_t http_conn_cache_t::sha_hasher_t::operator()(const conn_key_t &x) const {
-    EVP_MD_CTX c;
-    EVP_DigestInit(&c, EVP_sha256());
-    EVP_DigestUpdate(&c, x.data(), x.size());
+    EVP_MD_CTX *c = EVP_MD_CTX_create();
+    EVP_DigestInit(c, EVP_sha256());
+    EVP_DigestUpdate(c, x.data(), x.size());
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digest_size = 0;
-    EVP_DigestFinal(&c, digest, &digest_size);
+    EVP_DigestFinal(c, digest, &digest_size);
+    EVP_MD_CTX_destroy(c);
     rassert(digest_size >= sizeof(size_t));
     size_t res = 0;
     memcpy(&res, digest, std::min(sizeof(size_t), static_cast<size_t>(digest_size)));
@@ -280,6 +281,9 @@ void query_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &ncon
         int32_t client_magic_number;
         conn->read_buffered(
             &client_magic_number, sizeof(client_magic_number), &ct_keepalive);
+#ifdef __s390x__
+        client_magic_number = __builtin_bswap32(client_magic_number);
+#endif
 
         switch (client_magic_number) {
             case VersionDummy::V0_1:
@@ -315,6 +319,9 @@ void query_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &ncon
 
             uint32_t auth_key_size;
             conn->read_buffered(&auth_key_size, sizeof(uint32_t), &ct_keepalive);
+#ifdef __s390x__
+            auth_key_size = __builtin_bswap32(auth_key_size);
+#endif
             if (auth_key_size > 2048) {
                 throw client_protocol::client_server_error_t(
                     -1, "Client provided an authorization key that is too long.");
@@ -334,6 +341,9 @@ void query_server_t::handle_conn(const scoped_ptr_t<tcp_conn_descriptor_t> &ncon
 
             int32_t wire_protocol;
             conn->read_buffered(&wire_protocol, sizeof(wire_protocol), &ct_keepalive);
+#ifdef __s390x__
+            wire_protocol = __builtin_bswap32(wire_protocol);
+#endif
             switch (wire_protocol) {
                 case VersionDummy::JSON:
                     break;
@@ -664,6 +674,9 @@ void query_server_t::handle(const http_req_t &req,
     // Parse the token out from the start of the request
     char *data = body_buf.data();
     token = *reinterpret_cast<const int64_t *>(data);
+#ifdef __s390x__
+    token = __builtin_bswap64(token);
+#endif
     data += sizeof(token);
 
     ql::response_t response;
@@ -697,14 +710,14 @@ void query_server_t::handle(const http_req_t &req,
                 ticks_t start = get_ticks();
                 // We don't throttle HTTP queries.
                 handler->run_query(query.get(), &response, &true_interruptor);
-                ticks_t ticks = get_ticks() - start;
+                ticks_t ticks = ticks_t{get_ticks().nanos - start.nanos};
 
                 if (!response.profile()) {
                     ql::datum_array_builder_t array_builder(
                         ql::configured_limits_t::unlimited);
                     ql::datum_object_builder_t object_builder;
                     object_builder.overwrite("duration(ms)",
-                        ql::datum_t(static_cast<double>(ticks) / MILLION));
+                        ql::datum_t(static_cast<double>(ticks.nanos) / MILLION));
                     array_builder.add(std::move(object_builder).to_datum());
                     response.set_profile(std::move(array_builder).to_datum());
                 }
@@ -740,6 +753,10 @@ void query_server_t::handle(const http_req_t &req,
     json_protocol_t::write_response_to_buffer(&response, &buffer);
 
     uint32_t size = static_cast<uint32_t>(buffer.GetSize());
+#ifdef __s390x__
+    size = __builtin_bswap32(size);
+    token = __builtin_bswap64(token);
+#endif
     char header_buffer[sizeof(token) + sizeof(size)];
     memcpy(&header_buffer[0], &token, sizeof(token));
     memcpy(&header_buffer[sizeof(token)], &size, sizeof(size));

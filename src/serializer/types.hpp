@@ -12,6 +12,7 @@
 #include "containers/counted.hpp"
 #include "containers/scoped.hpp"
 #include "errors.hpp"
+#include "serializer/checksum.hpp"
 #include "valgrind.hpp"
 
 // A relatively "lightweight" header file (we wish), in a sense.
@@ -61,25 +62,25 @@ public:
     // things could call value() instead of ser_value() or vice versa.
 
     // The "block size" (in bytes) used by things above the serializer.
-    uint32_t value() const {
+    uint16_t value() const {
         rassert(ser_bs_ != 0);
         return ser_bs_ - sizeof(ls_buf_data_t);
     }
 
     // The "block size" (in bytes) used by things in the serializer.
-    uint32_t ser_value() const {
+    uint16_t ser_value() const {
         rassert(ser_bs_ != 0);
         return ser_bs_;
     }
 
-    static block_size_t make_from_cache(uint32_t cache_block_size) {
+    static block_size_t make_from_cache(uint16_t cache_block_size) {
         return block_size_t(cache_block_size + sizeof(ls_buf_data_t));
     }
 
     // Avoid using this function.  We want there to be a small
     // number of uses so that we can be sure it's impossible to pass
     // the wrong value as a block_size_t.
-    static block_size_t unsafe_make(uint32_t ser_bs) {
+    static block_size_t unsafe_make(uint16_t ser_bs) {
         return block_size_t(ser_bs);
     }
 
@@ -89,18 +90,18 @@ public:
     }
 
 protected:
-    explicit block_size_t(uint32_t ser_bs) : ser_bs_(ser_bs) { }
+    explicit block_size_t(uint16_t ser_bs) : ser_bs_(ser_bs) { }
 
 private:
-    uint32_t ser_bs_;
+    uint16_t ser_bs_;
 };
 
 // For use in compile-time constants
-template<uint32_t ser_size> struct from_ser_block_size_t {
-    static const uint32_t cache_size = ser_size - sizeof(ls_buf_data_t);
+template<uint16_t ser_size> struct from_ser_block_size_t {
+    static const uint16_t cache_size = ser_size - sizeof(ls_buf_data_t);
 };
-template<uint32_t cache_size> struct from_cache_block_size_t {
-    static const uint32_t ser_size = cache_size + sizeof(ls_buf_data_t);
+template<uint16_t cache_size> struct from_cache_block_size_t {
+    static const uint16_t ser_size = cache_size + sizeof(ls_buf_data_t);
 };
 
 inline bool operator==(block_size_t x, block_size_t y) {
@@ -116,7 +117,7 @@ public:
     using block_size_t::value;
     using block_size_t::ser_value;
 
-    static max_block_size_t unsafe_make(uint32_t ser_bs) {
+    static max_block_size_t unsafe_make(uint16_t ser_bs) {
         CT_ASSERT(sizeof(block_size_t) == sizeof(max_block_size_t));
         return max_block_size_t(ser_bs);
     }
@@ -128,50 +129,54 @@ private:
 
 class repli_timestamp_t;
 
-template <class serializer_type> struct serializer_traits_t;
-
 class log_serializer_t;
 
-class ls_block_token_pointee_t {
+class block_token_t {
 public:
     int64_t offset() const { return offset_; }
     block_size_t block_size() const { return block_size_; }
 
 private:
     friend class log_serializer_t;
+    friend class data_block_manager_t;
     friend class dbm_read_ahead_fsm_t;  // For read-ahead tokens.
 
-    friend void counted_add_ref(ls_block_token_pointee_t *p);
-    friend void counted_release(ls_block_token_pointee_t *p);
+    friend void counted_add_ref(block_token_t *p);
+    friend void counted_release(block_token_t *p);
 
-    ls_block_token_pointee_t(log_serializer_t *serializer,
-                             int64_t initial_offset,
-                             block_size_t initial_ser_block_size);
+    block_token_t(log_serializer_t *serializer,
+                  int64_t initial_offset,
+                  block_size_t initial_ser_block_size);
 
-    log_serializer_t *serializer_;
+    log_serializer_t *const serializer_;
     std::atomic<intptr_t> ref_count_;
 
     // The block's size.
     block_size_t block_size_;
+
+    // Either (a.) a checksum of what the block's on-disk contents should be, (b.)(i.)
+    // the value datasync_checksum(), which means the block's write has been datasynced,
+    // or (b.)(ii.) the value no_checksum(), which means the block is not known to have
+    // been datasynced.
+    //
+    // This holds the checksum of the DEVICE_BLOCK_SIZE-aligned block, with padding
+    // included.
+    serializer_checksum checksum_;
 
     // The block's offset on disk.
     int64_t offset_;
 
     void do_destroy();
 
-    DISABLE_COPYING(ls_block_token_pointee_t);
+    DISABLE_COPYING(block_token_t);
 };
 
 void debug_print(printf_buffer_t *buf,
-                 const counted_t<ls_block_token_pointee_t> &token);
+                 const counted_t<block_token_t> &token);
 
-void counted_add_ref(ls_block_token_pointee_t *p);
-void counted_release(ls_block_token_pointee_t *p);
+void counted_add_ref(block_token_t *p);
+void counted_release(block_token_t *p);
 
-template <>
-struct serializer_traits_t<log_serializer_t> {
-    typedef ls_block_token_pointee_t block_token_type;
-};
 
 class file_t;
 
@@ -189,24 +194,8 @@ public:
     virtual void unlink_serializer_file() = 0;
 };
 
-// TODO: This is a hack remaining from when we had the semantic checking serializer
-// and had to mask the implementation of a block token. We should check if we
-// can remove this indirection now.
-inline
-counted_t<ls_block_token_pointee_t>
-to_standard_block_token(UNUSED block_id_t block_id,
-                        counted_t<ls_block_token_pointee_t> tok) {
-    return tok;
-}
-
-typedef serializer_traits_t<log_serializer_t>::block_token_type standard_block_token_t;
-
 class serializer_t;
 
-template <>
-struct serializer_traits_t<serializer_t> {
-    typedef standard_block_token_t block_token_type;
-};
 
 // TODO: This is obsolete because the serializer multiplexer isn't used with multiple
 // files any more.
@@ -222,7 +211,7 @@ public:
     // ownership, by leaving `*buf` untouched.
     virtual void offer_read_ahead_buf(block_id_t block_id,
                                       buf_ptr_t *buf,
-                                      const counted_t<standard_block_token_t> &token) = 0;
+                                      const counted_t<block_token_t> &token) = 0;
 };
 
 struct buf_write_info_t {

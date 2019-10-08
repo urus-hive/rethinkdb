@@ -154,6 +154,7 @@ void store_t::help_construct_bring_sindexes_up_to_date() {
 scoped_ptr_t<sindex_superblock_t> acquire_sindex_for_read(
     store_t *store,
     real_superblock_t *superblock,
+    release_superblock_t release_superblock,
     const std::string &table_name,
     const std::string &sindex_id,
     sindex_disk_info_t *sindex_info_out,
@@ -170,6 +171,7 @@ scoped_ptr_t<sindex_superblock_t> acquire_sindex_for_read(
             sindex_name_t(sindex_id),
             table_name,
             superblock,
+            release_superblock,
             &sindex_sb,
             &sindex_mapping_data,
             &sindex_uuid);
@@ -231,6 +233,7 @@ void do_read(ql::env_t *env,
                 acquire_sindex_for_read(
                     store,
                     superblock,
+                    release_superblock,
                     rget.table_name,
                     rget.sindex->id,
                     &sindex_info,
@@ -381,8 +384,7 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
             s.table,
             sindex_id,
             ctx,
-            s.serializable_env.global_optargs,
-            s.serializable_env.user_context,
+            s.serializable_env,
             s.uuid,
             s.spec,
             ql::changefeed::limit_order_t(s.spec.range.sorting),
@@ -496,6 +498,7 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
                 acquire_sindex_for_read(
                     store,
                     superblock,
+                    release_superblock_t::RELEASE,
                     geo_read.table_name,
                     geo_read.sindex.id,
                 &sindex_info, &sindex_uuid);
@@ -554,6 +557,7 @@ struct rdb_read_visitor_t : public boost::static_visitor<void> {
                 acquire_sindex_for_read(
                     store,
                     superblock,
+                    release_superblock_t::RELEASE,
                     geo_read.table_name,
                     geo_read.sindex_id,
                 &sindex_info, &sindex_uuid);
@@ -740,7 +744,9 @@ public:
         const ql::datum_t &d, size_t) const {
         ql::datum_t res = f->call(env, d, ql::LITERAL_OK)->as_datum();
 
-        return apply_write_hook(env, pkey, d, res, write_hook);
+        const ql::datum_t &write_timestamp = env->get_deterministic_time();
+        r_sanity_check(write_timestamp.has());
+        return apply_write_hook(pkey, d, res, write_timestamp, write_hook);
     }
     return_changes_t should_return_changes() const { return return_changes; }
 private:
@@ -777,7 +783,10 @@ public:
                                              newd,
                                              conflict_behavior,
                                              conflict_func);
-        res = apply_write_hook(env, datum_string_t(pkey), d, res, write_hook);
+        const ql::datum_t &write_timestamp = env->get_deterministic_time();
+        r_sanity_check(write_timestamp.has());
+        res = apply_write_hook(datum_string_t(pkey), d, res, write_timestamp,
+                               write_hook);
         return res;
     }
     return_changes_t should_return_changes() const { return return_changes; }

@@ -54,6 +54,9 @@ else ifeq ($(COMPILER),GCC)
 
   ifeq ($(OS),Linux)
     RT_LDFLAGS += -Wl,--no-as-needed
+    ifeq ($(GCC_ARCH),ppc64le)
+      RT_CXXFLAGS += "-DV8_NEEDS_BUFFER_ALLOCATOR"
+    endif
   endif
 
   ifeq ($(STATICFORCE),1)
@@ -85,7 +88,7 @@ endif
 
 RT_LDFLAGS += $(LIB_SEARCH_PATHS)
 
-RT_CXXFLAGS += -I$(SOURCE_DIR)
+RT_CXXFLAGS += -I$(TOP)/src
 RT_CXXFLAGS += -pthread
 RT_CXXFLAGS += "-DPRODUCT_NAME=\"$(PRODUCT_NAME)\""
 RT_CXXFLAGS += "-D__STDC_LIMIT_MACROS"
@@ -106,10 +109,6 @@ ifeq ($(OS),Linux)
 endif
 
 
-
-ifneq (1,$(ALLOW_WARNINGS))
-  RT_CXXFLAGS += -Werror
-endif
 
 RT_CXXFLAGS += -Wnon-virtual-dtor -Wno-deprecated-declarations -std=gnu++0x
 
@@ -144,17 +143,6 @@ ifeq ($(COMPILER),INTEL)
   LD_OUTPUT_FILTER += 2> >(grep -v "warning: relocation refers to discarded section")
 endif
 
-
-ifeq ($(RT_FORCE_NATIVE),1)
-  RT_CXXFLAGS+=-march=native
-endif
-ifeq ($(RT_COPY_NATIVE),1)
-  RT_CXXFLAGS+=-march="$(GCC_ARCH)"
-endif
-ifeq ($(RT_REDUCE_NATIVE),1)
-  RT_CXXFLAGS+=-march="$(GCC_ARCH_REDUCED)"
-endif
-
 ifeq ($(RQL_ERROR_BT),1)
   RT_CXXFLAGS+=-DRQL_ERROR_BT
 endif
@@ -162,22 +150,11 @@ endif
 # Configure debug vs. release
 ifeq ($(DEBUG),1)
   RT_CXXFLAGS += -O0
-  ifeq ($(KEEP_INLINE),1)
-    RT_CXXFLAGS+=-fkeep-inline-functions
-  endif
-
 else # ifeq ($(DEBUG),1)
   # use -fno-strict-aliasing to not break things
   # march=native used to break the serializer
   RT_CXXFLAGS += -O3 -DNDEBUG -fno-strict-aliasing # -march=native
-  ifeq ($(NO_OMIT_FRAME_POINTER),1)
-    RT_CXXFLAGS += -fno-omit-frame-pointer
-  endif
 endif # ifeq ($(DEBUG),1)
-
-ifeq ($(DISABLE_BREAKPOINTS),1)
-  RT_CXXFLAGS += -DDISABLE_BREAKPOINTS
-endif
 
 ifeq (${STATIC_LIBGCC},1)
   RT_LDFLAGS += -static-libgcc -static-libstdc++
@@ -190,10 +167,6 @@ ifeq ($(SYMBOLS),1)
   endif
   RT_CXXFLAGS += -g
 endif  # ($(SYMBOLS),1)
-
-ifeq ($(JSON_SHORTCUTS),1)
-  RT_CXXFLAGS += -DJSON_SHORTCUTS
-endif
 
 ifeq ($(LEGACY_LINUX),1)
   RT_CXXFLAGS += -DLEGACY_LINUX -DNO_EPOLL -Wno-format
@@ -242,17 +215,17 @@ RT_CXXFLAGS += -I$(PROTO_DIR)
 
 #### Finding what to build
 
-SOURCES := $(shell find $(SOURCE_DIR) -name '*.cc' -not -name '\.*')
+SOURCES := $(shell find $(TOP)/src -name '*.cc' -not -name '\.*')
 
-SERVER_EXEC_SOURCES := $(filter-out $(SOURCE_DIR)/unittest/%,$(SOURCES))
+SERVER_EXEC_SOURCES := $(filter-out $(TOP)/src/unittest/%,$(SOURCES))
 
 QL2_PROTO_NAMES := rdb_protocol/ql2
-QL2_PROTO_SOURCES := $(foreach _,$(QL2_PROTO_NAMES),$(SOURCE_DIR)/$_.proto)
+QL2_PROTO_SOURCES := $(foreach _,$(QL2_PROTO_NAMES),$(TOP)/src/$_.proto)
 QL2_PROTO_HEADERS := $(foreach _,$(QL2_PROTO_NAMES),$(PROTO_DIR)/$_.pb.h)
 QL2_PROTO_CODE := $(foreach _,$(QL2_PROTO_NAMES),$(PROTO_DIR)/$_.pb.cc)
 QL2_PROTO_OBJS := $(foreach _,$(QL2_PROTO_NAMES),$(OBJ_DIR)/$_.pb.o)
 
-PROTOCFLAGS_CXX := --proto_path=$(SOURCE_DIR)
+PROTOCFLAGS_CXX := --proto_path=$(TOP)/src
 
 ifeq (/,$(firstword $(subst /,/ ,$(CWD))))
   DEPS_POSTFIX := .abs
@@ -262,13 +235,13 @@ else
   DEPS_POSTFIX := .$(subst /,_,$(subst ../,,$(CWD)))
 endif
 
-NAMES := $(patsubst $(SOURCE_DIR)/%.cc,%,$(SOURCES))
+NAMES := $(patsubst $(TOP)/src/%.cc,%,$(SOURCES))
 DEPS := $(patsubst %,$(DEP_DIR)/%$(DEPS_POSTFIX).d,$(NAMES))
 OBJS := $(QL2_PROTO_OBJS) $(patsubst %,$(OBJ_DIR)/%.o,$(NAMES))
 
-SERVER_EXEC_OBJS := $(OBJ_DIR)/web_assets/web_assets.o $(QL2_PROTO_OBJS) $(patsubst $(SOURCE_DIR)/%.cc,$(OBJ_DIR)/%.o,$(SERVER_EXEC_SOURCES))
+SERVER_EXEC_OBJS := $(QL2_PROTO_OBJS) $(patsubst $(TOP)/src/%.cc,$(OBJ_DIR)/%.o,$(SERVER_EXEC_SOURCES))
 
-SERVER_NOMAIN_OBJS := $(OBJ_DIR)/web_assets/web_assets.o $(QL2_PROTO_OBJS) $(patsubst $(SOURCE_DIR)/%.cc,$(OBJ_DIR)/%.o,$(filter-out %/main.cc,$(SOURCES)))
+SERVER_NOMAIN_OBJS := $(QL2_PROTO_OBJS) $(patsubst $(TOP)/src/%.cc,$(OBJ_DIR)/%.o,$(filter-out %/main.cc,$(SOURCES)))
 
 SERVER_UNIT_TEST_OBJS := $(SERVER_NOMAIN_OBJS) $(OBJ_DIR)/unittest/main.o
 
@@ -279,22 +252,17 @@ RT_CXXFLAGS += -DRETHINKDB_CODE_VERSION=\"$(RETHINKDB_CODE_VERSION)\"
 
 ##### Build targets
 
-ALL += $(SOURCE_DIR)
-.PHONY: $(SOURCE_DIR)/all
-$(SOURCE_DIR)/all: $(BUILD_DIR)/$(SERVER_EXEC_NAME) $(BUILD_DIR)/$(GDB_FUNCTIONS_NAME) | $(BUILD_DIR)/.
+ALL += $(TOP)/src
+.PHONY: $(TOP)/src/all
+$(TOP)/src/all: $(BUILD_DIR)/$(SERVER_EXEC_NAME) $(BUILD_DIR)/$(GDB_FUNCTIONS_NAME) | $(BUILD_DIR)/.
 
 ifeq ($(UNIT_TESTS),1)
-  $(SOURCE_DIR)/all: $(BUILD_DIR)/$(SERVER_UNIT_TEST_NAME)
+  $(TOP)/src/all: $(BUILD_DIR)/$(SERVER_UNIT_TEST_NAME)
 endif
-
-.PHONY: unit
-unit: $(BUILD_DIR)/$(SERVER_UNIT_TEST_NAME)
-	$P RUN $(SERVER_UNIT_TEST_NAME)
-	$(BUILD_DIR)/$(SERVER_UNIT_TEST_NAME) --gtest_filter=$(UNIT_TEST_FILTER)
 
 .PRECIOUS: $(PROTO_DIR)/. $(QL2_PROTO_HEADERS) $(QL2_PROTO_CODE)
 
-$(PROTO_DIR)/%.pb.h $(PROTO_DIR)/%.pb.cc: $(SOURCE_DIR)/%.proto $(PROTOC_BIN_DEP) | $(PROTO_DIR)/.
+$(PROTO_DIR)/%.pb.h $(PROTO_DIR)/%.pb.cc: $(TOP)/src/%.proto $(PROTOC_BIN_DEP) | $(PROTO_DIR)/.
 	$P PROTOC
 
 #	# See issue #2965
@@ -363,19 +331,14 @@ $(BUILD_DIR)/$(SERVER_UNIT_TEST_NAME): $(SERVER_UNIT_TEST_OBJS) $(GTEST_LIBS_DEP
 
 $(BUILD_DIR)/$(GDB_FUNCTIONS_NAME): | $(BUILD_DIR)/.
 	$P CP $@
-	cp $(SCRIPTS_DIR)/$(GDB_FUNCTIONS_NAME) $@
-
-$(OBJ_DIR)/web_assets/web_assets.o: $(BUILD_ROOT_DIR)/bundle_assets/web_assets.cc $(MAKEFILE_DEPENDENCY)
-	mkdir -p $(dir $@)
-	$P CC
-	$(RT_CXX) $(RT_CXXFLAGS) -c -o $@ $<
+	cp $(TOP)/scripts/$(GDB_FUNCTIONS_NAME) $@
 
 $(OBJ_DIR)/%.pb.o: $(PROTO_DIR)/%.pb.cc $(MAKEFILE_DEPENDENCY) $(QL2_PROTO_HEADERS)
 	mkdir -p $(dir $@)
 	$P CC
 	$(RT_CXX) $(RT_CXXFLAGS) -w -c -o $@ $<
 
-$(OBJ_DIR)/%.o: $(SOURCE_DIR)/%.cc $(MAKEFILE_DEPENDENCY) $(ALL_INCLUDE_DEPS) | $(QL2_PROTO_OBJS)
+$(OBJ_DIR)/%.o: $(TOP)/src/%.cc $(MAKEFILE_DEPENDENCY) $(ALL_INCLUDE_DEPS) | $(QL2_PROTO_OBJS)
 	mkdir -p $(dir $@) $(dir $(DEP_DIR)/$*)
 	$P CC
 	$(RT_CXX) $(RT_CXXFLAGS) -c -o $@ $< \
@@ -386,10 +349,10 @@ $(OBJ_DIR)/%.o: $(SOURCE_DIR)/%.cc $(MAKEFILE_DEPENDENCY) $(ALL_INCLUDE_DEPS) | 
 	)
 
 FORCE_ALL_DEPS := $(patsubst %,force-dep/%,$(NAMES))
-force-dep/%: $(SOURCE_DIR)/%.cc $(QL2_PROTO_HEADERS) $(ALL_INCLUDE_DEPS)
+force-dep/%: $(TOP)/src/%.cc $(QL2_PROTO_HEADERS) $(ALL_INCLUDE_DEPS)
 	$P CXX_DEPS $(DEP_DIR)/$*$(DEPS_POSTFIX).d
 	mkdir -p $(dir $(DEP_DIR)/$*)
-	$(RT_CXX) $(RT_CXXFLAGS) $(SOURCE_DIR)/$*.cc -MP -MQ $(OBJ_DIR)/$*.o -M -MF $(DEP_DIR)/$*$(DEPS_POSTFIX).d
+	$(RT_CXX) $(RT_CXXFLAGS) $(TOP)/src/$*.cc -MP -MQ $(OBJ_DIR)/$*.o -M -MF $(DEP_DIR)/$*$(DEPS_POSTFIX).d
 
 .PHONY: deps
 deps: $(FORCE_ALL_DEPS)

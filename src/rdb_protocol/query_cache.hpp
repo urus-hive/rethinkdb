@@ -24,7 +24,7 @@
 #include "rdb_protocol/rdb_backtrace.hpp"
 #include "rdb_protocol/error.hpp"
 #include "rdb_protocol/env.hpp"
-#include "rdb_protocol/ql2.pb.h"
+#include "rdb_protocol/ql2proto.hpp"
 #include "rdb_protocol/query_params.hpp"
 #include "rdb_protocol/term.hpp"
 #include "rdb_protocol/term_storage.hpp"
@@ -83,6 +83,7 @@ public:
 
     // Methods to obtain a unique reference to a given entry in the cache
     scoped_ptr_t<ref_t> create(query_params_t *query_params,
+                               ql::datum_t &&deterministic_time,
                                signal_t *interruptor);
 
     scoped_ptr_t<ref_t> get(query_params_t *query_params,
@@ -106,6 +107,7 @@ private:
     public:
         entry_t(query_params_t *query_params,
                 global_optargs_t &&_global_optargs,
+                ql::datum_t &&_deterministic_time,
                 counted_t<const term_t> &&_term_tree);
         ~entry_t();
 
@@ -117,7 +119,11 @@ private:
         const profile_bool_t profile;
         const scoped_ptr_t<const term_storage_t> term_storage;
         const global_optargs_t global_optargs;
-        const microtime_t start_time;
+        // TODO: deterministic_time and start_time represent approximately the same
+        // time, but we can't compute one from the other because pseudo::time_now() uses
+        // boost::posix_time.
+        const ql::datum_t deterministic_time;
+        const kiloticks_t start_time;
 
         cond_t persistent_interruptor;
 

@@ -42,10 +42,6 @@ struct mock_ser_t {
     }
 };
 
-void reset_throttler_acq(alt::throttler_acq_t *acq) {
-    alt::throttler_acq_t movee(std::move(*acq));
-}
-
 class test_txn_t;
 
 class test_cache_t : public page_cache_t {
@@ -57,13 +53,13 @@ public:
           throttler_(throttler) { }
 
     void flush(scoped_ptr_t<test_txn_t> txn) {
-        flush_and_destroy_txn(std::move(txn), &reset_throttler_acq);
+        flush_and_destroy_txn(std::move(txn), write_durability_t::SOFT, nullptr);
     }
 
     alt::throttler_acq_t make_throttler_acq() {
         // KSI: We could make these tests better by varying the expected change
         // count.
-        return throttler_->begin_txn_or_throttle(0);
+        return throttler_->begin_txn_or_throttle(write_durability_t::SOFT, 0);
     }
 
 private:
@@ -1083,13 +1079,13 @@ private:
     void make_empty(const scoped_ptr_t<current_test_acq_t> &acq) {
         test_acq_t page_acq;
         page_acq.init(acq->current_page_for_write(), c);
-        const uint32_t n = page_acq.get_buf_size().value();
+        const uint16_t n = page_acq.get_buf_size().value();
         ASSERT_EQ(4088u, n);
         memset(page_acq.get_buf_write(), 0, n);
     }
 
     void check_page_acq(page_acq_t *page_acq, const std::string &expected) {
-        const uint32_t n = page_acq->get_buf_size().value();
+        const uint16_t n = page_acq->get_buf_size().value();
         ASSERT_EQ(4088u, n);
         const char *const p = static_cast<const char *>(page_acq->get_buf_read());
 

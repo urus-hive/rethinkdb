@@ -69,9 +69,12 @@ void jobs_manager_t::on_get_job_reports(
 
     auto lock = drainer.lock();
 
-    // Note, as `time` is retrieved here a job may actually report to be started after
-    // fetching the time, leading to a negative duration which we round to zero.
+    // Note, as `time` (or `kticks`) is retrieved here a job may actually report to be
+    // started after fetching the time, leading to a negative duration which we round to
+    // zero.
     microtime_t time = current_microtime();
+    // We have some microtime_t values and we also have some kiloticks_t values.
+    kiloticks_t kticks = get_kiloticks();
 
     pmap(get_num_threads(), [&](int32_t threadnum) {
         // Here we need to store `query_job_report_t` locally to prevent multiple threads
@@ -87,15 +90,16 @@ void jobs_manager_t::on_get_job_reports(
                         continue;
                     }
 
-                    auto render = pprint::render_as_javascript(
+                    std::string render = pprint::pretty_print_as_js(
+                        printed_query_columns,
                         pair.second->term_storage->root_term());
 
                     query_job_reports_inner.emplace_back(
                         pair.second->job_id,
-                        time - std::min(pair.second->start_time, time),
+                        kticks.micros - std::min(pair.second->start_time.micros, kticks.micros),
                         server_id,
                         query_cache->get_client_addr_port(),
-                        pretty_print(printed_query_columns, render),
+                        std::move(render),
                         query_cache->get_user_context());
                 }
             }

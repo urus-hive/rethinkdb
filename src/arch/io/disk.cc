@@ -100,11 +100,11 @@ public:
 
     void submit_write(fd_t fd, const void *buf, size_t count, int64_t offset,
                       void *account, linux_iocallback_t *cb,
-                      bool wrap_in_datasyncs) {
+                      datasync_op ds_op) {
         threadnum_t calling_thread = get_thread_id();
 
         action_t *a = new action_t(calling_thread, cb);
-        a->make_write(fd, buf, count, offset, wrap_in_datasyncs);
+        a->make_write(fd, buf, count, offset, ds_op);
         a->account = static_cast<accounting_diskmgr_t::account_t *>(account);
 
         do_on_thread(home_thread(),
@@ -113,12 +113,12 @@ public:
     }
 
     void submit_resize(fd_t fd, int64_t old_size, int64_t new_size,
-                      void *account, linux_iocallback_t *cb,
-                      bool wrap_in_datasyncs) {
+                       void *account, linux_iocallback_t *cb,
+                       datasync_op ds_op) {
         threadnum_t calling_thread = get_thread_id();
 
         action_t *a = new action_t(calling_thread, cb);
-        a->make_resize(fd, old_size, new_size, wrap_in_datasyncs);
+        a->make_resize(fd, old_size, new_size, ds_op);
         a->account = static_cast<accounting_diskmgr_t::account_t *>(account);
 
         do_on_thread(home_thread(),
@@ -250,24 +250,29 @@ void linux_file_t::set_file_size(int64_t new_size) {
     rs_callback->lock = file_size_ops_drainer.lock();
     diskmgr->submit_resize(fd.get(), file_size, new_size,
                            default_account->get_account(),
-                           rs_callback, true);
+                           rs_callback, datasync_op::wrap_in_datasyncs);
 
     file_size = new_size;
 }
 
 // For growing in large chunks at a time.
-int64_t chunk_factor(int64_t size) {
-    // x is at most 12.5% of size. Overall we align to chunks no larger than
-    // 64 extents.
-    int64_t x = (size / (DEFAULT_EXTENT_SIZE * 8)) * DEFAULT_EXTENT_SIZE;
-    return clamp<int64_t>(x, DEFAULT_EXTENT_SIZE, DEFAULT_EXTENT_SIZE * 64);
+int64_t chunk_factor(int64_t size, int64_t extent_size) {
+    // x is at most 12.5% of size. Overall we align to chunks no larger than 64 extents.
+    // This ratio was increased from 6.25% for performance reasons.  Resizing a file
+    // (with ftruncate) doesn't actually use disk space, so it's OK if we pick a value
+    // that's too big.
+
+    // We round off at an extent_size because it would be silly to allocate a partial
+    // extent.
+    int64_t x = (size / (extent_size * 8)) * extent_size;
+    return clamp<int64_t>(x, extent_size, extent_size * 64);
 }
 
-void linux_file_t::set_file_size_at_least(int64_t size) {
+void linux_file_t::set_file_size_at_least(int64_t size, int64_t extent_size) {
     assert_thread();
     if (file_size < size) {
-        /* Grow in large chunks at a time */
-        set_file_size(ceil_aligned(size, chunk_factor(size)));
+        /* Grow in large chunks at a time. */
+        set_file_size(ceil_aligned(size, chunk_factor(size, extent_size)));
     }
 }
 
@@ -281,13 +286,15 @@ void linux_file_t::read_async(int64_t offset, size_t length, void *buf, file_acc
 
 void linux_file_t::write_async(int64_t offset, size_t length, const void *buf,
                                file_account_t *account, linux_iocallback_t *callback,
-                               wrap_in_datasyncs_t wrap_in_datasyncs) {
+                               datasync_op ds_op) {
     rassert(diskmgr, "No diskmgr has been constructed (are we running without an event queue?)");
     verify_aligned_file_access(file_size, offset, length, buf);
     diskmgr->submit_write(fd.get(), buf, length, offset,
-                          account == DEFAULT_DISK_ACCOUNT ? default_account->get_account() : account->get_account(),
+                          account == DEFAULT_DISK_ACCOUNT
+                          ? default_account->get_account()
+                          : account->get_account(),
                           callback,
-                          wrap_in_datasyncs == WRAP_IN_DATASYNCS);
+                          ds_op);
 }
 
 void linux_file_t::writev_async(int64_t offset, size_t length,
@@ -338,7 +345,7 @@ void linux_file_t::writev_async(int64_t offset, size_t length,
                               ? default_account->get_account()
                               : account->get_account(),
                               intermediate_cb,
-                              false);
+                              datasync_op::no_datasyncs);
         partial_offset += bufs[i].iov_len;
     }
     guarantee(partial_offset - offset == static_cast<int64_t>(length));

@@ -27,17 +27,17 @@ EOF
 
     test -n "${NOCONFIGURE:-}" || ./configure --static all --fetch all --prefix=/usr --sysconfdir=/etc --localstatedir=/var
 
-    `make command-line` install DESTDIR=$RPM_ROOT BUILD_PORTABLE=1 ALLOW_WARNINGS=1 SPLIT_SYMBOLS=1
+    `make command-line` install DESTDIR=$RPM_ROOT BUILD_PORTABLE=1 SPLIT_SYMBOLS=1
 
     ... () { command="$command $(for x in "$@"; do printf "%q " "$x"; done)"; }
 
-    GLIBC_VERSION=`rpm -qa --queryformat '%{VERSION}' glibc`
+    GLIBC_VERSION=`rpm -qa --queryformat '%{VERSION}\n' glibc | head -n1`
 
     command=fpm
     ... -t rpm                  # Build an RPM package
     ... --package $RPM_PACKAGE
     ... --name rethinkdb
-    ... --license AGPL
+    ... --license 'ASL 2.0'
     ... --vendor RethinkDB
     ... --category Database
     ... --version "$VERSION"

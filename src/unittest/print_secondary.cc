@@ -2,20 +2,22 @@
 #include "containers/optional.hpp"
 #include "rdb_protocol/datum.hpp"
 #include "unittest/gtest.hpp"
+#include "unittest/unittest_utils.hpp"
 
 namespace unittest {
 void test_mangle(const std::string &pkey, const std::string &skey, optional<uint64_t> tag = optional<uint64_t>()) {
     std::string tag_string;
     if (tag) {
-        tag_string = std::string(reinterpret_cast<const char *>(&*tag),
-                                 sizeof(uint64_t));
+        // Encode tag in little endian.
+        tag_string = encode_le64(*tag);
     }
     auto versions = {
         reql_version_t::v1_16,
         reql_version_t::v2_0,
         reql_version_t::v2_1,
         reql_version_t::v2_2,
-        reql_version_t::v2_3_is_latest
+        reql_version_t::v2_3,
+        reql_version_t::v2_4_is_latest
     };
     for (reql_version_t rv : versions) {
         ql::skey_version_t skey_version = ql::skey_version_from_reql_version(rv);

@@ -72,9 +72,6 @@
 // Size of the device block size (in bytes)
 #define DEVICE_BLOCK_SIZE                         512
 
-// Size of the metablock (in bytes)
-#define METABLOCK_SIZE                            (4 * KILOBYTE)
-
 // Size of each btree node (in bytes) on disk
 #define DEFAULT_BTREE_BLOCK_SIZE                  (4 * KILOBYTE)
 
@@ -101,9 +98,6 @@
 // Maximum number of threads we support
 // TODO: make this dynamic where possible
 #define MAX_THREADS                               128
-
-// Ticks (in milliseconds) the internal timed tasks are performed at
-#define TIMER_TICKS_IN_MS                         5
 
 // How many times the page replacement algorithm tries to find an eligible page before giving up.
 // Note that (MAX_UNSAVED_DATA_LIMIT_FRACTION ** PAGE_REPL_NUM_TRIES) is the probability that the
@@ -132,13 +126,9 @@
 // How many block ids should the LBA garbage collector rewrite before yielding?
 #define LBA_GC_BATCH_SIZE                         (1024 * 8)
 
-// How many LBA structures to have for each file
+// How many LBA structures to have for each file (This value defines the disk format!
+// It can't change unless you're very careful.)
 #define LBA_SHARD_FACTOR                          4
-
-// How much space to reserve in the metablock to store inline LBA entries
-// Make sure that it fits into METABLOCK_SIZE, including all other meta data
-// TODO (daniel): Tune
-#define LBA_INLINE_SIZE                           (METABLOCK_SIZE - 512)
 
 // How many bytes of buffering space we can use per disk when reading the LBA. If it's set
 // too high, then RethinkDB will eat a lot of memory at startup. This is bad because tcmalloc
@@ -151,7 +141,14 @@
 // block infos.
 #define LBA_RECONSTRUCTION_BATCH_SIZE             1024
 
+#if defined (__powerpc64__)
+// getifaddrs() calls alloca() and it tries to allocate 64KB of memory
+// in stack frame. To avoid stack overflow, increasing the stack size
+// to accomodate both alloca() and regsiter save area during context switch.
+#define COROUTINE_STACK_SIZE                      262144
+#else
 #define COROUTINE_STACK_SIZE                      131072
+#endif
 
 
 /**

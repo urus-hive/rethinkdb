@@ -29,11 +29,11 @@
 #define MESSAGE_HANDLER_MAX_BATCH_SIZE           16
 
 // The cluster communication protocol version.
-static_assert(cluster_version_t::CLUSTER == cluster_version_t::v2_4_is_latest,
+static_assert(cluster_version_t::CLUSTER == cluster_version_t::v2_5_is_latest,
               "We need to update CLUSTER_VERSION_STRING when we add a new cluster "
               "version.");
 
-#define CLUSTER_VERSION_STRING "2.4.0"
+#define CLUSTER_VERSION_STRING "2.5.0"
 
 const std::string connectivity_cluster_t::cluster_proto_header("RethinkDB cluster\n");
 const std::string connectivity_cluster_t::cluster_version_string(CLUSTER_VERSION_STRING);
@@ -100,7 +100,7 @@ static bool resolve_protocol_version(const std::string &remote_version_string,
     return false;
 }
 
-#if defined (__x86_64__) || defined (_WIN64)
+#if defined (__x86_64__) || defined (_WIN64) || defined (__s390x__) || defined(__arm64__) || defined(__aarch64__) || defined (__powerpc64__)
 const std::string connectivity_cluster_t::cluster_arch_bitsize("64bit");
 #elif defined (__i386__) || defined(__arm__) || defined(_WIN32)
 const std::string connectivity_cluster_t::cluster_arch_bitsize("32bit");

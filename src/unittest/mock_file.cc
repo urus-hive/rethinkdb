@@ -23,7 +23,7 @@ void mock_file_t::set_file_size(int64_t size) {
     data_->resize(size, 0);
 }
 
-void mock_file_t::set_file_size_at_least(int64_t size) {
+void mock_file_t::set_file_size_at_least(int64_t size, UNUSED int64_t extent_size) {
     guarantee(0 <= size && static_cast<uint64_t>(size) <= SIZE_MAX);
     if (data_->size() < static_cast<uint64_t>(size)) {
         data_->resize(size, 0);
@@ -47,7 +47,7 @@ void mock_file_t::read_async(int64_t offset, size_t length, void *buf,
 
 void mock_file_t::write_async(int64_t offset, size_t length, const void *buf,
                               UNUSED file_account_t *account, linux_iocallback_t *cb,
-                              UNUSED wrap_in_datasyncs_t wrap_in_datasyncs) {
+                              UNUSED datasync_op ds_op) {
     guarantee(mode_ & mode_write);
     verify_aligned_file_access(data_->size(), offset, length, buf);
     guarantee(!(offset < 0
@@ -68,7 +68,7 @@ void mock_file_t::writev_async(int64_t offset, size_t length, scoped_array_t<iov
     iovec bufvec[1] = { { buf.get(), length } };
     fill_bufs_from_source(bufvec, 1, bufs.data(), bufs.size(), 0);
 
-    write_async(offset, length, buf.get(), account, cb, NO_DATASYNCS);
+    write_async(offset, length, buf.get(), account, cb, datasync_op::no_datasyncs);
 }
 
 bool mock_file_t::coop_lock_and_check() {

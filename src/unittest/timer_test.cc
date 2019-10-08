@@ -33,7 +33,7 @@ void walk_wait_times(int i, uint64_t *mse) {
         ticks_t t1 = get_ticks();
         nap(expected_ms);
         ticks_t t2 = get_ticks();
-        int64_t actual_ns = t2 - t1;
+        int64_t actual_ns = t2.nanos - t1.nanos;
         int64_t error_ns = actual_ns - expected_ms * MILLION;
 
         EXPECT_LT(llabs(error_ns), max_error_ms * MILLION)
@@ -56,6 +56,41 @@ TPTEST(TimerTest, TestApproximateWaitTimes) {
     mse /= simultaneous;
     EXPECT_LT(sqrt(mse) / MILLION, max_average_error_ms)
         << "Average timer error too high";
+}
+
+TPTEST(TimerTest, TestRepeatingTimer) {
+    int64_t first_ticks = get_ticks().nanos;
+    int count = 0;
+    repeating_timer_t timer(30, [&]() {
+        ++count;
+        int64_t ticks = get_ticks().nanos;
+        int64_t diff = ticks - first_ticks;
+        EXPECT_LT(std::abs(diff - 30 * MILLION * count), max_error_ms * MILLION);
+    });
+    nap(100);
+}
+
+TPTEST(TimerTest, TestChangeInterval) {
+    ticks_t first_ticks = get_ticks();
+    int count = 0;
+    int64_t expected[] = { 5, 10, 20, 40, 65 };
+    int64_t naps[] = {0,  0,  0,  25, 0};
+    int64_t ms[] = { 10, 20, 30, 10, 50};
+    scoped_ptr_t<repeating_timer_t> timer;
+    timer = make_scoped<repeating_timer_t>(10, [&]() {
+        coro_t::spawn_now_dangerously([&]() {
+            ASSERT_LT(count, 5);
+            ticks_t ticks = get_ticks();
+            int64_t diff = ticks.nanos - first_ticks.nanos;
+            EXPECT_LT(std::abs(diff - expected[count] * MILLION),
+                      max_error_ms * MILLION);
+            nap(naps[count]);
+            timer->change_interval(ms[count]);
+            ++count;
+        });
+    });
+    timer->change_interval(5);
+    nap(70);
 }
 
 

@@ -318,10 +318,10 @@ batched_replace_response_t rdb_replace_and_return_superblock(
 }
 
 ql::datum_t btree_batched_replacer_t::apply_write_hook(
-    ql::env_t *env,
     const datum_string_t &pkey,
     const ql::datum_t &d,
     const ql::datum_t &res_,
+    const ql::datum_t &write_timestamp,
     const counted_t<const ql::func_t> &write_hook) const {
     ql::datum_t res = res_;
     if (write_hook.has()) {
@@ -336,9 +336,18 @@ ql::datum_t btree_batched_replacer_t::apply_write_hook(
         }
         ql::datum_t modified;
         try {
-            modified = write_hook->call(env,
+            cond_t non_interruptor;
+            ql::env_t write_hook_env(&non_interruptor,
+                                     ql::return_empty_normal_batches_t::NO,
+                                     reql_version_t::LATEST);
+
+            ql::datum_object_builder_t builder;
+            builder.overwrite("primary_key", std::move(primary_key));
+            builder.overwrite("timestamp", write_timestamp);
+
+            modified = write_hook->call(&write_hook_env,
                                         std::vector<ql::datum_t>{
-                                            primary_key,
+                                            std::move(builder).to_datum(),
                                                 d,
                                                 res})->as_datum();
         } catch (ql::exc_t &e) {
@@ -1653,7 +1662,8 @@ void deserialize_sindex_info(
     case cluster_version_t::v2_1:
     case cluster_version_t::v2_2:
     case cluster_version_t::v2_3:
-    case cluster_version_t::v2_4_is_latest:
+    case cluster_version_t::v2_4:
+    case cluster_version_t::v2_5_is_latest:
         success = deserialize_reql_version(
                 &read_stream,
                 &info_out->mapping_version_info.original_reql_version,
@@ -1690,7 +1700,8 @@ void deserialize_sindex_info(
     case cluster_version_t::v2_1: // fallthru
     case cluster_version_t::v2_2: // fallthru
     case cluster_version_t::v2_3: // fallthru
-    case cluster_version_t::v2_4_is_latest:
+    case cluster_version_t::v2_4: // fallthru
+    case cluster_version_t::v2_5_is_latest:
         success = deserialize_for_version(cluster_version, &read_stream, &info_out->geo);
         throw_if_bad_deserialization(success, "sindex description");
         break;

@@ -16,9 +16,6 @@ DEFAULT_GOAL ?= all
 # If set to 1, make will not recompile when one of the makefiles changes
 IGNORE_MAKEFILE_CHANGES ?= 0
 
-# If set to 1, do not use -Werror
-ALLOW_WARNINGS ?= 0
-
 # Show the number of targets left to build
 SHOW_COUNTDOWN ?= 1
 
@@ -40,9 +37,6 @@ SYMBOLS ?= 1
 # Put the symbols in a separate file
 SPLIT_SYMBOLS ?= 0
 
-# Add numeric indices to json objects in the json adapter
-JSON_SHORTCUTS ?= 0
-
 # Set to 0 for release mode or 1 for debug mode
 DEBUG ?= 0
 
@@ -52,23 +46,14 @@ UNIT_TESTS ?= $(DEBUG)
 # Set to 1 to enable valgrind awareness
 VALGRIND ?= 0
 
-# Run lintian after building the debian package
-LINTIAN ?= 0
-
 # Build directory (empty for default)
 BUILD_DIR ?=
 
 # Destination directory when installing. Defaults to /
 DESTDIR ?=
 
-# Time every command
-TIMINGS ?= 0
-
 # Check for unknown variables in custom.mk
 MAKE_VARIABLE_CHECK ?= 1
-
-# Do not allow unknown variables in custom.mk
-STRICT_MAKE_VARIABLE_CHECK ?= 0
 
 # Enable code coverage
 COVERAGE ?= 0
@@ -86,12 +71,6 @@ NAMEVERSIONED ?= 0
 # When packaging, build a package for this ubuntu or debian release name
 UBUNTU_RELEASE ?=
 DEB_RELEASE ?=
-
-# What tests to run
-TEST ?= default
-
-# How to run the tests (arguments for ./scripts/run-tests.sh)
-RUN_TEST_ARGS ?=
 
 # For each triggered rule, show one of the dependencies that caused it to be run
 SHOW_BUILD_REASON ?= 0
@@ -126,25 +105,13 @@ DIST_CONFIGURE_DEFAULT ?=
 # Minify the webui source code with "uglify".
 UGLIFY ?= 1
 
-# Sets the `-fno-omit-frame-pointer` compiler flag. Important for some profiling tools
-# such as oprofile.
-NO_OMIT_FRAME_POINTER ?= 0
-
 # Check the hash of fetched archives
 VERIFY_FETCH_HASH=1
 
 # TODO: Document these variables
 STATIC_LIBGCC ?= 0
-DISABLE_BREAKPOINTS ?= 0
 BUILD_PORTABLE ?= 0
 LEGACY_LINUX ?= 0
 LEGACY_GCC ?= 0
-RT_FORCE_NATIVE ?= 0
-RT_COPY_NATIVE ?= 0
-RT_REDUCE_NATIVE ?= 0
-KEEP_INLINE ?= 0
 NO_EVENTFD ?= 0
 NO_EPOLL ?= 0
-UNIT_TEST_FILTER ?= *
-PACKAGE_FOR_SUSE_10 ?= 0
-NO_COMPILE_JS ?= 0

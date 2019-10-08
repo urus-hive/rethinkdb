@@ -110,7 +110,7 @@ private:
 
     // Constants to control how often we rebalance
     static const uint64_t rebalance_access_count_threshold;
-    static const uint64_t rebalance_timeout_ms;
+    static const int64_t rebalance_timeout_ms;
     static const uint64_t rebalance_check_interval_ms;
 
     // Controls how much read ahead is allowed out of total cache size
@@ -138,8 +138,15 @@ private:
         explicit cache_data_t(alt::evicter_t *_evicter);
 
         alt::evicter_t *evicter;
+
         uint64_t new_size;
         uint64_t old_size;
+
+        // The three components of actual memory usage by the cache
+        uint64_t unevictable_size;
+        uint64_t evictable_disk_backed_size;
+        uint64_t evictable_unbacked_size;
+
         int64_t bytes_loaded;
         uint64_t access_count;
     };
@@ -170,7 +177,7 @@ private:
     };
     rebalance_timer_state_t rebalance_timer_state;
 
-    microtime_t last_rebalance_time;
+    kiloticks_t last_rebalance_time;
     bool read_ahead_ok;
     uint64_t bytes_toward_read_ahead_limit;
 

@@ -37,6 +37,7 @@ query_cache_t::const_iterator query_cache_t::end() const {
 }
 
 scoped_ptr_t<query_cache_t::ref_t> query_cache_t::create(query_params_t *query_params,
+                                                         ql::datum_t &&deterministic_time,
                                                          signal_t *interruptor) {
     guarantee(this == query_params->query_cache);
     query_params->maybe_release_query_id();
@@ -68,6 +69,7 @@ scoped_ptr_t<query_cache_t::ref_t> query_cache_t::create(query_params_t *query_p
     }
     scoped_ptr_t<entry_t> entry(new entry_t(query_params,
                                             std::move(global_optargs),
+                                            std::move(deterministic_time),
                                             std::move(term_tree)));
 
     scoped_ptr_t<ref_t> ref(new ref_t(this,
@@ -131,10 +133,6 @@ void query_cache_t::stop_query(query_params_t *query_params, signal_t *interrupt
 }
 
 void query_cache_t::terminate_internal(query_cache_t::entry_t *entry) {
-    if (entry->state == entry_t::state_t::START ||
-        entry->state == entry_t::state_t::STREAM) {
-        entry->state = entry_t::state_t::DONE;
-    }
     entry->persistent_interruptor.pulse_if_not_already_pulsed();
 }
 
@@ -164,9 +162,9 @@ void query_cache_t::async_destroy_entry(query_cache_t::entry_t *entry) {
 
 query_cache_t::ref_t::~ref_t() {
     query_cache->assert_thread();
-    guarantee(entry->state != entry_t::state_t::START);
 
-    if (entry->state == entry_t::state_t::DONE) {
+    if (entry->state == entry_t::state_t::DONE
+        || (entry->state != entry_t::state_t::DELETING && entry->persistent_interruptor.is_pulsed())) {
         // We do not delete the entry in this context for reasons:
         //  1. If there is an active exception, we aren't allowed to switch coroutines
         //  2. This will block until all auto-drainer locks on the entry have been
@@ -200,7 +198,7 @@ void query_cache_t::ref_t::fill_response(response_t *res) {
         serializable_env_t serializable{
                 entry->global_optargs,
                 query_cache->get_user_context(),
-                pseudo::time_now()};
+                entry->deterministic_time};
         env_t env(
             query_cache->rdb_ctx,
             query_cache->return_empty_normal_batches,
@@ -360,6 +358,7 @@ void query_cache_t::ref_t::serve(env_t *env, response_t *res) {
 
 query_cache_t::entry_t::entry_t(query_params_t *query_params,
                                 global_optargs_t &&_global_optargs,
+                                ql::datum_t && _deterministic_time,
                                 counted_t<const term_t> &&_term_tree) :
         state(state_t::START),
         interrupt_reason(interrupt_reason_t::UNKNOWN),
@@ -369,7 +368,8 @@ query_cache_t::entry_t::entry_t(query_params_t *query_params,
                                         profile_bool_t::DONT_PROFILE),
         term_storage(std::move(query_params->term_storage)),
         global_optargs(std::move(_global_optargs)),
-        start_time(current_microtime()),
+        deterministic_time(_deterministic_time),
+        start_time(get_kiloticks()),
         term_tree(std::move(_term_tree)),
         has_sent_batch(false) { }
 

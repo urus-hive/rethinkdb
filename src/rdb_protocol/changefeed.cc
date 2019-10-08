@@ -35,9 +35,8 @@ struct indexed_datum_t {
     }
     datum_t val;
     optional<std::string> btree_index_key;
-    // This should be true, but older versions of boost don't support `move`
-    // well in optionals.
-    // MOVABLE_BUT_NOT_COPYABLE(indexed_datum_t);
+
+    MOVABLE_BUT_NOT_COPYABLE(indexed_datum_t);
 };
 
 struct stamped_range_t {
@@ -50,10 +49,8 @@ struct stamped_range_t {
     uint64_t next_expected_stamp;
     store_key_t left_fencepost;
     std::deque<std::pair<key_range_t, uint64_t> > ranges;
-    // This should be true, but it breaks with GCC 4.6's STL.  (The cost of
-    // copying is low because if you look below we only ever copy
-    // `stamped_range_t` before populating `ranges`.)
-    // MOVABLE_BUT_NOT_COPYABLE(stamped_range_t);
+
+    MOVABLE_BUT_NOT_COPYABLE(stamped_range_t);
 };
 
 void debug_print(printf_buffer_t *buf, const stamped_range_t &rng) {
@@ -68,12 +65,12 @@ void debug_print(printf_buffer_t *buf, const stamped_range_t &rng) {
 
 struct change_val_t {
     change_val_t(std::pair<uuid_u, uint64_t> _source_stamp,
-                 store_key_t _pkey,
+                 const store_key_t &_pkey,
                  optional<indexed_datum_t> _old_val,
                  optional<indexed_datum_t> _new_val
                  DEBUG_ONLY(, optional<std::string> _sindex))
         : source_stamp(std::move(_source_stamp)),
-          pkey(std::move(_pkey)),
+          pkey(_pkey),
           old_val(std::move(_old_val)),
           new_val(std::move(_new_val))
           DEBUG_ONLY(, sindex(std::move(_sindex))) {
@@ -86,11 +83,11 @@ struct change_val_t {
     }
     std::pair<uuid_u, uint64_t> source_stamp;
     store_key_t pkey;
-    optional<indexed_datum_t> old_val, new_val;
+    optional<indexed_datum_t> old_val;
+    optional<indexed_datum_t> new_val;
     DEBUG_ONLY(optional<std::string> sindex;);
-    // This should be true, but older versions of boost don't support `move`
-    // well in optionals.
-    // MOVABLE_BUT_NOT_COPYABLE(change_val_t);
+
+    MOVABLE_BUT_NOT_COPYABLE(change_val_t);
 };
 
 namespace debug {
@@ -430,8 +427,7 @@ void server_t::add_limit_client(
         const std::string &table,
         const optional<uuid_u> &sindex_id,
         rdb_context_t *ctx,
-        global_optargs_t optargs,
-        auth::user_context_t user_context,
+        const serializable_env_t &s_env,
         const uuid_u &client_uuid,
         const keyspec_t::limit_t &spec,
         limit_order_t lt,
@@ -453,8 +449,7 @@ void server_t::add_limit_client(
             table,
             sindex_id,
             ctx,
-            std::move(optargs),
-            std::move(user_context),
+            s_env,
             client_uuid,
             this,
             it->first,
@@ -718,7 +713,7 @@ limit_order_t::limit_order_t(sorting_t _sorting)
 
 // Produes a primary key + tag pair, mangled so that it sorts correctly and can
 // be safely stored in a datum.
-std::string key_to_mangled_primary(store_key_t store_key, is_primary_t is_primary) {
+std::string key_to_mangled_primary(const store_key_t &store_key, is_primary_t is_primary) {
     std::string s, raw_str = key_to_unescaped_str(store_key);
     components_t components;
     if (is_primary == is_primary_t::YES) {
@@ -861,8 +856,7 @@ limit_manager_t::limit_manager_t(
     std::string _table,
     optional<uuid_u> _sindex_id,
     rdb_context_t *ctx,
-    global_optargs_t optargs,
-    auth::user_context_t user_context,
+    const serializable_env_t &s_env,
     uuid_u _uuid,
     server_t *_parent,
     client_t::addr_t _parent_client,
@@ -886,9 +880,7 @@ limit_manager_t::limit_manager_t(
         ctx,
         return_empty_normal_batches_t::NO,
         drainer.get_drain_signal(),
-        std::move(optargs),
-        std::move(user_context),
-        datum_t(),
+        s_env,
         nullptr);
 
     guarantee(ops.size() == 0);
@@ -906,7 +898,7 @@ limit_manager_t::limit_manager_t(
 
 void limit_manager_t::add(
     rwlock_in_line_t *spot,
-    store_key_t sk,
+    const store_key_t &sk,
     is_primary_t is_primary,
     datum_t key,
     datum_t val) THROWS_NOTHING {
@@ -926,7 +918,7 @@ void limit_manager_t::add(
 
 void limit_manager_t::del(
     rwlock_in_line_t *spot,
-    store_key_t sk,
+    const store_key_t &sk,
     is_primary_t is_primary) THROWS_NOTHING {
     guarantee(spot->write_signal()->is_pulsed());
     std::string key = key_to_mangled_primary(sk, is_primary);
@@ -966,14 +958,14 @@ public:
             if (start) {
                 store_key_t start_key = mangled_primary_to_pkey(start->first);
                 start_key.increment(); // open bound
-                range.left = std::move(start_key);
+                range.left = start_key;
             }
         } break;
         case sorting_t::DESCENDING: {
             if (start) {
                 store_key_t start_key = mangled_primary_to_pkey(start->first);
                 // right bound is open by default
-                range.right = key_range_t::right_bound_t(std::move(start_key));
+                range.right = key_range_t::right_bound_t(start_key);
             }
         } break;
         case sorting_t::UNORDERED: // fallthru
@@ -1573,8 +1565,8 @@ public:
             queue->add(change_val_t(
                 std::make_pair(shard_uuid, stamp),
                 pkey,
-                old_val,
-                new_val
+                std::move(old_val),
+                std::move(new_val)
                 DEBUG_ONLY(, sindex)));
             if (queue->size() > limits.changefeed_queue_size()) {
                 skipped += queue->size();
@@ -1632,7 +1624,7 @@ public:
     void update_stamps(uuid_u server_uuid, uint64_t stamp);
     std::map<uuid_u, uint64_t> get_stamps();
     void on_point_sub(
-        store_key_t key,
+        const store_key_t &key,
         const auto_drainer_t::lock_t &lock,
         const std::function<void(point_sub_t *)> &f) THROWS_NOTHING;
     void on_limit_sub(
@@ -2400,10 +2392,7 @@ private:
                 outer_env->get_rdb_ctx(),
                 outer_env->return_empty_normal_batches,
                 drainer.get_drain_signal(),
-                serializable_env_t{
-                    outer_env->get_all_optargs(),
-                    outer_env->get_user_context(),
-                    outer_env->get_deterministic_time()},
+                outer_env->get_serializable_env(),
                 nullptr/*don't profile*/);
     }
 
@@ -2941,21 +2930,17 @@ public:
         feed->on_point_sub(
             change.pkey,
             *lock,
-            std::bind(
-                &point_sub_t::add_el,
-                ph::_1,
-                std::cref(server_uuid),
-                stamp,
-                change.pkey,
-                r_nullopt,
-                change.old_val.has()
-                    ? optional<indexed_datum_t>(
-                        indexed_datum_t(change.old_val, r_nullopt))
-                    : r_nullopt,
-                change.new_val.has()
-                    ? optional<indexed_datum_t>(
-                        indexed_datum_t(change.new_val, r_nullopt))
-                    : r_nullopt));
+            [&](point_sub_t *sub) {
+                sub->add_el(server_uuid, stamp, change.pkey, r_nullopt,
+                            change.old_val.has()
+                                ? optional<indexed_datum_t>(
+                                        indexed_datum_t(change.old_val, r_nullopt))
+                                : r_nullopt,
+                            change.new_val.has()
+                                ? optional<indexed_datum_t>(
+                                        indexed_datum_t(change.new_val, r_nullopt))
+                                : r_nullopt);
+            });
     }
     void operator()(const msg_t::stop_t &) const {
         feed->abort_feed();
@@ -3282,7 +3267,7 @@ subscription_t::get_els(batcher_t *batcher,
         if (batcher->get_batch_type() == batch_type_t::NORMAL_FIRST) {
             batch_timer = make_scoped<signal_timer_t>(0);
         } else if (return_empty_normal_batches == return_empty_normal_batches_t::YES) {
-            batch_timer = make_scoped<signal_timer_t>(batcher->microtime_left() / 1000);
+            batch_timer = make_scoped<signal_timer_t>(batcher->kiloticks_left().micros / 1000);
         }
         // If we have to wait, wait.
         if (min_interval > 0.0
@@ -3649,7 +3634,7 @@ void feed_t::each_limit_sub_with_lock(
 }
 
 void feed_t::on_point_sub(
-    store_key_t key,
+    const store_key_t &key,
     const auto_drainer_t::lock_t &lock,
     const std::function<void(point_sub_t *)> &f) THROWS_NOTHING {
     assert_thread();

@@ -198,7 +198,7 @@ std::string date(const std::string &s, date_format_t *df_out) {
 }
 
 // Sanitize a time.
-std::string time(const std::string &s) {
+std::string time(reql_version_t reql_version, const std::string &s) {
     std::string out;
     size_t at = 0;
     mandatory_digits(s, 2, &at, &out);
@@ -215,16 +215,22 @@ std::string time(const std::string &s) {
                  strprintf("Time string `%s` must have 0 or 2 colons.", s.c_str()));
     mandatory_digits(s, 2, &at, &out);
     if (optional_char(s, '.', &at, &out)) {
-        size_t read = 0;
-        while (at < s.size() && read < 3) {
-            mandatory_digits(s, 1, &at, &out);
-            read += 1;
-        }
-        while (at < s.size()) {
-            mandatory_digits(s, 1, &at, NULL);
-        }
-        while (read++ < 3) {
-            out += '0';
+        if (reql_version < reql_version_t::v2_4) {
+            size_t read = 0;
+            while (at < s.size() && read < 3) {
+                mandatory_digits(s, 1, &at, &out);
+                read += 1;
+            }
+            while (at < s.size()) {
+                mandatory_digits(s, 1, &at, NULL);
+            }
+            while (read++ < 3) {
+                out += '0';
+            }
+        } else {
+            while (at < s.size()) {
+                mandatory_digits(s, 1, &at, &out);
+            }
         }
     } else {
         out += "000";
@@ -275,7 +281,9 @@ std::string tz(const std::string &s) {
 }
 
 // Sanitize an ISO 8601 string.
-std::string iso8601(const std::string &s, const std::string &default_tz, date_format_t *df_out) {
+std::string iso8601(
+        reql_version_t reql_version, const std::string &s,
+        const std::string &default_tz, date_format_t *df_out) {
     std::string date_s, time_s, tz_s;
     size_t tloc, start, sign_loc;
     tloc = s.find('T');
@@ -288,7 +296,7 @@ std::string iso8601(const std::string &s, const std::string &default_tz, date_fo
         sign_loc = s.find('-', start);
         sign_loc = (sign_loc == std::string::npos) ? s.find('+', start) : sign_loc;
         sign_loc = (sign_loc == std::string::npos) ? s.find('Z', start) : sign_loc;
-        time_s = time(s.substr(start, sign_loc - start));
+        time_s = time(reql_version, s.substr(start, sign_loc - start));
         if (sign_loc == std::string::npos) {
             tz_s = default_tz;
         } else {
@@ -346,12 +354,13 @@ datum_t boost_to_time(time_t t, const rcheckable_t *target) {
 }
 
 datum_t iso8601_to_time(
-    const std::string &s, const std::string &default_tz, const rcheckable_t *target) {
+        reql_version_t reql_version, const std::string &s,
+        const std::string &default_tz, const rcheckable_t *target) {
     try {
         date_format_t df = UNSET;
         std::string sanitized;
         try {
-            sanitized = sanitize::iso8601(s, default_tz, &df);
+            sanitized = sanitize::iso8601(reql_version, s, default_tz, &df);
         } catch (const datum_exc_t &e) {
             rfail_target(target, base_exc_t::LOGIC, "%s", e.what());
         }
@@ -384,14 +393,19 @@ datum_t iso8601_to_time(
 }
 
 const int64_t sec_incr = INT_MAX;
-void add_seconds_to_ptime(ptime_t *t, double raw_sec) {
+void add_seconds_to_ptime(reql_version_t reql_version, ptime_t *t, double raw_sec) {
     int64_t sec = raw_sec;
-    int64_t microsec = (raw_sec * 1000000.0) - (sec * 1000000);
+    int sign = raw_sec < 0 ? -1 : 1;
+    int64_t microsec;
+    if (reql_version < reql_version_t::v2_4) {
+        microsec = (raw_sec * 1000000.0) - (sec * 1000000);
+    } else {
+        microsec = (raw_sec * 1000000.0) - (sec * 1000000.0) + sign * 0.5;
+    }
 
     // boost::posix_time::seconds doesn't like large numbers, and like any
     // mature library, it reacts by silently overflowing somewhere and producing
     // an incorrect date if you give it a number that it doesn't like.
-    int sign = sec < 0 ? -1 : 1;
     sec *= sign;
     while (sec > 0) {
         int64_t diff = std::min(sec, sec_incr);
@@ -403,10 +417,10 @@ void add_seconds_to_ptime(ptime_t *t, double raw_sec) {
     *t += boost::posix_time::microseconds(microsec);
 }
 
-time_t time_to_boost(datum_t d) {
+time_t time_to_boost(reql_version_t reql_version, datum_t d) {
     double raw_sec = d.get_field(epoch_time_key).as_num();
     ptime_t t(date_t(1970, 1, 1));
-    add_seconds_to_ptime(&t, raw_sec);
+    add_seconds_to_ptime(reql_version, &t, raw_sec);
 
     const datum_t tz = d.get_field(timezone_key, NOTHROW);
     if (tz.has()) {
@@ -428,9 +442,9 @@ const std::locale &no_tz_format() {
     return it;
 }
 
-std::string time_to_iso8601(datum_t d) {
+std::string time_to_iso8601(reql_version_t reql_version, datum_t d) {
     try {
-        time_t t = time_to_boost(d);
+        time_t t = time_to_boost(reql_version, d);
         int year = t.date().year();
         // Boost also accepts year 10000.  I don't think any real users will hit
         // that edge case, but better safe than sorry.
@@ -445,7 +459,7 @@ std::string time_to_iso8601(datum_t d) {
         } else {
             ss.imbue(no_tz_format());
         }
-        ss << time_to_boost(d);
+        ss << t;
         std::string s = ss.str();
         size_t dot_off = s.find('.');
         return (dot_off == std::string::npos) ? s :
@@ -576,11 +590,12 @@ datum_t make_time(double epoch_time, std::string tz) {
 }
 
 datum_t make_time(
+    reql_version_t reql_version,
     int year, int month, int day, int hours, int minutes, double seconds,
     std::string tz, const rcheckable_t *target) {
     try {
         ptime_t ptime(date_t(year, month, day), dur_t(hours, minutes, 0));
-        add_seconds_to_ptime(&ptime, seconds);
+        add_seconds_to_ptime(reql_version, &ptime, seconds);
         try {
             tz = sanitize::tz(tz);
         } catch (const datum_exc_t &e) {
@@ -629,9 +644,9 @@ datum_t time_sub(datum_t time, datum_t time_or_duration) {
     }
 }
 
-double time_portion(datum_t time, time_component_t c) {
+double time_portion(reql_version_t reql_version, datum_t time, time_component_t c) {
     try {
-        ptime_t ptime = time_to_boost(time).local_time();
+        ptime_t ptime = time_to_boost(reql_version, time).local_time();
         switch (c) {
         case YEAR: return ptime.date().year();
         case MONTH: return ptime.date().month();
@@ -661,15 +676,15 @@ time_t boost_date(time_t boost_time) {
     return time_t(ptime_t(d) - zone->base_utc_offset(), zone);
 }
 
-datum_t time_date(datum_t time, const rcheckable_t *target) {
+datum_t time_date(reql_version_t reql_version, datum_t time, const rcheckable_t *target) {
     try {
-        return boost_to_time(boost_date(time_to_boost(time)), target);
+        return boost_to_time(boost_date(time_to_boost(reql_version, time)), target);
     } HANDLE_BOOST_ERRORS(target);
 }
 
-datum_t time_of_day(datum_t time) {
+datum_t time_of_day(reql_version_t reql_version, datum_t time) {
     try {
-        time_t boost_time = time_to_boost(time);
+        time_t boost_time = time_to_boost(reql_version, time);
         double sec =
             (boost_time - boost_date(boost_time)).total_microseconds() / 1000000.0;
         sec = round(sec * 1000) / 1000;

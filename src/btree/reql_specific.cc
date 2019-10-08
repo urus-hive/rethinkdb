@@ -59,14 +59,20 @@ real_superblock_t::real_superblock_t(
 
 void real_superblock_t::release() {
     sb_buf_.reset_buf_lock();
+    write_semaphore_acq_.reset();
+}
+
+const reql_btree_superblock_t *get_reql_btree_superblock(buf_read_t *read) {
+    uint16_t sb_size;
+    const reql_btree_superblock_t *sb_data
+        = static_cast<const reql_btree_superblock_t *>(read->get_data_read(&sb_size));
+    guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+    return sb_data;
 }
 
 block_id_t real_superblock_t::get_root_block_id() {
     buf_read_t read(&sb_buf_);
-    uint32_t sb_size;
-    const reql_btree_superblock_t *sb_data
-        = static_cast<const reql_btree_superblock_t *>(read.get_data_read(&sb_size));
-    guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+    const reql_btree_superblock_t *sb_data = get_reql_btree_superblock(&read);
     return sb_data->root_block;
 }
 
@@ -79,19 +85,13 @@ void real_superblock_t::set_root_block_id(const block_id_t new_root_block) {
 
 block_id_t real_superblock_t::get_stat_block_id() {
     buf_read_t read(&sb_buf_);
-    uint32_t sb_size;
-    const reql_btree_superblock_t *sb_data =
-        static_cast<const reql_btree_superblock_t *>(read.get_data_read(&sb_size));
-    guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+    const reql_btree_superblock_t *sb_data = get_reql_btree_superblock(&read);
     return sb_data->stat_block;
 }
 
 block_id_t real_superblock_t::get_sindex_block_id() {
     buf_read_t read(&sb_buf_);
-    uint32_t sb_size;
-    const reql_btree_superblock_t *sb_data =
-        static_cast<const reql_btree_superblock_t *>(read.get_data_read(&sb_size));
-    guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+    const reql_btree_superblock_t *sb_data = get_reql_btree_superblock(&read);
     return sb_data->sindex_block;
 }
 
@@ -104,10 +104,7 @@ void sindex_superblock_t::release() {
 
 block_id_t sindex_superblock_t::get_root_block_id() {
     buf_read_t read(&sb_buf_);
-    uint32_t sb_size;
-    const reql_btree_superblock_t *sb_data
-        = static_cast<const reql_btree_superblock_t *>(read.get_data_read(&sb_size));
-    guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+    const reql_btree_superblock_t *sb_data = get_reql_btree_superblock(&read);
     return sb_data->root_block;
 }
 
@@ -120,19 +117,13 @@ void sindex_superblock_t::set_root_block_id(const block_id_t new_root_block) {
 
 block_id_t sindex_superblock_t::get_stat_block_id() {
     buf_read_t read(&sb_buf_);
-    uint32_t sb_size;
-    const reql_btree_superblock_t *sb_data =
-        static_cast<const reql_btree_superblock_t *>(read.get_data_read(&sb_size));
-    guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+    const reql_btree_superblock_t *sb_data = get_reql_btree_superblock(&read);
     return sb_data->stat_block;
 }
 
 block_id_t sindex_superblock_t::get_sindex_block_id() {
     buf_read_t read(&sb_buf_);
-    uint32_t sb_size;
-    const reql_btree_superblock_t *sb_data =
-        static_cast<const reql_btree_superblock_t *>(read.get_data_read(&sb_size));
-    guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+    const reql_btree_superblock_t *sb_data = get_reql_btree_superblock(&read);
     return sb_data->sindex_block;
 }
 
@@ -243,10 +234,7 @@ void get_superblock_metainfo(
     std::vector<char> metainfo;
     {
         buf_read_t read(superblock->get());
-        uint32_t sb_size;
-        const reql_btree_superblock_t *data
-            = static_cast<const reql_btree_superblock_t *>(read.get_data_read(&sb_size));
-        guarantee(sb_size == REQL_BTREE_SUPERBLOCK_SIZE);
+        const reql_btree_superblock_t *data = get_reql_btree_superblock(&read);
 
         if (data->magic == reql_btree_version_magic_t<cluster_version_t::v2_1>::value) {
             *version_out = cluster_version_t::v2_1;
@@ -391,7 +379,7 @@ void get_btree_superblock_and_txn_for_writing(
         sem_acq.acquisition_signal()->wait();
     }
 
-    get_btree_superblock(txn, access_t::write, got_superblock_out);
+    get_btree_superblock(txn, write_access_t::write, std::move(sem_acq), got_superblock_out);
 }
 
 void get_btree_superblock_and_txn_for_backfilling(
